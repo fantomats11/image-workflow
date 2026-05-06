@@ -6,7 +6,51 @@
     <title>Workflow by Leeee ©</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body class="auth-loading">
+    <section class="auth-gate" id="authGate" aria-live="polite">
+      <div class="auth-gate-card" id="authLoadingView">
+        <p class="eyebrow">Auth Check</p>
+        <h1>กำลังตรวจสอบสิทธิ์...</h1>
+      </div>
+
+      <div class="auth-gate-card" id="authLoginView" hidden>
+        <p class="eyebrow">Staff Login</p>
+        <h1>เข้าสู่ระบบพนักงาน</h1>
+        <p class="auth-gate-copy">ใช้ email และรหัสผ่านที่ผู้ดูแลระบบสร้างให้</p>
+        <form class="auth-gate-form" id="gateLoginForm">
+          <input id="gateLoginEmail" type="email" autocomplete="email" placeholder="email" required />
+          <input id="gateLoginPassword" type="password" autocomplete="current-password" placeholder="password" required />
+          <div class="auth-gate-message" id="gateLoginMessage" role="status"></div>
+          <button class="primary-button" type="submit" id="gateLoginButton">Login</button>
+        </form>
+      </div>
+
+      <div class="auth-gate-card" id="authBlockedView" hidden>
+        <p class="eyebrow">Access</p>
+        <h1>ไม่สามารถใช้งานได้</h1>
+        <p class="auth-gate-copy" id="authBlockedMessage">บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ</p>
+        <button class="ghost-button" type="button" id="authBlockedLogoutButton">ออกจากระบบ</button>
+      </div>
+
+      <div class="auth-gate-card" id="authPasswordView" hidden>
+        <p class="eyebrow">Temporary Password</p>
+        <h1>ตั้งรหัสผ่านใหม่</h1>
+        <p class="auth-gate-copy">กรุณาเปลี่ยนรหัสผ่านชั่วคราวก่อนเริ่มใช้งาน</p>
+        <form class="auth-gate-form" id="passwordSetupForm">
+          <label>
+            รหัสผ่านใหม่
+            <input id="passwordSetupNew" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <label>
+            ยืนยันรหัสผ่านใหม่
+            <input id="passwordSetupConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <div class="auth-gate-message" id="passwordSetupMessage" role="status"></div>
+          <button class="primary-button" type="submit" id="passwordSetupButton">บันทึกรหัสผ่าน</button>
+        </form>
+      </div>
+    </section>
+
     <main class="app-shell">
       <aside class="sidebar" aria-label="Navigation">
         <div class="brand-block">
@@ -420,7 +464,7 @@
               <section class="settings-card">
                 <h4>Cloud Readiness</h4>
                 <div class="readiness-list">
-                  <span>1. Login + role: admin / staff / viewer</span>
+                  <span>1. Login + role: admin / staff</span>
                   <span>2. Database: jobs, assets, metrics, prompt settings</span>
                   <span>3. Queue: pending / running / failed / retry</span>
                   <span>4. Storage: Google Drive shared folder หรือ Shared Drive</span>
@@ -432,29 +476,6 @@
         </section>
       </section>
     </main>
-
-    <div class="password-setup-overlay" id="passwordSetupOverlay" role="dialog" aria-modal="true" aria-labelledby="passwordSetupTitle" hidden>
-      <section class="password-setup-card">
-        <p class="eyebrow">Staff Account</p>
-        <h2 id="passwordSetupTitle">ตั้งรหัสผ่านสำหรับบัญชีพนักงาน</h2>
-        <p class="password-setup-copy">กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน</p>
-        <form class="password-setup-form" id="passwordSetupForm">
-          <label>
-            รหัสผ่านใหม่
-            <input id="passwordSetupNew" type="password" autocomplete="new-password" minlength="8" required />
-          </label>
-          <label>
-            ยืนยันรหัสผ่านใหม่
-            <input id="passwordSetupConfirm" type="password" autocomplete="new-password" minlength="8" required />
-          </label>
-          <div class="password-setup-message" id="passwordSetupMessage" role="status" aria-live="polite"></div>
-          <div class="password-setup-actions">
-            <button class="primary-button" type="submit" id="passwordSetupButton">บันทึกรหัสผ่าน</button>
-            <button class="ghost-button" type="button" id="passwordSetupLogoutButton">ออกจากระบบ</button>
-          </div>
-        </form>
-      </section>
-    </div>
 
     <script src="/vendor/supabase/supabase.js"></script>
     <script src="./app.js"></script>

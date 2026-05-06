@@ -124,6 +124,57 @@ app.get("/api/supabase/config", (_req, res) => {
   });
 });
 
+app.get("/api/me", requireUser, async (req, res) => {
+  try {
+    const profile = await getProfileForUser(req.user);
+    if (!profile) {
+      return res.status(403).json({
+        ok: false,
+        code: "profile_missing",
+        error: "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+      });
+    }
+
+    res.json({ ok: true, ...profile });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: readableError(error) });
+  }
+});
+
+app.post("/api/me/password-changed", requireUser, async (req, res) => {
+  try {
+    const { data: profile, error } = await supabaseAdmin
+      .from("profiles")
+      .update({ must_change_password: false })
+      .eq("id", req.user.id)
+      .select("id, email, full_name, role, is_active, must_change_password")
+      .single();
+
+    if (error) {
+      if (isNoRowsError(error)) {
+        return res.status(404).json({
+          ok: false,
+          code: "profile_missing",
+          error: "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+        });
+      }
+      throw error;
+    }
+
+    await recordAuditEvent({
+      actorId: req.user.id,
+      eventType: "user_password_changed",
+      eventJson: { user_id: req.user.id }
+    });
+
+    res.json({ ok: true, ...normalizeProfile(profile, req.user) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: readableError(error) });
+  }
+});
+
 app.get("/api/jobs", requireUser, async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 100));
@@ -1042,6 +1093,28 @@ async function getOwnedGeneration(generationId, userId) {
     throw error;
   }
   return data;
+}
+
+async function getProfileForUser(user) {
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, full_name, role, is_active, must_change_password")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? normalizeProfile(data, user) : null;
+}
+
+function normalizeProfile(profile, user) {
+  return {
+    id: profile.id,
+    email: profile.email || user.email || "",
+    full_name: profile.full_name || "",
+    role: String(profile.role || "staff").toLowerCase() === "admin" ? "admin" : "staff",
+    is_active: profile.is_active !== false,
+    must_change_password: profile.must_change_password === true
+  };
 }
 
 async function recordAuditEvent({ actorId, jobId = null, generationId = null, eventType, eventJson = {} }) {
