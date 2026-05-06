@@ -467,6 +467,10 @@ function setPasswordSetupMessage(message, isSuccess = false) {
 }
 
 async function resolveAuthGate() {
+  if (currentSession?.user) {
+    await refreshCurrentSession();
+  }
+
   if (!currentSession?.user) {
     resetProfileState();
     showAuthGate("logged-out");
@@ -512,6 +516,38 @@ async function resolveAuthGate() {
   navigateToPage(getPageFromHash());
 }
 
+async function refreshCurrentSession() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) throw error;
+  currentSession = data.session || null;
+  return currentSession;
+}
+
+async function refreshSessionProfileAndAppState() {
+  await refreshCurrentSession();
+  if (!currentSession?.access_token) {
+    throw new Error("Session หมดอายุ กรุณา login ใหม่");
+  }
+
+  currentProfile = await loadCurrentProfileWithToken(currentSession.access_token);
+  passwordSetupRequired = currentProfile.must_change_password === true;
+  applyRoleUi();
+
+  if (passwordSetupRequired) {
+    updateAuthUi(currentSession);
+    showAuthGate("password-required");
+    return currentProfile;
+  }
+
+  showAuthGate("app-ready");
+  updateAuthUi(currentSession);
+  updateWorkflowGate();
+  navigateToPage(getPageFromHash());
+  refreshJobHistory();
+  refreshMetrics();
+  return currentProfile;
+}
+
 async function loadCurrentProfile() {
   const response = await authFetch("/api/me", { allowPasswordRequired: true });
   const data = await response.json();
@@ -543,7 +579,7 @@ async function loadCurrentProfileWithToken(token) {
 async function getLatestAccessToken() {
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) throw error;
-  currentSession = data.session || currentSession;
+  currentSession = data.session || null;
   const token = currentSession?.access_token;
   if (!token) throw new Error("Session หมดอายุ กรุณา login ใหม่");
   return token;
@@ -665,6 +701,31 @@ async function authFetch(url, options = {}) {
   const headers = new Headers(fetchOptions.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
   return fetch(url, { ...fetchOptions, headers });
+}
+
+async function authFetchWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await authFetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("เริ่มงาน Generate ไม่สำเร็จ: server ตอบช้าเกินไป กรุณาลองใหม่อีกครั้ง");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readJsonResponse(response, fallbackMessage) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(fallbackMessage);
+  }
 }
 
 async function refreshSystemStatus() {
@@ -883,8 +944,7 @@ async function handleLogin(event) {
     currentSession = data.session || null;
     passwordSetupRequired = false;
     passwordInput.value = "";
-    updateAuthUi(currentSession);
-    await resolveAuthGate();
+    await refreshSessionProfileAndAppState();
   } catch (error) {
     const message = `Login ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
     if (messageEl) {
@@ -975,19 +1035,13 @@ async function handlePasswordSetup(event) {
       throw new Error(changedData.error || "บันทึกสถานะการเปลี่ยนรหัสผ่านไม่สำเร็จ");
     }
 
-    const profile = await loadCurrentProfileWithToken(token);
-    if (profile.must_change_password) {
-      throw new Error("ระบบยังไม่สามารถปลดสถานะรหัสผ่านชั่วคราวได้ กรุณาลองอีกครั้ง");
-    }
-
     els.passwordSetupNew.value = "";
     els.passwordSetupConfirm.value = "";
     setPasswordSetupMessage("ตั้งรหัสผ่านสำเร็จ พร้อมเริ่มใช้งาน", true);
-    const { data } = await supabaseClient.auth.getSession();
-    currentSession = data.session || currentSession;
-    currentProfile = profile;
-    passwordSetupRequired = false;
-    await resolveAuthGate();
+    const profile = await refreshSessionProfileAndAppState();
+    if (profile.must_change_password) {
+      throw new Error("ระบบยังไม่สามารถปลดสถานะรหัสผ่านชั่วคราวได้ กรุณาลองอีกครั้ง");
+    }
   } catch (error) {
     setPasswordSetupMessage(`ตั้งรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
   } finally {
@@ -1329,14 +1383,14 @@ function getRequestMetadata(overrides = {}) {
 }
 
 async function startGenerationJob(formData, onProgress = () => {}) {
-  const response = await authFetch("/api/generate/start", {
+  const response = await authFetchWithTimeout("/api/generate/start", {
     method: "POST",
     body: formData
-  });
-  const startData = await response.json();
+  }, 60000);
+  const startData = await readJsonResponse(response, "เริ่มงาน Generate ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
 
   if (!response.ok || !startData.ok) {
-    throw new Error(startData.error || "Start generation failed");
+    throw new Error(startData.error || "เริ่มงาน Generate ไม่สำเร็จ");
   }
 
   onProgress(startData.job);
