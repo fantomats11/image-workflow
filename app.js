@@ -559,6 +559,21 @@ function resetProfileState() {
   updateAuthUi(currentSession);
 }
 
+function clearFrontendAuthState() {
+  currentSession = null;
+  currentProfile = null;
+  passwordSetupRequired = false;
+  passwordChangeInProgress = false;
+  dbJobHistory = [];
+  jobHistoryError = "";
+  latestMetricData = null;
+  jobHistory = mergeJobHistory();
+  renderHistory();
+  applyRoleUi();
+  updateAuthUi(null, "ออกจากระบบแล้ว");
+  updateWorkflowGate();
+}
+
 function showAuthGate(state) {
   authGateStates.forEach((gateState) => document.body.classList.remove(gateState));
   document.body.classList.add(state);
@@ -885,16 +900,42 @@ async function handleLogin(event) {
 
 async function handleLogout() {
   if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
-  currentSession = null;
-  currentProfile = null;
-  passwordSetupRequired = false;
-  dbJobHistory = [];
-  jobHistoryError = "";
-  jobHistory = mergeJobHistory();
-  renderHistory();
-  updateAuthUi(null, "ออกจากระบบแล้ว");
-  showAuthGate("logged-out");
+
+  try {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) throw error;
+
+    clearFrontendAuthState();
+    window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
+    showAuthGate("logged-out");
+  } catch (error) {
+    const message = `ออกจากระบบไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
+    try {
+      const { data } = await supabaseClient.auth.getSession();
+      currentSession = data.session || null;
+      if (!currentSession) {
+        clearFrontendAuthState();
+        window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
+        showAuthGate("logged-out");
+        els.gateLoginMessage.textContent = "ออกจากระบบแล้ว";
+        els.gateLoginMessage.classList.add("is-success");
+        return;
+      }
+    } catch {
+      currentSession = null;
+    }
+
+    if (!currentSession) {
+      clearFrontendAuthState();
+      showBlocked(message);
+      return;
+    }
+
+    updateAuthUi(currentSession, message);
+    if (!document.body.classList.contains("app-ready")) {
+      showBlocked(message);
+    }
+  }
 }
 
 async function handlePasswordSetup(event) {
