@@ -629,10 +629,10 @@ app.get("/api/google/oauth/start", requireUser, requireAdminUser, (req, res) => 
       state,
       scope: ["https://www.googleapis.com/auth/drive"]
     });
-    res.redirect(authUrl);
+    res.json({ ok: true, authUrl });
   } catch (error) {
     console.error(error);
-    res.status(500).send(readableError(error));
+    res.status(500).json({ error: readableError(error) });
   }
 });
 

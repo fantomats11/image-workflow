@@ -349,7 +349,11 @@ const els = {
   qcList: document.getElementById("qcList"),
   qcScore: document.getElementById("qcScore"),
   brandSettingsPreview: document.getElementById("brandSettingsPreview"),
-  promptSettingsPreview: document.getElementById("promptSettingsPreview")
+  promptSettingsPreview: document.getElementById("promptSettingsPreview"),
+  googleDriveIntegrationSection: document.getElementById("googleDriveIntegrationSection"),
+  googleDriveStatusPill: document.getElementById("googleDriveStatusPill"),
+  googleDriveStatusText: document.getElementById("googleDriveStatusText"),
+  googleDriveConnectButton: document.getElementById("googleDriveConnectButton")
 };
 
 let currentPrompt = "";
@@ -646,6 +650,7 @@ function isAdmin() {
 function applyRoleUi() {
   const settingsLink = els.pageNav.querySelector('[data-page-link="settings"]');
   if (settingsLink) settingsLink.hidden = !isAdmin();
+  if (els.googleDriveIntegrationSection) els.googleDriveIntegrationSection.hidden = !isAdmin();
 }
 
 function getProfileErrorMessage(error) {
@@ -767,7 +772,10 @@ function navigateToPage(page) {
   }
   if (targetPage === "assets") renderAssets();
   if (targetPage === "kpi") renderMetricsFromCache();
-  if (targetPage === "settings") renderSettingsPreview();
+  if (targetPage === "settings") {
+    renderSettingsPreview();
+    refreshGoogleDriveStatus();
+  }
 }
 
 function bindEvents() {
@@ -801,6 +809,7 @@ function bindEvents() {
 
   els.generateButton.addEventListener("click", generateImage);
   els.approveButton.addEventListener("click", approveImage);
+  els.googleDriveConnectButton.addEventListener("click", connectGoogleDrive);
   els.refreshMetricsButton.addEventListener("click", refreshMetrics);
   els.metricDate.addEventListener("change", refreshMetrics);
   els.metricOperatorFilter.addEventListener("input", renderMetricsFromCache);
@@ -2205,6 +2214,67 @@ function renderSettingsPreview() {
     <div class="settings-row"><strong>${modelProfiles.length}</strong><span>กลุ่มโมเดล</span></div>
     <div class="settings-row"><strong>${imageSizeOptions.length}</strong><span>ขนาดภาพ</span></div>
   `;
+}
+
+async function refreshGoogleDriveStatus() {
+  if (!isAdmin()) return;
+
+  els.googleDriveIntegrationSection.hidden = false;
+  els.googleDriveStatusPill.textContent = "กำลังตรวจสอบ";
+  els.googleDriveStatusPill.classList.remove("ready");
+  els.googleDriveStatusText.textContent = "กำลังตรวจสอบสถานะ Google Drive...";
+  els.googleDriveConnectButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/google/oauth/status");
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "โหลดสถานะ Google Drive ไม่สำเร็จ");
+
+    if (!data.configured) {
+      els.googleDriveStatusPill.textContent = "ยังไม่พร้อม";
+      els.googleDriveStatusText.textContent = "ยังไม่ได้ตั้งค่า Google OAuth บน server";
+      els.googleDriveConnectButton.textContent = "เชื่อมต่อ Google Drive";
+      els.googleDriveConnectButton.disabled = true;
+      return;
+    }
+
+    if (data.connected) {
+      els.googleDriveStatusPill.textContent = "เชื่อมต่อแล้ว";
+      els.googleDriveStatusPill.classList.add("ready");
+      els.googleDriveStatusText.textContent = `Google Drive พร้อมใช้งาน${data.updatedAt ? ` · อัปเดตล่าสุด ${formatJobTime(data.updatedAt)}` : ""}`;
+      els.googleDriveConnectButton.textContent = "เชื่อมต่อใหม่";
+    } else {
+      els.googleDriveStatusPill.textContent = "ยังไม่เชื่อมต่อ";
+      els.googleDriveStatusText.textContent = "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
+      els.googleDriveConnectButton.textContent = "เชื่อมต่อ Google Drive";
+    }
+    els.googleDriveConnectButton.disabled = false;
+  } catch (error) {
+    els.googleDriveStatusPill.textContent = "ตรวจสอบไม่ได้";
+    els.googleDriveStatusText.textContent = getSafeAuthErrorMessage(error);
+    els.googleDriveConnectButton.disabled = false;
+  }
+}
+
+async function connectGoogleDrive() {
+  if (!isAdmin()) return;
+
+  els.googleDriveConnectButton.disabled = true;
+  els.googleDriveConnectButton.textContent = "กำลังเปิด Google...";
+  els.googleDriveStatusText.textContent = "กำลังเตรียมลิงก์เชื่อมต่อ Google Drive...";
+
+  try {
+    const response = await authFetch("/api/google/oauth/start");
+    const data = await readJsonResponse(response, "เปิดลิงก์เชื่อมต่อ Google Drive ไม่สำเร็จ");
+    if (!response.ok || !data.ok || !data.authUrl) {
+      throw new Error(data.error || "เปิดลิงก์เชื่อมต่อ Google Drive ไม่สำเร็จ");
+    }
+    window.location.href = data.authUrl;
+  } catch (error) {
+    els.googleDriveStatusText.textContent = getSafeAuthErrorMessage(error);
+    els.googleDriveConnectButton.disabled = false;
+    els.googleDriveConnectButton.textContent = "เชื่อมต่อ Google Drive";
+  }
 }
 
 function addHistoryItem(item) {
