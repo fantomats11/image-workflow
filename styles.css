@@ -210,6 +210,73 @@ h3 {
   background: #fff;
 }
 
+.password-setup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 22, 21, 0.54);
+}
+
+.password-setup-card {
+  width: min(100%, 460px);
+  border-radius: 8px;
+  padding: 28px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.password-setup-card h2 {
+  font-size: 24px;
+}
+
+.password-setup-copy {
+  margin: 10px 0 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.password-setup-form {
+  display: grid;
+  gap: 14px;
+}
+
+.password-setup-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.password-setup-form input {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.password-setup-message {
+  min-height: 20px;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.password-setup-message.is-success {
+  color: #24644c;
+}
+
+.password-setup-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .status-pill,
 .score {
   border-radius: 999px;
@@ -1007,6 +1074,14 @@ th {
 
   .auth-form {
     grid-template-columns: 1fr;
+  }
+
+  .password-setup-card {
+    padding: 22px;
+  }
+
+  .password-setup-actions {
+    display: grid;
   }
 
   .dashboard-grid,

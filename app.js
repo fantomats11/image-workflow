@@ -267,6 +267,13 @@ const els = {
   loginPassword: document.getElementById("loginPassword"),
   loginButton: document.getElementById("loginButton"),
   logoutButton: document.getElementById("logoutButton"),
+  passwordSetupOverlay: document.getElementById("passwordSetupOverlay"),
+  passwordSetupForm: document.getElementById("passwordSetupForm"),
+  passwordSetupNew: document.getElementById("passwordSetupNew"),
+  passwordSetupConfirm: document.getElementById("passwordSetupConfirm"),
+  passwordSetupMessage: document.getElementById("passwordSetupMessage"),
+  passwordSetupButton: document.getElementById("passwordSetupButton"),
+  passwordSetupLogoutButton: document.getElementById("passwordSetupLogoutButton"),
   systemStatus: document.getElementById("systemStatus"),
   form: document.getElementById("requestForm"),
   operatorName: document.getElementById("operatorName"),
@@ -352,6 +359,24 @@ let jobHistoryError = "";
 let latestMetricData = null;
 let supabaseClient = null;
 let currentSession = null;
+let passwordSetupRequired = false;
+let pendingPasswordSetupFlow = null;
+
+const passwordSetupAuthTypes = new Set(["invite", "recovery"]);
+const supabaseAuthParamKeys = [
+  "access_token",
+  "refresh_token",
+  "expires_at",
+  "expires_in",
+  "token_type",
+  "type",
+  "code",
+  "error",
+  "error_code",
+  "error_description",
+  "provider_token",
+  "provider_refresh_token"
+];
 
 const pageMeta = {
   create: { eyebrow: "Prompt Tools", title: "สร้างภาพสินค้า" },
@@ -412,6 +437,15 @@ async function initializeAuth() {
   }
 
   try {
+    let authFlowMessage = "";
+    pendingPasswordSetupFlow = readSupabaseAuthFlowFromUrl();
+    if (pendingPasswordSetupFlow?.error) {
+      authFlowMessage = `ลิงก์ตั้งรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(pendingPasswordSetupFlow.error)}`;
+      updateAuthUi(null, authFlowMessage);
+      clearSupabaseAuthParamsFromUrl();
+      pendingPasswordSetupFlow = null;
+    }
+
     const response = await fetch("/api/supabase/config");
     const config = await response.json();
     if (!response.ok || !config.ok) {
@@ -427,16 +461,30 @@ async function initializeAuth() {
       }
     });
 
+    if (pendingPasswordSetupFlow) {
+      await consumeSupabaseAuthFlow(pendingPasswordSetupFlow);
+    }
+
     const { data } = await supabaseClient.auth.getSession();
     currentSession = data.session || null;
-    updateAuthUi(currentSession);
-    if (currentSession) refreshJobHistory();
+    passwordSetupRequired = Boolean(currentSession && pendingPasswordSetupFlow?.requiresPasswordSetup);
+    updateAuthUi(currentSession, passwordSetupRequired ? "กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน" : authFlowMessage);
+    if (passwordSetupRequired) showPasswordSetup("กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน");
+    if (currentSession && !passwordSetupRequired) refreshJobHistory();
 
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
+    supabaseClient.auth.onAuthStateChange((event, session) => {
       currentSession = session || null;
-      updateAuthUi(currentSession);
-      if (currentSession) refreshJobHistory();
+      if (event === "PASSWORD_RECOVERY") {
+        passwordSetupRequired = Boolean(currentSession);
+        pendingPasswordSetupFlow = { type: "recovery", requiresPasswordSetup: true };
+        showPasswordSetup("กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน");
+      }
+      updateAuthUi(currentSession, passwordSetupRequired ? "กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน" : "");
+      if (currentSession && !passwordSetupRequired) refreshJobHistory();
       if (!currentSession) {
+        passwordSetupRequired = false;
+        pendingPasswordSetupFlow = null;
+        hidePasswordSetup();
         dbJobHistory = [];
         jobHistoryError = "";
         jobHistory = mergeJobHistory();
@@ -444,21 +492,114 @@ async function initializeAuth() {
       }
     });
   } catch (error) {
-    updateAuthUi(null, `เชื่อม Supabase ไม่สำเร็จ: ${error.message}`);
+    updateAuthUi(null, `เชื่อม Supabase ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
   }
+}
+
+function getSupabaseHashParams() {
+  const rawHash = window.location.hash.replace(/^#/, "");
+  if (!rawHash.includes("=")) return new URLSearchParams();
+  return new URLSearchParams(rawHash);
+}
+
+function hasSupabaseAuthParams(params) {
+  return supabaseAuthParamKeys.some((key) => params.has(key));
+}
+
+function readSupabaseAuthFlowFromUrl() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = getSupabaseHashParams();
+  const type = (hashParams.get("type") || searchParams.get("type") || "").toLowerCase();
+  const isPasswordSetupType = passwordSetupAuthTypes.has(type);
+  const accessToken = hashParams.get("access_token") || searchParams.get("access_token") || "";
+  const refreshToken = hashParams.get("refresh_token") || searchParams.get("refresh_token") || "";
+  const code = searchParams.get("code") || hashParams.get("code") || "";
+  const error =
+    hashParams.get("error_description") ||
+    searchParams.get("error_description") ||
+    hashParams.get("error") ||
+    searchParams.get("error") ||
+    "";
+  const hasTokenSession = Boolean(accessToken && refreshToken);
+  const looksLikeSupabaseAuthUrl = isPasswordSetupType || hasTokenSession || hasSupabaseAuthParams(hashParams);
+
+  if (!looksLikeSupabaseAuthUrl) return null;
+
+  return {
+    type,
+    accessToken,
+    refreshToken,
+    code: isPasswordSetupType ? code : "",
+    error,
+    requiresPasswordSetup: isPasswordSetupType || hasTokenSession
+  };
+}
+
+async function consumeSupabaseAuthFlow(flow) {
+  if (!flow || flow.error) return;
+
+  if (flow.accessToken && flow.refreshToken) {
+    const { error } = await supabaseClient.auth.setSession({
+      access_token: flow.accessToken,
+      refresh_token: flow.refreshToken
+    });
+    if (error) throw error;
+    return;
+  }
+
+  if (flow.code) {
+    const { error } = await supabaseClient.auth.exchangeCodeForSession(flow.code);
+    if (error) throw error;
+  }
+}
+
+function clearSupabaseAuthParamsFromUrl() {
+  const searchParams = new URLSearchParams(window.location.search);
+  supabaseAuthParamKeys.forEach((key) => searchParams.delete(key));
+  const cleanSearch = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const hashParams = getSupabaseHashParams();
+  const cleanHash = hasSupabaseAuthParams(hashParams) ? "#create" : window.location.hash;
+  window.history.replaceState({}, document.title, `${window.location.pathname}${cleanSearch}${cleanHash}`);
+}
+
+function showPasswordSetup(message = "") {
+  els.passwordSetupOverlay.hidden = false;
+  els.passwordSetupMessage.textContent = message;
+  els.passwordSetupMessage.classList.remove("is-success");
+  setTimeout(() => els.passwordSetupNew.focus(), 0);
+}
+
+function hidePasswordSetup() {
+  els.passwordSetupOverlay.hidden = true;
+  els.passwordSetupMessage.textContent = "";
+  els.passwordSetupMessage.classList.remove("is-success");
+}
+
+function setPasswordSetupMessage(message, isSuccess = false) {
+  els.passwordSetupMessage.textContent = message;
+  els.passwordSetupMessage.classList.toggle("is-success", isSuccess);
+}
+
+function getSafeAuthErrorMessage(error) {
+  const message = error?.message || error || "กรุณาลองใหม่อีกครั้ง";
+  return String(message)
+    .replace(/(access_token|refresh_token|provider_token|provider_refresh_token)=([^&\s]+)/gi, "$1=[hidden]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[hidden-token]")
+    .slice(0, 240);
 }
 
 function updateAuthUi(session, message = "") {
   const isLoggedIn = Boolean(session?.user);
+  const canUseApp = isLoggedIn && !passwordSetupRequired;
   const email = session?.user?.email || "";
   els.authCard.classList.toggle("is-logged-in", isLoggedIn);
   els.loginForm.hidden = isLoggedIn;
   els.logoutButton.hidden = !isLoggedIn;
-  els.generateButton.disabled = !isLoggedIn;
-  els.generateSupportButton.disabled = !isLoggedIn || !isQcComplete() || !approvedHeroImageUrl;
+  els.generateButton.disabled = !canUseApp;
+  els.generateSupportButton.disabled = !canUseApp || !isQcComplete() || !approvedHeroImageUrl;
 
   els.authState.innerHTML = isLoggedIn
-    ? `<strong>เข้าสู่ระบบแล้ว</strong><span>${escapeHtml(email)}</span>`
+    ? `<strong>${passwordSetupRequired ? "ต้องตั้งรหัสผ่าน" : "เข้าสู่ระบบแล้ว"}</strong><span>${escapeHtml(message || email)}</span>`
     : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "Login ก่อน Generate / KPI / Ops")}</span>`;
 }
 
@@ -470,6 +611,10 @@ async function getAccessToken() {
   if (!currentSession?.access_token) {
     updateAuthUi(null, "Session หมดอายุ กรุณา login ใหม่");
     throw new Error("กรุณา login ก่อนใช้งาน");
+  }
+  if (passwordSetupRequired) {
+    showPasswordSetup("กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน");
+    throw new Error("กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน");
   }
   return currentSession.access_token;
 }
@@ -495,6 +640,7 @@ async function refreshSystemStatus() {
 }
 
 function getPageFromHash() {
+  if (hasSupabaseAuthParams(getSupabaseHashParams())) return "create";
   const page = window.location.hash.replace("#", "").trim();
   return pageMeta[page] ? page : "create";
 }
@@ -522,6 +668,8 @@ function navigateToPage(page) {
 function bindEvents() {
   els.loginForm.addEventListener("submit", handleLogin);
   els.logoutButton.addEventListener("click", handleLogout);
+  els.passwordSetupForm.addEventListener("submit", handlePasswordSetup);
+  els.passwordSetupLogoutButton.addEventListener("click", handleLogout);
 
   window.addEventListener("hashchange", () => navigateToPage(getPageFromHash()));
   els.pageNav.addEventListener("click", (event) => {
@@ -677,6 +825,9 @@ async function handleLogin(event) {
     if (error) throw error;
 
     currentSession = data.session || null;
+    passwordSetupRequired = false;
+    pendingPasswordSetupFlow = null;
+    hidePasswordSetup();
     els.loginPassword.value = "";
     updateAuthUi(currentSession);
     refreshJobHistory();
@@ -693,11 +844,61 @@ async function handleLogout() {
   if (!supabaseClient) return;
   await supabaseClient.auth.signOut();
   currentSession = null;
+  passwordSetupRequired = false;
+  pendingPasswordSetupFlow = null;
   dbJobHistory = [];
   jobHistoryError = "";
   jobHistory = mergeJobHistory();
   renderHistory();
+  hidePasswordSetup();
   updateAuthUi(null, "ออกจากระบบแล้ว");
+}
+
+async function handlePasswordSetup(event) {
+  event.preventDefault();
+  if (!supabaseClient || !currentSession?.user) {
+    setPasswordSetupMessage("Session หมดอายุ กรุณา login ใหม่");
+    updateAuthUi(null, "Session หมดอายุ กรุณา login ใหม่");
+    return;
+  }
+
+  const newPassword = els.passwordSetupNew.value;
+  const confirmPassword = els.passwordSetupConfirm.value;
+  if (newPassword.length < 8) {
+    setPasswordSetupMessage("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setPasswordSetupMessage("รหัสผ่านยืนยันไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง");
+    return;
+  }
+
+  els.passwordSetupButton.disabled = true;
+  els.passwordSetupButton.textContent = "กำลังบันทึก...";
+
+  try {
+    const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+
+    const { data } = await supabaseClient.auth.getSession();
+    currentSession = data.session || currentSession;
+    passwordSetupRequired = false;
+    pendingPasswordSetupFlow = null;
+    els.passwordSetupNew.value = "";
+    els.passwordSetupConfirm.value = "";
+    setPasswordSetupMessage("ตั้งรหัสผ่านสำเร็จ พร้อมเริ่มใช้งาน", true);
+    clearSupabaseAuthParamsFromUrl();
+    hidePasswordSetup();
+    updateAuthUi(currentSession, "ตั้งรหัสผ่านสำเร็จ พร้อมเริ่มใช้งาน");
+    refreshJobHistory();
+    refreshMetrics();
+    updateWorkflowGate();
+  } catch (error) {
+    setPasswordSetupMessage(`ตั้งรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
+  } finally {
+    els.passwordSetupButton.disabled = false;
+    els.passwordSetupButton.textContent = "บันทึกรหัสผ่าน";
+  }
 }
 
 async function generateImage() {
@@ -1615,7 +1816,8 @@ function canGenerateSupport() {
 
 function updateWorkflowGate() {
   const ready = canGenerateSupport();
-  const isLoggedIn = Boolean(currentSession?.access_token);
+  const hasSession = Boolean(currentSession?.access_token);
+  const isLoggedIn = hasSession && !passwordSetupRequired;
   els.generateSupportButton.disabled = !ready || !isLoggedIn;
   els.approveSupportButton.disabled = !supportResults.some((item) => item.imageUrl && item.status === "done");
   els.supportStatus.textContent = ready ? "พร้อมทำช็อตรอง" : "ล็อกอยู่";
@@ -1623,7 +1825,9 @@ function updateWorkflowGate() {
   els.generateSupportButton.title = ready
     ? isLoggedIn
       ? "พร้อม Generate Support Set"
-      : "กรุณา Login ก่อน Generate Support Set"
+      : hasSession
+        ? "กรุณาตั้งรหัสผ่านใหม่ก่อน Generate Support Set"
+        : "กรุณา Login ก่อน Generate Support Set"
     : "ต้อง Approve Hero และ QC ครบ 7/7 ก่อน";
   updateHeroStatus();
 }

@@ -433,6 +433,29 @@
       </section>
     </main>
 
+    <div class="password-setup-overlay" id="passwordSetupOverlay" role="dialog" aria-modal="true" aria-labelledby="passwordSetupTitle" hidden>
+      <section class="password-setup-card">
+        <p class="eyebrow">Staff Account</p>
+        <h2 id="passwordSetupTitle">ตั้งรหัสผ่านสำหรับบัญชีพนักงาน</h2>
+        <p class="password-setup-copy">กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน</p>
+        <form class="password-setup-form" id="passwordSetupForm">
+          <label>
+            รหัสผ่านใหม่
+            <input id="passwordSetupNew" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <label>
+            ยืนยันรหัสผ่านใหม่
+            <input id="passwordSetupConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <div class="password-setup-message" id="passwordSetupMessage" role="status" aria-live="polite"></div>
+          <div class="password-setup-actions">
+            <button class="primary-button" type="submit" id="passwordSetupButton">บันทึกรหัสผ่าน</button>
+            <button class="ghost-button" type="button" id="passwordSetupLogoutButton">ออกจากระบบ</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <script src="/vendor/supabase/supabase.js"></script>
     <script src="./app.js"></script>
   </body>
