@@ -42,6 +42,7 @@ let activeGenerations = 0;
 let pendingGenerations = 0;
 const generationJobs = new Map();
 let googleDriveClientPromise = null;
+const googleOAuthStateById = new Map();
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -98,6 +99,20 @@ async function attachUserIfPresent(req, _res, next) {
     console.warn(error?.message || readableError(error));
   }
   next();
+}
+
+async function requireAdminUser(req, res, next) {
+  try {
+    const profile = await getProfileForUser(req.user);
+    if (!profile?.is_active || profile.must_change_password || profile.role !== "admin") {
+      return res.status(403).json({ error: "เฉพาะ Admin เท่านั้นที่เชื่อมต่อ Google Drive ได้" });
+    }
+    req.profile = profile;
+    next();
+  } catch (error) {
+    console.error("Admin check failed:", readableError(error));
+    res.status(500).json({ error: "ตรวจสอบสิทธิ์ Admin ไม่สำเร็จ" });
+  }
 }
 
 app.get("/api/health", (_req, res) => {
@@ -583,14 +598,18 @@ app.get("/api/metrics", requireUser, async (req, res) => {
 
 app.get("/api/google/oauth/status", async (_req, res) => {
   try {
-    const tokenExists = await fileExists(googleDriveTokenPath);
+    const integrationToken = await readIntegrationToken("google_drive");
+    const fileTokenExists = await fileExists(googleDriveTokenPath);
+    const supabaseTokenExists = hasUsableGoogleOAuthToken(integrationToken?.token_json);
+    const tokenExists = supabaseTokenExists || fileTokenExists;
     res.json({
       ok: true,
       mode: getGoogleDriveAuthMode(),
       configured: isGoogleOAuthConfigured(),
       tokenExists,
       connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenExists,
-      authUrl: isGoogleOAuthConfigured() ? "/api/google/oauth/start" : null
+      provider: integrationToken?.provider || (fileTokenExists ? "google" : null),
+      updatedAt: integrationToken?.updated_at || null
     });
   } catch (error) {
     console.error(error);
@@ -598,13 +617,16 @@ app.get("/api/google/oauth/status", async (_req, res) => {
   }
 });
 
-app.get("/api/google/oauth/start", (_req, res) => {
+app.get("/api/google/oauth/start", requireUser, requireAdminUser, (req, res) => {
   try {
     const oauth2Client = createGoogleOAuthClient();
+    const state = randomUUID();
+    googleOAuthStateById.set(state, { userId: req.user.id, createdAt: Date.now() });
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
       include_granted_scopes: true,
+      state,
       scope: ["https://www.googleapis.com/auth/drive"]
     });
     res.redirect(authUrl);
@@ -618,12 +640,16 @@ app.get("/api/google/oauth/callback", async (req, res) => {
   try {
     const code = String(req.query.code || "").trim();
     if (!code) return res.status(400).send("Missing Google OAuth code.");
+    const state = String(req.query.state || "").trim();
+    const statePayload = state ? googleOAuthStateById.get(state) : null;
+    if (state) googleOAuthStateById.delete(state);
+    const updatedBy = statePayload && Date.now() - statePayload.createdAt <= 10 * 60 * 1000 ? statePayload.userId : null;
 
     const oauth2Client = createGoogleOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
     const existingTokens = await readGoogleOAuthToken();
     const mergedTokens = { ...existingTokens, ...tokens };
-    await saveGoogleOAuthToken(mergedTokens);
+    await saveGoogleOAuthToken(mergedTokens, { updatedBy, eventType: "google_drive_connected" });
 
     googleDriveClientPromise = null;
     res.send(`
@@ -725,6 +751,13 @@ app.post("/api/approve", attachUserIfPresent, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    if (googleDriveRootFolderId) {
+      await recordAuditEvent({
+        actorId: req.user?.id || null,
+        eventType: "google_drive_export_failed",
+        eventJson: { error: readableError(error), jobId: String(req.body.jobId || req.body.job_id || "").trim() || null }
+      });
+    }
     res.status(500).json({ error: readableError(error) });
   }
 });
@@ -1618,12 +1651,12 @@ async function createGoogleDriveClient() {
     const oauth2Client = createGoogleOAuthClient();
     const tokens = await readGoogleOAuthToken();
     if (!tokens?.refresh_token && !tokens?.access_token) {
-      throw new Error("Google Drive OAuth is not connected. Open /api/google/oauth/start and sign in first.");
+      throw new Error("Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน");
     }
     oauth2Client.setCredentials(tokens);
     oauth2Client.on("tokens", async (newTokens) => {
       try {
-        await saveGoogleOAuthToken({ ...tokens, ...newTokens });
+        await saveGoogleOAuthToken(newTokens, { eventType: "google_drive_token_refreshed" });
       } catch (error) {
         console.error("Failed to save refreshed Google OAuth token:", readableError(error));
       }
@@ -1712,6 +1745,9 @@ function createGoogleOAuthClient() {
 }
 
 async function readGoogleOAuthToken() {
+  const integrationToken = await readIntegrationToken("google_drive");
+  if (integrationToken?.token_json) return integrationToken.token_json;
+
   try {
     return JSON.parse(await fs.readFile(googleDriveTokenPath, "utf8"));
   } catch (error) {
@@ -1720,9 +1756,47 @@ async function readGoogleOAuthToken() {
   }
 }
 
-async function saveGoogleOAuthToken(tokens) {
-  await fs.mkdir(path.dirname(googleDriveTokenPath), { recursive: true });
-  await fs.writeFile(googleDriveTokenPath, `${JSON.stringify(tokens, null, 2)}\n`, { mode: 0o600 });
+async function saveGoogleOAuthToken(tokens, { updatedBy = null, eventType = "google_drive_token_refreshed" } = {}) {
+  const existingToken = await readIntegrationToken("google_drive");
+  const existingTokenJson = existingToken?.token_json || {};
+  const mergedTokens = { ...existingTokenJson, ...tokens };
+  if (!tokens.refresh_token && existingTokenJson.refresh_token) {
+    mergedTokens.refresh_token = existingTokenJson.refresh_token;
+  }
+
+  const { error } = await supabaseAdmin.from("integration_tokens").upsert(
+    {
+      id: "google_drive",
+      provider: "google",
+      token_json: mergedTokens,
+      updated_by: updatedBy,
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "id" }
+  );
+  if (error) throw error;
+
+  googleDriveClientPromise = null;
+  await recordAuditEvent({
+    actorId: updatedBy,
+    eventType,
+    eventJson: { provider: "google", integration: "google_drive" }
+  });
+}
+
+async function readIntegrationToken(id) {
+  const { data, error } = await supabaseAdmin
+    .from("integration_tokens")
+    .select("id, provider, token_json, updated_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+function hasUsableGoogleOAuthToken(tokens) {
+  return Boolean(tokens?.refresh_token || tokens?.access_token);
 }
 
 async function fileExists(filePath) {
