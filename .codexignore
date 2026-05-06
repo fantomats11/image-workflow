@@ -1,0 +1,13 @@
+node_modules/
+uploads/
+approved/
+outputs/
+metrics/
+.oauth/
+.env
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+.DS_Store

@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workflow by Leeee ©</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="Navigation">
+        <div class="brand-block">
+          <div class="brand-mark">W</div>
+          <div>
+            <p class="eyebrow">Leeee ©</p>
+            <h1>Workflow</h1>
+          </div>
+        </div>
+
+        <nav class="nav-list" id="pageNav">
+          <a class="active" href="#create" data-page-link="create">สร้างภาพ</a>
+          <a href="#jobs" data-page-link="jobs">งานทั้งหมด</a>
+          <a href="#assets" data-page-link="assets">คลังภาพ</a>
+          <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
+          <a href="#settings" data-page-link="settings">ตั้งค่า</a>
+        </nav>
+
+        <section class="sidebar-note">
+          <p>Production workflow สำหรับสร้างภาพสินค้า คุม QC ติดตามงาน และเตรียมต่อ login/database</p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Prompt Tools</p>
+            <h2>สร้างภาพสินค้า</h2>
+          </div>
+          <div class="topbar-actions">
+            <section class="auth-card" id="authCard" aria-label="Login">
+              <div class="auth-state" id="authState">
+                <strong>ยังไม่ได้เข้าสู่ระบบ</strong>
+                <span>Login ก่อน Generate / KPI / Ops</span>
+              </div>
+              <form class="auth-form" id="loginForm">
+                <input id="loginEmail" type="email" autocomplete="email" placeholder="email" required />
+                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="password" required />
+                <button class="primary-button compact" type="submit" id="loginButton">Login</button>
+              </form>
+              <button class="ghost-button compact" type="button" id="logoutButton" hidden>Logout</button>
+            </section>
+            <div class="status-pill" id="systemStatus">Style locked</div>
+          </div>
+        </header>
+
+        <section class="page-view active" id="page-create" data-page="create">
+        <section class="dashboard-grid">
+          <form class="panel request-panel" id="requestForm">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 1</p>
+                <h3 id="request">ตั้งค่างานและอัปโหลด Reference</h3>
+              </div>
+              <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
+            </div>
+
+            <div class="section-note">
+              เลือกข้อมูลเท่าที่จำเป็น ระบบจะล็อก prompt structure, crop, layering และช็อตที่เหมาะกับสินค้าให้เอง
+            </div>
+
+            <div class="form-grid">
+              <label>
+                ผู้ใช้งาน
+                <input id="operatorName" type="text" placeholder="เช่น แพรว / ทีมกราฟิก" />
+              </label>
+
+              <label>
+                SKU / รหัสอ้างอิง
+                <input id="productSku" type="text" placeholder="ไม่บังคับ ใช้ตั้งชื่อไฟล์เท่านั้น" />
+              </label>
+
+              <label>
+                แบรนด์ปลายทาง / CI ภาพ
+                <select id="brandProfile"></select>
+              </label>
+
+              <label>
+                แบรนด์สินค้าบนตัวสินค้า
+                <input id="brandName" type="text" placeholder="เช่น The North Face / Moncler ถ้าไม่มีให้เว้นว่าง" />
+              </label>
+
+              <label>
+                หมวดสินค้า
+                <select id="category"></select>
+              </label>
+
+              <label>
+                ประเภทสินค้าย่อย
+                <select id="productSubtype"></select>
+              </label>
+
+              <label>
+                รูปแบบภาพ
+                <select id="imageType"></select>
+              </label>
+
+              <label>
+                สีสินค้า
+                <input id="color" type="text" placeholder="เช่น black / cream / navy" />
+              </label>
+
+              <label>
+                จุดเด่นสินค้า
+                <input id="keyFeature" type="text" placeholder="เช่น บุขนด้านใน, waterproof upper" />
+              </label>
+
+              <label>
+                กลุ่มโมเดล
+                <select id="modelProfile"></select>
+              </label>
+
+              <label>
+                มุม/ช็อตที่ต้องการ
+                <select id="shotType"></select>
+              </label>
+
+              <label>
+                ขนาดภาพ
+                <select id="imageSize"></select>
+              </label>
+
+              <label>
+                Quality
+                <select id="quality"></select>
+              </label>
+            </div>
+
+            <label class="full-width">
+              ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
+              <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
+            </label>
+
+            <div class="upload-grid">
+              <label>
+                ภาพสินค้าอ้างอิง
+                <input id="productImages" type="file" accept="image/*" multiple />
+                <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
+                <div class="thumb-grid" id="productPreview"></div>
+              </label>
+
+              <label>
+                ภาพโมเดลอ้างอิง
+                <input id="modelImages" type="file" accept="image/*" multiple />
+                <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
+                <div class="thumb-grid" id="modelPreview"></div>
+              </label>
+            </div>
+
+            <label class="full-width">
+              หมายเหตุเพิ่มเติม
+              <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
+            </label>
+
+            <div class="actions">
+              <button class="primary-button" type="button" id="generateButton">Generate Hero</button>
+              <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
+            </div>
+          </form>
+
+          <section class="panel preview-panel" id="hero">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 2</p>
+                <h3>Hero Result + QC Gate</h3>
+              </div>
+              <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
+            </div>
+
+            <div class="result-card" id="resultCard" hidden>
+              <div class="result-toolbar">
+                <strong>Hero Image</strong>
+                <button class="primary-button compact" type="button" id="approveButton">Approve + Save</button>
+              </div>
+              <div class="generation-state" id="generationState" hidden>
+                <div class="loader-ring" aria-hidden="true"></div>
+                <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
+                <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
+                <div class="progress-track"><div class="progress-bar"></div></div>
+              </div>
+              <img id="resultImage" alt="Generated product result" />
+              <p id="resultStatus"></p>
+            </div>
+
+            <div class="empty-hero" id="emptyHero">
+              <strong>ยังไม่มีภาพ Hero</strong>
+              <span>อัปโหลดภาพสินค้า แล้วกด Generate Hero เพื่อเริ่ม workflow</span>
+            </div>
+
+            <details class="prompt-details" id="prompt">
+              <summary>Advanced: Prompt Preview</summary>
+              <div class="prompt-card">
+                <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกด Generate Hero</p>
+              </div>
+              <div class="prompt-meta">
+                <span id="promptMode">Mode: -</span>
+                <span id="promptCategory">Category: -</span>
+                <span id="promptRisk">Risk: waiting</span>
+              </div>
+              <button class="ghost-button compact" type="button" id="copyButton">คัดลอก Prompt</button>
+            </details>
+          </section>
+        </section>
+
+        <section class="workflow-grid">
+          <section class="panel qc-gate-card" id="qc">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Step 3</p>
+                <h3>QC Hero ก่อนทำช็อตรอง</h3>
+              </div>
+              <span class="score" id="qcScore">0/7</span>
+            </div>
+            <div class="checklist" id="qcList"></div>
+          </section>
+
+          <section class="panel workflow-card" id="workflow">
+            <div class="workflow-heading">
+              <div>
+                <p class="eyebrow">Step 4</p>
+                <h3>Hero → Support Set</h3>
+              </div>
+              <span class="workflow-status" id="supportStatus">ล็อกอยู่</span>
+            </div>
+
+            <div class="support-controls">
+              <div>
+                <strong>ช็อตรองที่ระบบแนะนำ</strong>
+                <p>ระบบจะแนะนำตามหมวดสินค้า และเพิ่มช็อตพิเศษอัตโนมัติจากจุดเด่น เช่น ฮู้ด บุขน ซับใน เฟอร์</p>
+              </div>
+              <button class="ghost-button compact" type="button" id="resetSupportButton">รีเซ็ตช็อต</button>
+            </div>
+
+            <div class="support-shot-list" id="supportShotList"></div>
+
+            <div class="custom-shot-row">
+              <input id="customSupportShot" type="text" placeholder="เพิ่มช็อตเอง เช่น สวมฮู้ด, close-up ขอบฮู้ดเฟอร์" />
+              <button class="ghost-button" type="button" id="addCustomShotButton">เพิ่มช็อต</button>
+            </div>
+
+            <div class="actions support-actions">
+              <button class="secondary-button" type="button" id="generateSupportButton">Generate Support Set</button>
+              <button class="primary-button" type="button" id="approveSupportButton">Approve Support Set</button>
+            </div>
+
+            <div class="support-gallery" id="supportGallery">
+              <p class="empty-state">ยังไม่มีภาพ support</p>
+            </div>
+          </section>
+        </section>
+        </section>
+
+        <section class="page-view" id="page-jobs" data-page="jobs">
+          <section class="panel page-panel" id="jobs">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Jobs</p>
+                <h3>งานทั้งหมด</h3>
+              </div>
+              <button class="ghost-button" type="button" id="clearHistoryButton">ล้างประวัติ</button>
+            </div>
+            <div class="section-note">
+              เวอร์ชันนี้ยังเก็บประวัติในเครื่องนี้ก่อน เมื่อขึ้น production จะย้ายไปเก็บใน database เพื่อให้ทีมเห็นงานร่วมกัน
+            </div>
+            <div class="filter-grid">
+              <label>
+                ค้นหา
+                <input id="historySearch" type="search" placeholder="ค้นหา SKU / ชื่องาน / ประเภท / หมวด" />
+              </label>
+              <label>
+                สถานะ
+                <select id="historyStatusFilter">
+                  <option value="">ทั้งหมด</option>
+                  <option value="Hero Approved">Hero Approved</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Partial">Partial</option>
+                  <option value="รอตรวจ">รอตรวจ</option>
+                </select>
+              </label>
+              <label>
+                หมวดสินค้า
+                <select id="historyCategoryFilter">
+                  <option value="">ทุกหมวด</option>
+                </select>
+              </label>
+            </div>
+            <div class="job-summary" id="jobSummary">
+              <span>0 งาน</span>
+              <span>0 งาน approved</span>
+              <span>0 หมวดสินค้า</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>งาน</th>
+                    <th>ประเภท</th>
+                    <th>หมวด</th>
+                    <th>สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody">
+                  <tr>
+                    <td colspan="4" class="empty-state">ยังไม่มีประวัติงาน</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page-view" id="page-assets" data-page="assets">
+          <section class="panel page-panel" id="assets">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Assets</p>
+                <h3>คลังภาพที่กำลังทำ</h3>
+              </div>
+              <span class="workflow-status" id="assetStatus">รอภาพ</span>
+            </div>
+            <div class="section-note">
+              หน้านี้เป็น asset view สำหรับงานปัจจุบันก่อน เมื่อขึ้น cloud จะกลายเป็นคลังภาพกลางที่ดึงจาก Google Drive/database พร้อม filter ตาม SKU, brand, category, hero/support
+            </div>
+            <div class="asset-grid" id="assetGallery">
+              <p class="empty-state">ยังไม่มีภาพใน workflow นี้</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="page-view" id="page-kpi" data-page="kpi">
+          <section class="panel page-panel" id="metrics">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Team KPI</p>
+                <h3>KPI Dashboard</h3>
+              </div>
+              <button class="ghost-button compact" type="button" id="refreshMetricsButton">รีเฟรช</button>
+            </div>
+            <div class="filter-grid">
+              <label>
+                วันที่
+                <input id="metricDate" type="date" />
+              </label>
+              <label>
+                ผู้ใช้งาน
+                <input id="metricOperatorFilter" type="search" placeholder="ค้นหาชื่อพนักงาน" />
+              </label>
+              <label>
+                หมวด / SKU / แบรนด์
+                <input id="metricFreeTextFilter" type="search" placeholder="เตรียมรองรับ database filter" />
+              </label>
+            </div>
+            <div class="metric-summary" id="metricsSummary">
+              <span>Generate 0 ภาพ</span>
+              <span>Approve 0 ภาพ</span>
+              <span>0 SKU</span>
+            </div>
+            <div class="kpi-grid">
+              <section class="kpi-card">
+                <strong>Approve Rate</strong>
+                <div class="kpi-number" id="approveRate">0%</div>
+                <div class="mini-bar"><span id="approveRateBar"></span></div>
+              </section>
+              <section class="kpi-card">
+                <strong>Rerun / Support Signals</strong>
+                <div class="kpi-number" id="supportSignal">0</div>
+                <p>รอบ production จะนับ rerun, failed, cost และ pass rate ราย SKU</p>
+              </section>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ผู้ใช้งาน</th>
+                    <th>Gen</th>
+                    <th>Approve</th>
+                    <th>SKU</th>
+                    <th>หมวด/ประเภท</th>
+                  </tr>
+                </thead>
+                <tbody id="metricsBody">
+                  <tr>
+                    <td colspan="5" class="empty-state">ยังไม่มี KPI วันนี้</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page-view" id="page-settings" data-page="settings">
+          <section class="panel page-panel" id="settings">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Settings</p>
+                <h3>ตั้งค่าระบบภาพ</h3>
+              </div>
+              <span class="workflow-status ready">MVP</span>
+            </div>
+            <div class="settings-grid">
+              <section class="settings-card">
+                <h4>Brand Profiles</h4>
+                <p>คุมพื้นหลัง, mood tone, model rule และ off-model rule ของแต่ละแบรนด์</p>
+                <div id="brandSettingsPreview"></div>
+              </section>
+              <section class="settings-card">
+                <h4>Prompt Structure</h4>
+                <p>ตอนนี้ยังอยู่ในโค้ดเพื่อความนิ่ง ก่อนขึ้น production ควรย้าย category, subtype, model profile, support shots ไป database</p>
+                <div id="promptSettingsPreview"></div>
+              </section>
+              <section class="settings-card">
+                <h4>Cloud Readiness</h4>
+                <div class="readiness-list">
+                  <span>1. Login + role: admin / staff / viewer</span>
+                  <span>2. Database: jobs, assets, metrics, prompt settings</span>
+                  <span>3. Queue: pending / running / failed / retry</span>
+                  <span>4. Storage: Google Drive shared folder หรือ Shared Drive</span>
+                  <span>5. Billing: cost ต่อภาพ ต่อ SKU ต่อพนักงาน</span>
+                </div>
+              </section>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="/vendor/supabase/supabase.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

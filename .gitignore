@@ -1,0 +1,8 @@
+node_modules/
+.env
+uploads/
+outputs/
+approved/
+.oauth/
+metrics/
+.DS_Store
