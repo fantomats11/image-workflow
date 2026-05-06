@@ -370,6 +370,7 @@ let supabaseClient = null;
 let currentSession = null;
 let currentProfile = null;
 let passwordSetupRequired = false;
+let passwordChangeInProgress = false;
 const authGateStates = ["auth-loading", "logged-out", "blocked", "password-required", "app-ready"];
 
 const pageMeta = {
@@ -452,6 +453,7 @@ async function initializeAuth() {
 
     supabaseClient.auth.onAuthStateChange(async (_event, session) => {
       currentSession = session || null;
+      if (passwordChangeInProgress) return;
       await resolveAuthGate();
     });
   } catch (error) {
@@ -479,7 +481,7 @@ async function resolveAuthGate() {
     return;
   }
 
-  if (!currentProfile) {
+  if (!currentProfile?.profile_exists) {
     resetProfileState();
     showBlocked("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
     return;
@@ -519,6 +521,32 @@ async function loadCurrentProfile() {
     throw error;
   }
   return data;
+}
+
+async function loadCurrentProfileWithToken(token) {
+  const response = await fetch("/api/me", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || "โหลดข้อมูลสิทธิ์ผู้ใช้ไม่สำเร็จ");
+  }
+  if (!data.profile_exists) {
+    throw new Error("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
+  }
+  if (!data.is_active) {
+    throw new Error("บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
+  }
+  return data;
+}
+
+async function getLatestAccessToken() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) throw error;
+  currentSession = data.session || currentSession;
+  const token = currentSession?.access_token;
+  if (!token) throw new Error("Session หมดอายุ กรุณา login ใหม่");
+  return token;
 }
 
 function resetProfileState() {
@@ -892,16 +920,23 @@ async function handlePasswordSetup(event) {
   els.passwordSetupButton.textContent = "กำลังบันทึก...";
 
   try {
+    passwordChangeInProgress = true;
     const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
     if (error) throw error;
 
-    const response = await authFetch("/api/me/password-changed", {
+    const token = await getLatestAccessToken();
+    const response = await fetch("/api/me/password-changed", {
       method: "POST",
-      allowPasswordRequired: true
+      headers: { Authorization: `Bearer ${token}` }
     });
     const changedData = await response.json();
     if (!response.ok || !changedData.ok) {
-      throw new Error(changedData.error || "Cannot update profile password status");
+      throw new Error(changedData.error || "บันทึกสถานะการเปลี่ยนรหัสผ่านไม่สำเร็จ");
+    }
+
+    const profile = await loadCurrentProfileWithToken(token);
+    if (profile.must_change_password) {
+      throw new Error("ระบบยังไม่สามารถปลดสถานะรหัสผ่านชั่วคราวได้ กรุณาลองอีกครั้ง");
     }
 
     els.passwordSetupNew.value = "";
@@ -909,10 +944,13 @@ async function handlePasswordSetup(event) {
     setPasswordSetupMessage("ตั้งรหัสผ่านสำเร็จ พร้อมเริ่มใช้งาน", true);
     const { data } = await supabaseClient.auth.getSession();
     currentSession = data.session || currentSession;
+    currentProfile = profile;
+    passwordSetupRequired = false;
     await resolveAuthGate();
   } catch (error) {
     setPasswordSetupMessage(`ตั้งรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
   } finally {
+    passwordChangeInProgress = false;
     els.passwordSetupButton.disabled = false;
     els.passwordSetupButton.textContent = "บันทึกรหัสผ่าน";
   }

@@ -127,15 +127,11 @@ app.get("/api/supabase/config", (_req, res) => {
 app.get("/api/me", requireUser, async (req, res) => {
   try {
     const profile = await getProfileForUser(req.user);
-    if (!profile) {
-      return res.status(403).json({
-        ok: false,
-        code: "profile_missing",
-        error: "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
-      });
-    }
-
-    res.json({ ok: true, ...profile });
+    res.json({
+      ok: true,
+      profile_exists: Boolean(profile),
+      ...(profile || buildMissingProfileStatus(req.user))
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: readableError(error) });
@@ -1114,6 +1110,17 @@ function normalizeProfile(profile, user) {
     role: String(profile.role || "staff").toLowerCase() === "admin" ? "admin" : "staff",
     is_active: profile.is_active !== false,
     must_change_password: profile.must_change_password === true
+  };
+}
+
+function buildMissingProfileStatus(user) {
+  return {
+    id: user.id,
+    email: user.email || "",
+    full_name: "",
+    role: "staff",
+    is_active: false,
+    must_change_password: false
   };
 }
 
