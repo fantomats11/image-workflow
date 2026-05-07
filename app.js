@@ -375,6 +375,7 @@ let currentSession = null;
 let currentProfile = null;
 let passwordSetupRequired = false;
 let passwordChangeInProgress = false;
+let authFlowInProgress = false;
 const authGateStates = ["auth-loading", "logged-out", "blocked", "password-required", "app-ready"];
 
 const pageMeta = {
@@ -455,10 +456,22 @@ async function initializeAuth() {
     currentSession = data.session || null;
     await resolveAuthGate();
 
-    supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
       currentSession = session || null;
-      if (passwordChangeInProgress) return;
-      await resolveAuthGate();
+      if (passwordChangeInProgress || authFlowInProgress) return;
+      if (event === "SIGNED_OUT") {
+        clearFrontendAuthState();
+        window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
+        showAuthGate("logged-out");
+        return;
+      }
+      if (event === "TOKEN_REFRESHED") {
+        updateAuthUi(currentSession);
+        return;
+      }
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+        await resolveAuthGate();
+      }
     });
   } catch (error) {
     showBlocked(`เชื่อม Supabase ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
@@ -604,14 +617,44 @@ function clearFrontendAuthState() {
   currentProfile = null;
   passwordSetupRequired = false;
   passwordChangeInProgress = false;
+  authFlowInProgress = false;
   dbJobHistory = [];
   jobHistoryError = "";
   latestMetricData = null;
+  resetTransientWorkflowState();
   jobHistory = mergeJobHistory();
   renderHistory();
   applyRoleUi();
   updateAuthUi(null, "ออกจากระบบแล้ว");
   updateWorkflowGate();
+}
+
+function resetTransientWorkflowState() {
+  currentGeneratedImageUrl = "";
+  approvedHeroImageUrl = "";
+  currentJobId = "";
+  currentHeroGenerationId = "";
+  lastSubmittedQcKey = "";
+  lastRecordedApprovalGenerationId = "";
+  supportResults = [];
+  customSupportShots = [];
+  setHeroLoading(false);
+  els.generateButton.disabled = true;
+  els.approveButton.disabled = true;
+  els.generateSupportButton.disabled = true;
+  els.approveSupportButton.disabled = true;
+  els.generateButton.textContent = "Generate Hero";
+  els.approveButton.textContent = "Approve + Save";
+  els.generateSupportButton.textContent = "Generate Support Set";
+  els.approveSupportButton.textContent = "Approve Support Set";
+  els.resultImage.hidden = true;
+  els.resultImage.removeAttribute("src");
+  els.resultStatus.textContent = "";
+  els.emptyHero.hidden = false;
+  resetQc();
+  renderSupportShots();
+  renderSupportGallery();
+  renderAssets();
 }
 
 function showAuthGate(state) {
@@ -708,19 +751,31 @@ async function authFetch(url, options = {}) {
   return fetch(url, { ...fetchOptions, headers });
 }
 
-async function authFetchWithTimeout(url, options = {}, timeoutMs = 45000) {
+async function fetchWithTimeout(fetcher, timeoutMs, timeoutMessage) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await authFetch(url, { ...options, signal: controller.signal });
+    return await fetcher(controller.signal);
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error("เริ่มงาน Generate ไม่สำเร็จ: server ตอบช้าเกินไป กรุณาลองใหม่อีกครั้ง");
+      throw new Error(timeoutMessage || "ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
     }
     throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function promiseWithTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+}
+
+async function authFetchWithTimeout(url, options = {}, timeoutMs = 45000, timeoutMessage = "") {
+  return fetchWithTimeout((signal) => authFetch(url, { ...options, signal }), timeoutMs, timeoutMessage);
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -731,6 +786,12 @@ async function readJsonResponse(response, fallbackMessage) {
   } catch {
     throw new Error(fallbackMessage);
   }
+}
+
+function getApiErrorMessage(response, data, fallback = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง") {
+  if (response.status === 401) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
+  if (response.status === 403) return "บัญชีนี้ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+  return data?.error || fallback;
 }
 
 async function refreshSystemStatus() {
@@ -945,6 +1006,7 @@ async function handleLogin(event) {
   button.textContent = "Logging in...";
 
   try {
+    authFlowInProgress = true;
     const email = emailInput.value.trim();
     const password = passwordInput.value;
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -962,6 +1024,7 @@ async function handleLogin(event) {
       updateAuthUi(null, message);
     }
   } finally {
+    authFlowInProgress = false;
     button.disabled = false;
     button.textContent = defaultButtonText;
   }
@@ -971,7 +1034,12 @@ async function handleLogout() {
   if (!supabaseClient) return;
 
   try {
-    const { error } = await supabaseClient.auth.signOut();
+    authFlowInProgress = true;
+    const { error } = await promiseWithTimeout(
+      supabaseClient.auth.signOut(),
+      10000,
+      "ออกจากระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง"
+    );
     if (error) throw error;
 
     clearFrontendAuthState();
@@ -1004,6 +1072,9 @@ async function handleLogout() {
     if (!document.body.classList.contains("app-ready")) {
       showBlocked(message);
     }
+  }
+  finally {
+    authFlowInProgress = false;
   }
 }
 
@@ -1061,6 +1132,14 @@ async function handlePasswordSetup(event) {
 }
 
 async function generateImage() {
+  if (!isAppReady()) {
+    els.resultCard.hidden = false;
+    els.emptyHero.hidden = false;
+    els.resultStatus.textContent = "กรุณาเข้าสู่ระบบและตรวจสอบสิทธิ์ให้เรียบร้อยก่อน Generate";
+    updateAuthUi(currentSession);
+    return;
+  }
+
   buildPrompt();
 
   const validationMessage = validateInputFiles();
@@ -1109,10 +1188,10 @@ async function generateImage() {
   } catch (error) {
     setHeroLoading(false);
     els.emptyHero.hidden = false;
-    els.resultStatus.textContent = `Generate ไม่สำเร็จ: ${error.message}`;
+    els.resultStatus.textContent = `Generate ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "ส่งงาน generate ไม่สำเร็จ"}`;
   } finally {
-    els.generateButton.disabled = false;
-    els.approveButton.disabled = false;
+    els.generateButton.disabled = !isAppReady();
+    els.approveButton.disabled = !currentGeneratedImageUrl;
     els.generateButton.textContent = "Generate Hero";
   }
 }
@@ -1134,7 +1213,7 @@ async function approveImage() {
   els.approveButton.textContent = "Saving...";
 
   try {
-    const response = await authFetch("/api/approve", {
+    const response = await authFetchWithTimeout("/api/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1143,11 +1222,11 @@ async function approveImage() {
         generationId: currentHeroGenerationId,
         ...getRequestMetadata({ jobKind: "hero", shot: "Hero", jobId: currentJobId })
       })
-    });
-    const data = await response.json();
+    }, 90000, "Approve + Save ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+    const data = await readJsonResponse(response, "Approve + Save ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
 
     if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Approve failed");
+      throw new Error(getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ"));
     }
 
     els.resultStatus.textContent = getApprovalMessage(data);
@@ -1165,7 +1244,7 @@ async function approveImage() {
     });
     refreshMetrics();
   } catch (error) {
-    els.resultStatus.textContent = `Approve ไม่สำเร็จ: ${error.message}`;
+    els.resultStatus.textContent = `Approve ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
   } finally {
     els.approveButton.disabled = false;
     els.approveButton.textContent = "Approve + Save";
@@ -1252,39 +1331,43 @@ async function approveSupportSet() {
   els.approveSupportButton.textContent = "Saving set...";
 
   let savedCount = 0;
-  for (const item of readyItems) {
-    try {
-      const response = await authFetch("/api/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageUrl: item.imageUrl,
-          jobName: `${getJobBaseName("support-product")}-${item.shot}`,
-          ...getRequestMetadata({ jobKind: "support", shot: item.shot, jobId: currentJobId })
-        })
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "Approve failed");
-      item.status = "approved";
-      item.savedPath = data.googleDriveFile?.webViewLink || data.drivePath || data.approvedPath;
-      savedCount += 1;
-    } catch (error) {
-      item.status = `approve error: ${error.message}`;
+  try {
+    for (const item of readyItems) {
+      try {
+        const response = await authFetchWithTimeout("/api/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageUrl: item.imageUrl,
+            jobName: `${getJobBaseName("support-product")}-${item.shot}`,
+            ...getRequestMetadata({ jobKind: "support", shot: item.shot, jobId: currentJobId })
+          })
+        }, 90000, "Approve + Save ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+        const data = await readJsonResponse(response, "Approve + Save ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+        if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ"));
+        item.status = "approved";
+        item.savedPath = data.googleDriveFile?.webViewLink || data.drivePath || data.approvedPath;
+        savedCount += 1;
+      } catch (error) {
+        item.status = `approve error: ${getSafeAuthErrorMessage(error)}`;
+      }
+      renderSupportGallery();
+      renderAssets();
     }
-    renderSupportGallery();
-    renderAssets();
+
+    addHistoryItem({
+      name: `${getJobBaseName("Support set")} (${savedCount} ภาพ)`,
+      type: "Support Set",
+      category: els.category.value,
+      status: savedCount === readyItems.length ? "Approved" : "Partial"
+    });
+
+    updateWorkflowGate();
+    refreshMetrics();
+  } finally {
+    els.approveSupportButton.disabled = false;
+    els.approveSupportButton.textContent = "Approve Support Set";
   }
-
-  addHistoryItem({
-    name: `${getJobBaseName("Support set")} (${savedCount} ภาพ)`,
-    type: "Support Set",
-    category: els.category.value,
-    status: savedCount === readyItems.length ? "Approved" : "Partial"
-  });
-
-  updateWorkflowGate();
-  refreshMetrics();
-  els.approveSupportButton.textContent = "Approve Support Set";
 }
 
 async function rerunSupportImage(index) {
@@ -1395,11 +1478,11 @@ async function startGenerationJob(formData, onProgress = () => {}) {
   const response = await authFetchWithTimeout("/api/generate/start", {
     method: "POST",
     body: formData
-  }, 60000);
+  }, 90000, "ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
   const startData = await readJsonResponse(response, "เริ่มงาน Generate ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
 
   if (!response.ok || !startData.ok) {
-    throw new Error(startData.error || "เริ่มงาน Generate ไม่สำเร็จ");
+    throw new Error(getApiErrorMessage(response, startData, "ส่งงาน generate ไม่สำเร็จ"));
   }
 
   onProgress(startData.job);
@@ -1413,7 +1496,12 @@ async function startGenerationJob(formData, onProgress = () => {}) {
 
 async function pollGenerationJob(jobId, onProgress) {
   let failedPolls = 0;
+  const startedAt = Date.now();
+  const maxWaitMs = 12 * 60 * 1000;
   for (;;) {
+    if (Date.now() - startedAt > maxWaitMs) {
+      throw new Error("ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+    }
     await delay(1800);
     try {
       const response = await fetch(`/api/generate/jobs/${encodeURIComponent(jobId)}`);
@@ -1473,7 +1561,7 @@ function delay(ms) {
 function validateInputFiles() {
   const productFiles = Array.from(els.productImages.files || []);
   const modelFiles = getSelectedBrandProfile().forceOffModel ? [] : Array.from(els.modelImages.files || []);
-  if (!productFiles.length) return "กรุณาแนบภาพสินค้าอย่างน้อย 1 ภาพก่อนกด Generate";
+  if (!productFiles.length) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป";
   if (productFiles.length > 10) return "ภาพสินค้าอ้างอิงใส่ได้สูงสุด 10 ภาพ";
   if (modelFiles.length > 5) return "ภาพโมเดลอ้างอิงใส่ได้สูงสุด 5 ภาพ";
   return "";

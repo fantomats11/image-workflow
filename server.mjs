@@ -72,19 +72,19 @@ async function requireUser(req, res, next) {
     const authHeader = String(req.headers.authorization || "");
     const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
     if (!token) {
-      return res.status(401).json({ error: "Authentication required." });
+      return res.status(401).json({ ok: false, code: "auth_required", error: "Authentication required." });
     }
 
     const user = await getUserFromAccessToken(token);
     if (!user) {
-      return res.status(401).json({ error: "Invalid or expired session." });
+      return res.status(401).json({ ok: false, code: "invalid_session", error: "Invalid or expired session." });
     }
 
     req.user = user;
     next();
   } catch (error) {
     console.error("Auth failed:", readableError(error));
-    res.status(401).json({ error: "Invalid or expired session." });
+    res.status(401).json({ ok: false, code: "invalid_session", error: "Invalid or expired session." });
   }
 }
 
@@ -467,12 +467,55 @@ app.post(
   ]),
   async (req, res) => {
     try {
+      logGenerateDiagnostic("request received", {
+        userId: req.user.id,
+        email: req.user.email || "",
+        productFileCount: req.files?.productImages?.length || 0,
+        modelFileCount: req.files?.modelImages?.length || 0
+      });
+      const profileCheck = await getWorkflowProfileForUser(req.user.id);
+      if (!profileCheck.ok) {
+        logGenerateDiagnostic("blocked", {
+          userId: req.user.id,
+          email: req.user.email || "",
+          code: profileCheck.code,
+          reason: profileCheck.error
+        });
+        return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
+      }
+      logGenerateDiagnostic("profile ok", {
+        userId: req.user.id,
+        email: req.user.email || "",
+        role: profileCheck.profile.role,
+        isActive: profileCheck.profile.is_active,
+        mustChangePassword: profileCheck.profile.must_change_password
+      });
+
       const validation = validateGenerateRequest(req);
-      if (validation) return res.status(validation.status).json({ error: validation.error });
+      if (validation) {
+        logGenerateDiagnostic("blocked", {
+          userId: req.user.id,
+          email: req.user.email || "",
+          code: validation.code || "invalid_request",
+          reason: validation.error,
+          productFileCount: req.files?.productImages?.length || 0,
+          modelFileCount: req.files?.modelImages?.length || 0
+        });
+        return res.status(validation.status).json({ ok: false, code: validation.code || "invalid_request", error: validation.error });
+      }
 
       pruneGenerationJobs();
       const dbJob = await prepareGenerationJob(req.body, req.user.id);
       const generation = await createGenerationRow(dbJob.id, req.body, req.user.id);
+      logGenerateDiagnostic("job/generation created", {
+        userId: req.user.id,
+        email: req.user.email || "",
+        role: profileCheck.profile.role,
+        jobId: dbJob.id,
+        generationId: generation?.id || null,
+        productFileCount: req.files?.productImages?.length || 0,
+        modelFileCount: req.files?.modelImages?.length || 0
+      });
       await recordUploadedReferenceAssets({
         jobId: dbJob.id,
         userId: req.user.id,
@@ -509,7 +552,12 @@ app.post(
       });
     } catch (error) {
       console.error(error);
-      res.status(500).json({ error: readableError(error) });
+      logGenerateDiagnostic("error", {
+        userId: req.user?.id || "",
+        email: req.user?.email || "",
+        reason: readableError(error)
+      });
+      res.status(500).json({ ok: false, code: "generate_start_failed", error: readableError(error) });
     }
   }
 );
@@ -791,26 +839,40 @@ function parseImageSize(value) {
 
 function validateGenerateRequest(req) {
   if (!process.env.FAL_KEY) {
-    return { status: 400, error: "Missing FAL_KEY in .env" };
+    return { status: 400, code: "missing_fal_key", error: "Server ยังไม่พร้อมสำหรับ Generate กรุณาติดต่อผู้ดูแลระบบ" };
   }
   const productFiles = req.files?.productImages || [];
   if (!productFiles.length) {
-    return { status: 400, error: "Please attach at least one product image." };
+    return { status: 400, code: "missing_product_image", error: "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป" };
   }
   const prompt = String(req.body.prompt || "").trim();
   if (!prompt) {
-    return { status: 400, error: "Missing prompt." };
+    return { status: 400, code: "missing_prompt", error: "ส่งงาน generate ไม่สำเร็จ: ไม่พบ prompt" };
   }
   return null;
 }
 
 async function runGenerationJob(jobId, request) {
   try {
+    logGenerateDiagnostic("generation worker started", {
+      userId: request.userId,
+      jobId: request.dbJobId,
+      generationId: request.generationId,
+      productFileCount: request.files?.productImages?.length || 0,
+      modelFileCount: request.files?.modelImages?.length || 0
+    });
     const data = await runGeneration(request, (status, message) => {
       updateGenerationJob(jobId, { status, message });
       updateGenerationProgress(request, status).catch((error) => {
         console.error("Failed to update generation progress:", readableError(error));
       });
+    });
+    logGenerateDiagnostic("after FAL call", {
+      userId: request.userId,
+      jobId: request.dbJobId,
+      generationId: request.generationId,
+      imageCount: data.images?.length || 0,
+      requestId: data.requestId || null
     });
     try {
       await markGenerationDone(request, data);
@@ -833,6 +895,12 @@ async function runGenerationJob(jobId, request) {
     });
   } catch (error) {
     console.error(error);
+    logGenerateDiagnostic("error", {
+      userId: request.userId,
+      jobId: request.dbJobId,
+      generationId: request.generationId,
+      reason: readableError(error)
+    });
     try {
       await markGenerationFailed(request, error);
     } catch (dbError) {
@@ -874,6 +942,14 @@ async function runGeneration(request, onProgress = () => {}) {
   onProgress("queued", "อยู่ในคิว generate ของ server");
   const result = await enqueueGeneration(async () => {
     onProgress("generating", "กำลังสร้างภาพ อาจใช้เวลาสักครู่");
+    logGenerateDiagnostic("before FAL call", {
+      userId: request.userId,
+      jobId: request.dbJobId,
+      generationId: request.generationId,
+      imageUrlCount: imageUrls.length,
+      productFileCount: productFiles.length,
+      modelFileCount: modelFiles.length
+    });
     return fal.subscribe("openai/gpt-image-2/edit", {
       input,
       logs: true
@@ -1143,6 +1219,60 @@ function normalizeProfile(profile, user) {
     role: String(profile.role || "staff").toLowerCase() === "admin" ? "admin" : "staff",
     is_active: profile.is_active !== false,
     must_change_password: profile.must_change_password === true
+  };
+}
+
+async function getWorkflowProfileForUser(userId) {
+  const { data: profile, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, full_name, role, is_active, must_change_password")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!profile) {
+    return {
+      ok: false,
+      status: 403,
+      code: "profile_missing",
+      error: "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+    };
+  }
+
+  const role = String(profile.role || "").trim().toLowerCase();
+  if (!["admin", "staff"].includes(role)) {
+    return {
+      ok: false,
+      status: 403,
+      code: "invalid_role",
+      error: "บัญชีนี้ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+    };
+  }
+  if (profile.is_active === false) {
+    return {
+      ok: false,
+      status: 403,
+      code: "inactive_profile",
+      error: "บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+    };
+  }
+  if (profile.must_change_password === true) {
+    return {
+      ok: false,
+      status: 403,
+      code: "password_change_required",
+      error: "กรุณาเปลี่ยนรหัสผ่านชั่วคราวก่อนเริ่มใช้งาน"
+    };
+  }
+
+  return {
+    ok: true,
+    profile: {
+      ...profile,
+      role,
+      is_active: profile.is_active !== false,
+      must_change_password: profile.must_change_password === true
+    }
   };
 }
 
@@ -1797,6 +1927,10 @@ async function readIntegrationToken(id) {
 
 function hasUsableGoogleOAuthToken(tokens) {
   return Boolean(tokens?.refresh_token || tokens?.access_token);
+}
+
+function logGenerateDiagnostic(message, details = {}) {
+  console.info("[generate/start]", message, details);
 }
 
 async function fileExists(filePath) {
