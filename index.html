@@ -341,54 +341,71 @@
                 <p class="eyebrow">Jobs</p>
                 <h3>งานทั้งหมด</h3>
               </div>
-              <button class="ghost-button" type="button" id="clearHistoryButton">ล้างประวัติ</button>
+              <button class="ghost-button compact" type="button" id="refreshJobsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">
-              เวอร์ชันนี้ยังเก็บประวัติในเครื่องนี้ก่อน เมื่อขึ้น production จะย้ายไปเก็บใน database เพื่อให้ทีมเห็นงานร่วมกัน
+            <div class="section-note">ดูงานจริงจาก production database พร้อมสถานะ generate, approve, export และ activity ล่าสุด</div>
+            <div class="kpi-range-tabs" id="jobsRangeControls" aria-label="เลือกช่วงเวลา Jobs">
+              <button class="active" type="button" data-jobs-range="today">Today</button>
+              <button type="button" data-jobs-range="7d">Last 7 days</button>
+              <button type="button" data-jobs-range="30d">Last 30 days</button>
+              <button type="button" data-jobs-range="all">All time</button>
             </div>
             <div class="filter-grid">
               <label>
                 ค้นหา
-                <input id="historySearch" type="search" placeholder="ค้นหา SKU / ชื่องาน / ประเภท / หมวด" />
+                <input id="historySearch" type="search" placeholder="SKU / job id / email / ชื่องาน" />
               </label>
               <label>
                 สถานะ
                 <select id="historyStatusFilter">
                   <option value="">ทั้งหมด</option>
-                  <option value="Hero Approved">Hero Approved</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Partial">Partial</option>
-                  <option value="รอตรวจ">รอตรวจ</option>
+                  <option value="queued">queued</option>
+                  <option value="generating">generating</option>
+                  <option value="hero_ready">hero_ready</option>
+                  <option value="failed">failed</option>
+                  <option value="draft">draft</option>
                 </select>
               </label>
               <label>
-                หมวดสินค้า
-                <select id="historyCategoryFilter">
-                  <option value="">ทุกหมวด</option>
+                รายการต่อหน้า
+                <select id="jobsPageSize">
+                  <option value="10">10</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
                 </select>
               </label>
             </div>
             <div class="job-summary" id="jobSummary">
               <span>0 งาน</span>
               <span>0 งาน approved</span>
-              <span>0 หมวดสินค้า</span>
+              <span>0 งาน exported</span>
             </div>
+            <div class="kpi-state" id="jobsLoadingState" hidden>กำลังโหลดรายการงาน...</div>
+            <div class="kpi-state danger" id="jobsErrorState" hidden>โหลดรายการงานไม่สำเร็จ</div>
             <div class="table-wrap">
-              <table>
+              <table class="production-jobs-table">
                 <thead>
                   <tr>
                     <th>งาน</th>
-                    <th>ประเภท</th>
-                    <th>หมวด</th>
-                    <th>สถานะ</th>
+                    <th>ผู้สร้าง</th>
+                    <th>Workflow</th>
+                    <th>Export</th>
+                    <th>Activity</th>
                   </tr>
                 </thead>
                 <tbody id="historyBody">
                   <tr>
-                    <td colspan="4" class="empty-state">ยังไม่มีประวัติงาน</td>
+                    <td colspan="5" class="empty-state">ยังไม่มีงานในช่วงเวลานี้</td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div class="monitoring-pagination-toolbar" aria-label="Jobs pagination">
+              <div class="monitoring-pagination-controls">
+                <button class="ghost-button compact" type="button" id="jobsPrevPage">Previous</button>
+                <span id="jobsPageInfo">หน้า 1 / 1 · 0 รายการ</span>
+                <button class="ghost-button compact" type="button" id="jobsNextPage">Next</button>
+              </div>
             </div>
           </section>
         </section>
@@ -398,15 +415,54 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">Assets</p>
-                <h3>คลังภาพที่กำลังทำ</h3>
+                <h3>คลังภาพ</h3>
               </div>
               <span class="workflow-status" id="assetStatus">รอภาพ</span>
             </div>
-            <div class="section-note">
-              หน้านี้เป็น asset view สำหรับงานปัจจุบันก่อน เมื่อขึ้น cloud จะกลายเป็นคลังภาพกลางที่ดึงจาก Google Drive/database พร้อม filter ตาม SKU, brand, category, hero/support
+            <div class="section-note" id="assetLibraryHelper">คลังภาพสำหรับดูผลงานที่สร้างจาก workflow เช่น Hero, Support และภาพที่ Approved/Export แล้ว</div>
+            <div class="kpi-range-tabs" id="assetsRangeControls" aria-label="เลือกช่วงเวลา Assets">
+              <button class="active" type="button" data-assets-range="today">Today</button>
+              <button type="button" data-assets-range="7d">Last 7 days</button>
+              <button type="button" data-assets-range="30d">Last 30 days</button>
+              <button type="button" data-assets-range="all">All time</button>
             </div>
+            <div class="kpi-range-tabs asset-type-tabs" id="assetTypeTabs" aria-label="เลือกประเภท Asset">
+              <button class="active" type="button" data-asset-type="outputs">Outputs</button>
+              <button type="button" data-asset-type="hero">Hero</button>
+              <button type="button" data-asset-type="support">Support</button>
+              <button type="button" data-asset-type="approved">Approved / Exported</button>
+              <button type="button" data-asset-type="references">References</button>
+              <button type="button" data-asset-type="all">All</button>
+            </div>
+            <div class="filter-grid asset-filter-grid">
+              <label>
+                ค้นหา
+                <input id="assetSearch" type="search" placeholder="SKU / job id / generation id" />
+              </label>
+              <label>
+                Job ID
+                <input id="assetJobIdFilter" type="search" placeholder="กรองตาม job id" />
+              </label>
+              <label>
+                รายการต่อหน้า
+                <select id="assetsPageSize">
+                  <option value="10">10</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <div class="kpi-state" id="assetsLoadingState" hidden>กำลังโหลดคลังภาพ...</div>
+            <div class="kpi-state danger" id="assetsErrorState" hidden>โหลดคลังภาพไม่สำเร็จ</div>
             <div class="asset-grid" id="assetGallery">
-              <p class="empty-state">ยังไม่มีภาพใน workflow นี้</p>
+              <p class="empty-state">ยังไม่มีภาพในช่วงเวลานี้</p>
+            </div>
+            <div class="monitoring-pagination-toolbar" aria-label="Assets pagination">
+              <div class="monitoring-pagination-controls">
+                <button class="ghost-button compact" type="button" id="assetsPrevPage">Previous</button>
+                <span id="assetsPageInfo">หน้า 1 / 1 · 0 รายการ</span>
+                <button class="ghost-button compact" type="button" id="assetsNextPage">Next</button>
+              </div>
             </div>
           </section>
         </section>

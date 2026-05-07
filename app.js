@@ -330,10 +330,29 @@ const els = {
   addQueueButton: document.getElementById("addQueueButton"),
   resetButton: document.getElementById("resetButton"),
   clearHistoryButton: document.getElementById("clearHistoryButton"),
+  refreshJobsButton: document.getElementById("refreshJobsButton"),
+  jobsRangeControls: document.getElementById("jobsRangeControls"),
+  jobsPageSize: document.getElementById("jobsPageSize"),
+  jobsPrevPage: document.getElementById("jobsPrevPage"),
+  jobsNextPage: document.getElementById("jobsNextPage"),
+  jobsPageInfo: document.getElementById("jobsPageInfo"),
+  jobsLoadingState: document.getElementById("jobsLoadingState"),
+  jobsErrorState: document.getElementById("jobsErrorState"),
   historySearch: document.getElementById("historySearch"),
   historyStatusFilter: document.getElementById("historyStatusFilter"),
   historyCategoryFilter: document.getElementById("historyCategoryFilter"),
   jobSummary: document.getElementById("jobSummary"),
+  assetsRangeControls: document.getElementById("assetsRangeControls"),
+  assetLibraryHelper: document.getElementById("assetLibraryHelper"),
+  assetTypeTabs: document.getElementById("assetTypeTabs"),
+  assetSearch: document.getElementById("assetSearch"),
+  assetJobIdFilter: document.getElementById("assetJobIdFilter"),
+  assetsPageSize: document.getElementById("assetsPageSize"),
+  assetsPrevPage: document.getElementById("assetsPrevPage"),
+  assetsNextPage: document.getElementById("assetsNextPage"),
+  assetsPageInfo: document.getElementById("assetsPageInfo"),
+  assetsLoadingState: document.getElementById("assetsLoadingState"),
+  assetsErrorState: document.getElementById("assetsErrorState"),
   assetGallery: document.getElementById("assetGallery"),
   assetStatus: document.getElementById("assetStatus"),
   refreshMetricsButton: document.getElementById("refreshMetricsButton"),
@@ -428,6 +447,17 @@ let localJobHistory = loadJobHistory();
 let dbJobHistory = [];
 let jobHistory = localJobHistory;
 let jobHistoryError = "";
+let latestJobsData = null;
+let selectedJobsRange = "today";
+let selectedJobsPage = 1;
+let selectedJobsPageSize = 10;
+let jobsSearchTimer = null;
+let latestAssetsData = null;
+let selectedAssetsRange = "today";
+let selectedAssetType = "outputs";
+let selectedAssetsPage = 1;
+let selectedAssetsPageSize = 10;
+let assetsSearchTimer = null;
 let latestMetricData = null;
 let selectedKpiRange = "today";
 let latestMonitoringData = null;
@@ -498,13 +528,16 @@ async function init() {
   fillSelect(els.shotType, shotTypes);
   fillSelect(els.imageSize, imageSizeOptions);
   fillSelect(els.quality, qualityOptions);
-  fillSelect(els.historyCategoryFilter, [{ label: "ทุกหมวด", value: "" }, ...Object.keys(categories).map((category) => ({ label: category, value: category }))]);
+  if (els.historyCategoryFilter) {
+    fillSelect(els.historyCategoryFilter, [{ label: "ทุกหมวด", value: "" }, ...Object.keys(categories).map((category) => ({ label: category, value: category }))]);
+  }
   renderQc();
   renderSupportShots();
   renderFilePreview(els.productImages, els.productPreview, 10);
   renderFilePreview(els.modelImages, els.modelPreview, 5);
   renderHistory();
   renderAssets();
+  updateAssetLibraryHelper();
   renderSettingsPreview();
   applyBrandProfileUiHints();
   bindEvents();
@@ -791,6 +824,8 @@ function clearFrontendAuthState() {
   appState.actions.logout = false;
   dbJobHistory = [];
   jobHistoryError = "";
+  latestJobsData = null;
+  latestAssetsData = null;
   latestMetricData = null;
   latestMonitoringData = null;
   resetTransientWorkflowState();
@@ -1191,7 +1226,10 @@ function navigateToPage(page) {
     renderHistory();
     if (isAppReady()) refreshJobHistory();
   }
-  if (targetPage === "assets") renderAssets();
+  if (targetPage === "assets") {
+    renderAssets();
+    if (isAppReady()) refreshAssetLibrary();
+  }
   if (targetPage === "kpi") refreshMetrics();
   if (targetPage === "monitoring" && isAdmin()) refreshMonitoring();
   if (targetPage === "settings") {
@@ -1322,9 +1360,101 @@ function bindEvents() {
   });
   els.staffAdminList.addEventListener("change", handleStaffFieldChange);
   els.staffAdminList.addEventListener("click", handleStaffListClick);
-  els.historySearch.addEventListener("input", renderHistory);
-  els.historyStatusFilter.addEventListener("change", renderHistory);
-  els.historyCategoryFilter.addEventListener("change", renderHistory);
+  els.refreshJobsButton.addEventListener("click", refreshJobHistory);
+  els.jobsRangeControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-jobs-range]");
+    if (!button) return;
+    selectedJobsRange = button.dataset.jobsRange || "7d";
+    selectedJobsPage = 1;
+    els.jobsRangeControls.querySelectorAll("[data-jobs-range]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    refreshJobHistory();
+  });
+  els.historySearch.addEventListener("input", () => {
+    window.clearTimeout(jobsSearchTimer);
+    jobsSearchTimer = window.setTimeout(() => {
+      selectedJobsPage = 1;
+      refreshJobHistory();
+    }, 250);
+  });
+  els.historyStatusFilter.addEventListener("change", () => {
+    selectedJobsPage = 1;
+    refreshJobHistory();
+  });
+  els.jobsPageSize.addEventListener("change", () => {
+    selectedJobsPageSize = normalizeProductionPageSize(els.jobsPageSize.value);
+    selectedJobsPage = 1;
+    refreshJobHistory();
+  });
+  els.jobsPrevPage.addEventListener("click", () => {
+    selectedJobsPage = Math.max(1, selectedJobsPage - 1);
+    refreshJobHistory();
+  });
+  els.jobsNextPage.addEventListener("click", () => {
+    const totalPages = latestJobsData?.pagination?.totalPages || selectedJobsPage + 1;
+    selectedJobsPage = Math.min(totalPages, selectedJobsPage + 1);
+    refreshJobHistory();
+  });
+  els.assetsRangeControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-assets-range]");
+    if (!button) return;
+    selectedAssetsRange = button.dataset.assetsRange || "7d";
+    selectedAssetsPage = 1;
+    els.assetsRangeControls.querySelectorAll("[data-assets-range]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    refreshAssetLibrary();
+  });
+  els.assetTypeTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-asset-type]");
+    if (!button) return;
+    selectedAssetType = normalizeAssetTypeFilter(button.dataset.assetType);
+    selectedAssetsPage = 1;
+    els.assetTypeTabs.querySelectorAll("[data-asset-type]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    updateAssetLibraryHelper();
+    refreshAssetLibrary();
+  });
+  els.assetSearch.addEventListener("input", () => {
+    window.clearTimeout(assetsSearchTimer);
+    assetsSearchTimer = window.setTimeout(() => {
+      selectedAssetsPage = 1;
+      refreshAssetLibrary();
+    }, 250);
+  });
+  els.assetJobIdFilter.addEventListener("input", () => {
+    window.clearTimeout(assetsSearchTimer);
+    assetsSearchTimer = window.setTimeout(() => {
+      selectedAssetsPage = 1;
+      refreshAssetLibrary();
+    }, 250);
+  });
+  els.assetsPageSize.addEventListener("change", () => {
+    selectedAssetsPageSize = normalizeProductionPageSize(els.assetsPageSize.value);
+    selectedAssetsPage = 1;
+    refreshAssetLibrary();
+  });
+  els.assetsPrevPage.addEventListener("click", () => {
+    selectedAssetsPage = Math.max(1, selectedAssetsPage - 1);
+    refreshAssetLibrary();
+  });
+  els.assetsNextPage.addEventListener("click", () => {
+    const totalPages = latestAssetsData?.pagination?.totalPages || selectedAssetsPage + 1;
+    selectedAssetsPage = Math.min(totalPages, selectedAssetsPage + 1);
+    refreshAssetLibrary();
+  });
+  els.assetGallery.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy-value]");
+    if (!button) return;
+    await navigator.clipboard.writeText(button.dataset.copyValue || "");
+    const original = button.textContent;
+    button.textContent = "คัดลอกแล้ว";
+    window.setTimeout(() => {
+      button.textContent = original;
+    }, 1200);
+  });
   els.operatorName.addEventListener("input", () => {
     localStorage.setItem("winter-image-desk-operator", els.operatorName.value.trim());
   });
@@ -1425,12 +1555,14 @@ function bindEvents() {
     applyBrandProfileUiHints();
   });
 
-  els.clearHistoryButton.addEventListener("click", () => {
-    localJobHistory = [];
-    jobHistory = mergeJobHistory();
-    saveJobHistory();
-    renderHistory();
-  });
+  if (els.clearHistoryButton) {
+    els.clearHistoryButton.addEventListener("click", () => {
+      localJobHistory = [];
+      jobHistory = mergeJobHistory();
+      saveJobHistory();
+      renderHistory();
+    });
+  }
 }
 
 async function handleLogin(event) {
@@ -2750,47 +2882,21 @@ function renderSupportMessage(message) {
 }
 
 function renderAssets() {
-  const assets = [];
-  if (currentGeneratedImageUrl) {
-    assets.push({
-      label: approvedHeroImageUrl ? "Hero approved" : "Hero draft",
-      title: getJobBaseName("Hero image"),
-      imageUrl: currentGeneratedImageUrl,
-      status: approvedHeroImageUrl ? "พร้อมใช้เป็น anchor" : "รอ approve"
-    });
-  }
-
-  supportResults.forEach((item) => {
-    if (!item.imageUrl) return;
-    assets.push({
-      label: "Support",
-      title: item.shot,
-      imageUrl: item.imageUrl,
-      status: item.savedPath ? "uploaded" : item.status
-    });
-  });
-
-  els.assetStatus.textContent = assets.length ? `${assets.length} ภาพ` : "รอภาพ";
+  const assets = latestAssetsData?.assets || [];
+  const totalAssets = latestAssetsData?.pagination?.totalItems || assets.length;
+  els.assetStatus.textContent = totalAssets ? `${formatThaiNumber(totalAssets)} ภาพ` : "รอภาพ";
   els.assetStatus.classList.toggle("ready", assets.length > 0);
 
   if (!assets.length) {
-    els.assetGallery.innerHTML = '<p class="empty-state">ยังไม่มีภาพใน workflow นี้</p>';
+    els.assetGallery.innerHTML = '<p class="empty-state">ยังไม่มีภาพในช่วงเวลานี้</p>';
+    renderProductionPagination("assets", latestAssetsData?.pagination);
     return;
   }
 
   els.assetGallery.innerHTML = assets
-    .map(
-      (asset) => `
-        <article class="asset-card">
-          <img src="${escapeHtml(asset.imageUrl)}" alt="${escapeHtml(asset.title)}">
-          <div>
-            <strong>${escapeHtml(asset.title)}</strong>
-            <span>${escapeHtml(asset.label)} · ${escapeHtml(asset.status || "-")}</span>
-          </div>
-        </article>
-      `
-    )
+    .map(renderProductionAssetCard)
     .join("");
+  renderProductionPagination("assets", latestAssetsData?.pagination);
 }
 
 function renderSettingsPreview() {
@@ -3291,20 +3397,32 @@ function addHistoryItem(item) {
 }
 
 async function refreshJobHistory() {
-  if (!currentSession) return;
+  if (!isAppReady()) return;
+  setProductionListLoading("jobs", true);
   try {
-    const response = await authFetch("/api/jobs?limit=80");
+    const params = new URLSearchParams({
+      range: selectedJobsRange,
+      page: String(selectedJobsPage),
+      pageSize: String(selectedJobsPageSize),
+      status: els.historyStatusFilter.value,
+      q: els.historySearch.value.trim()
+    });
+    const response = await authFetch(`/api/jobs?${params.toString()}`);
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "Cannot load jobs");
 
-    dbJobHistory = (data.jobs || []).map(mapDbJobToHistoryItem);
+    latestJobsData = data;
+    selectedJobsPage = data.pagination?.page || selectedJobsPage;
+    selectedJobsPageSize = data.pagination?.pageSize || selectedJobsPageSize;
+    dbJobHistory = data.jobs || [];
     jobHistoryError = "";
-    jobHistory = mergeJobHistory();
     renderHistory();
   } catch (error) {
+    latestJobsData = null;
     jobHistoryError = error.message;
-    jobHistory = mergeJobHistory();
     renderHistory();
+  } finally {
+    setProductionListLoading("jobs", false);
   }
 }
 
@@ -3346,46 +3464,202 @@ function formatJobTime(value) {
 }
 
 function renderHistory() {
-  const query = els.historySearch.value.trim().toLowerCase();
-  const status = els.historyStatusFilter.value;
-  const category = els.historyCategoryFilter.value;
-  const filteredItems = jobHistory.filter((item) => {
-    const haystack = `${item.name || ""} ${item.type || ""} ${item.category || ""} ${item.status || ""} ${item.time || ""}`.toLowerCase();
-    if (query && !haystack.includes(query)) return false;
-    if (status && item.status !== status) return false;
-    if (category && item.category !== category) return false;
-    return true;
-  });
+  const items = latestJobsData?.jobs || [];
+  renderJobSummary(items);
+  renderProductionPagination("jobs", latestJobsData?.pagination);
+  if (els.jobsErrorState) {
+    els.jobsErrorState.hidden = !jobHistoryError;
+    els.jobsErrorState.textContent = jobHistoryError ? `โหลดรายการงานไม่สำเร็จ: ${getSafeAuthErrorMessage(jobHistoryError)}` : "";
+  }
 
-  renderJobSummary(filteredItems);
-
-  if (!filteredItems.length) {
-    els.historyBody.innerHTML = `<tr><td colspan="4" class="empty-state">${escapeHtml(jobHistoryError ? `โหลด jobs จาก database ไม่สำเร็จ: ${jobHistoryError}` : "ยังไม่มีประวัติงาน")}</td></tr>`;
+  if (!items.length) {
+    els.historyBody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(jobHistoryError ? "โหลดรายการงานไม่สำเร็จ" : "ยังไม่มีงานในช่วงเวลานี้")}</td></tr>`;
     return;
   }
 
-  els.historyBody.innerHTML = filteredItems
-    .map(
-      (item) => `
-        <tr>
-          <td>${escapeHtml(item.name)}<br><span class="table-muted">${escapeHtml(item.time || "-")}</span></td>
-          <td>${escapeHtml(item.type)}</td>
-          <td>${escapeHtml(item.category)}</td>
-          <td>${escapeHtml(item.status)}</td>
-        </tr>
-      `
-    )
+  els.historyBody.innerHTML = items
+    .map(renderProductionJobRow)
     .join("");
 }
 
 function renderJobSummary(items) {
-  const approvedCount = items.filter((item) => /(approved|hero ready|hero_ready)/i.test(`${item.status || ""} ${item.rawStatus || ""}`)).length;
-  const categoryCount = new Set(items.map((item) => item.category).filter(Boolean)).size;
+  const approvedCount = items.filter((item) => item.approvalStatus === "approved").length;
+  const exportedCount = items.filter((item) => item.exportStatus && item.exportStatus !== "not_exported").length;
   els.jobSummary.innerHTML = `
     <span>${items.length.toLocaleString("th-TH")} งาน</span>
     <span>${approvedCount.toLocaleString("th-TH")} งาน approved</span>
-    <span>${categoryCount.toLocaleString("th-TH")} หมวดสินค้า</span>
+    <span>${exportedCount.toLocaleString("th-TH")} งาน exported</span>
   `;
+}
+
+async function refreshAssetLibrary() {
+  if (!isAppReady()) return;
+  setProductionListLoading("assets", true);
+  try {
+    const params = new URLSearchParams({
+      range: selectedAssetsRange,
+      page: String(selectedAssetsPage),
+      pageSize: String(selectedAssetsPageSize),
+      type: selectedAssetType,
+      q: els.assetSearch.value.trim(),
+      jobId: els.assetJobIdFilter.value.trim()
+    });
+    const response = await authFetch(`/api/assets?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "Cannot load assets");
+
+    latestAssetsData = data;
+    selectedAssetsPage = data.pagination?.page || selectedAssetsPage;
+    selectedAssetsPageSize = data.pagination?.pageSize || selectedAssetsPageSize;
+    if (els.assetsErrorState) els.assetsErrorState.hidden = true;
+    renderAssets();
+  } catch (error) {
+    latestAssetsData = null;
+    if (els.assetsErrorState) {
+      els.assetsErrorState.hidden = false;
+      els.assetsErrorState.textContent = `โหลดคลังภาพไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
+    }
+    renderAssets();
+  } finally {
+    setProductionListLoading("assets", false);
+  }
+}
+
+function renderProductionJobRow(job) {
+  return `
+    <tr class="production-job-row">
+      <td>
+        <strong>${escapeHtml(job.productName || job.sku || "Untitled product")}</strong>
+        <div class="table-muted">Job ${escapeHtml(job.shortId || shortId(job.id))}${job.sku ? ` · SKU ${escapeHtml(job.sku)}` : ""}</div>
+        <div class="production-meta">${escapeHtml(job.brand || "-")} · ${escapeHtml(job.category || "-")} · ${escapeHtml(job.imageType || "-")}</div>
+      </td>
+      <td>
+        <strong>${escapeHtml(job.createdBy?.name || job.createdBy?.email || "ไม่ระบุผู้ใช้งาน")}</strong>
+        <div class="table-muted">${escapeHtml(job.createdBy?.email || "")}</div>
+        <div class="production-meta">${escapeHtml(formatJobTime(job.createdAt))}</div>
+      </td>
+      <td>
+        <div class="production-status-stack">
+          ${renderStatusBadge(job.status, "Job")}
+          ${renderStatusBadge(job.generationStatus || "no_generation", "Gen")}
+          ${renderStatusBadge(job.heroStatus || "no_hero", "Hero")}
+          ${renderStatusBadge(job.supportStatus || "no_support", "Support")}
+          ${renderStatusBadge(job.approvalStatus || "pending", "Approve")}
+        </div>
+      </td>
+      <td>
+        ${renderStatusBadge(job.exportStatus || "not_exported", "Export")}
+        ${job.exportUrl ? `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">Open export</a>` : '<div class="table-muted">ยังไม่มี export link</div>'}
+      </td>
+      <td>
+        <strong>${escapeHtml(formatJobTime(job.latestActivityAt || job.updatedAt || job.createdAt))}</strong>
+        <div class="table-muted">${formatThaiNumber(job.generationCount || 0)} gen · ${formatThaiNumber(job.assetCount || 0)} assets</div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderProductionAssetCard(asset) {
+  const preview = asset.previewUrl
+    ? `<img src="${escapeHtml(asset.previewUrl)}" alt="${escapeHtml(asset.fileName || asset.type || "asset")}">`
+    : '<div class="asset-placeholder">ไม่มี preview</div>';
+  const jobShort = asset.jobShortId || shortId(asset.jobId);
+  const generationShort = asset.generationShortId || shortId(asset.generationId);
+  return `
+    <article class="asset-card production-asset-card">
+      ${preview}
+      <div>
+        <strong>${escapeHtml(asset.fileName || asset.productName || asset.type || "asset")}</strong>
+        <span>${escapeHtml(formatAssetTypeLabel(asset.typeGroup, asset.type))} · ${escapeHtml(asset.status || "-")}</span>
+        <span>${escapeHtml(asset.sku || asset.productName || "-")} · Job ${escapeHtml(jobShort || "-")}</span>
+        <span>${escapeHtml(formatJobTime(asset.createdAt))}</span>
+        <span>${escapeHtml(asset.createdBy?.email || asset.createdBy?.name || "ไม่ระบุผู้ใช้งาน")}</span>
+        ${asset.storagePath ? `<small>${escapeHtml(asset.bucket || "storage")} · ${escapeHtml(asset.storagePath)}</small>` : ""}
+      </div>
+      <div class="asset-primary-actions">
+        ${asset.imageUrl ? `<a class="ghost-button compact" href="${escapeHtml(asset.imageUrl)}" target="_blank" rel="noopener">Open image</a>` : ""}
+        ${asset.googleDriveLink ? `<a class="ghost-button compact" href="${escapeHtml(asset.googleDriveLink)}" target="_blank" rel="noopener">Open Drive</a>` : ""}
+      </div>
+      <div class="asset-debug-meta">
+        ${asset.jobId ? `<span>Job: ${escapeHtml(jobShort)} <button type="button" data-copy-value="${escapeHtml(asset.jobId)}" title="Copy job id">copy</button></span>` : ""}
+        ${asset.generationId ? `<span>Gen: ${escapeHtml(generationShort)} <button type="button" data-copy-value="${escapeHtml(asset.generationId)}" title="Copy generation id">copy</button></span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function normalizeAssetTypeFilter(value) {
+  const type = String(value || "outputs").trim().toLowerCase();
+  if (["outputs", "hero", "support", "approved", "references", "all"].includes(type)) return type;
+  return "outputs";
+}
+
+function updateAssetLibraryHelper() {
+  if (!els.assetLibraryHelper) return;
+  els.assetLibraryHelper.textContent = selectedAssetType === "references"
+    ? "Reference Assets คือภาพ input ที่ใช้ประกอบการสร้างงาน เช่น ภาพสินค้าและภาพโมเดล"
+    : "คลังภาพสำหรับดูผลงานที่สร้างจาก workflow เช่น Hero, Support และภาพที่ Approved/Export แล้ว";
+}
+
+function renderStatusBadge(status, label = "") {
+  const normalized = String(status || "unknown").toLowerCase();
+  const state = normalized.includes("failed") ? "danger" : normalized.includes("pending") || normalized.includes("queued") || normalized.includes("no_") || normalized.includes("not_") ? "warning" : "ok";
+  return `<span class="production-badge ${state}">${escapeHtml(label ? `${label}: ${status}` : status)}</span>`;
+}
+
+function formatAssetTypeLabel(typeGroup, rawType) {
+  const labels = {
+    reference: "reference image",
+    hero: "hero output",
+    support: "support output",
+    approved: "approved/exported image",
+    other: rawType || "asset"
+  };
+  return labels[typeGroup] || rawType || "asset";
+}
+
+function setProductionListLoading(kind, isLoading) {
+  if (kind === "jobs") {
+    if (els.jobsLoadingState) els.jobsLoadingState.hidden = !isLoading;
+    if (els.refreshJobsButton) els.refreshJobsButton.disabled = isLoading;
+    if (els.jobsPageSize) els.jobsPageSize.disabled = isLoading;
+    if (els.jobsPrevPage) els.jobsPrevPage.disabled = isLoading || !(latestJobsData?.pagination?.hasPrev);
+    if (els.jobsNextPage) els.jobsNextPage.disabled = isLoading || !(latestJobsData?.pagination?.hasNext);
+  }
+  if (kind === "assets") {
+    if (els.assetsLoadingState) els.assetsLoadingState.hidden = !isLoading;
+    if (els.assetsPageSize) els.assetsPageSize.disabled = isLoading;
+    if (els.assetsPrevPage) els.assetsPrevPage.disabled = isLoading || !(latestAssetsData?.pagination?.hasPrev);
+    if (els.assetsNextPage) els.assetsNextPage.disabled = isLoading || !(latestAssetsData?.pagination?.hasNext);
+  }
+}
+
+function normalizeProductionPageSize(value) {
+  const size = Number.parseInt(String(value || "10"), 10);
+  return [10, 50, 100].includes(size) ? size : 10;
+}
+
+function renderProductionPagination(kind, pagination) {
+  const isJobs = kind === "jobs";
+  const page = pagination?.page || (isJobs ? selectedJobsPage : selectedAssetsPage) || 1;
+  const pageSize = pagination?.pageSize || (isJobs ? selectedJobsPageSize : selectedAssetsPageSize) || 10;
+  const totalItems = pagination?.totalItems || 0;
+  const totalPages = pagination?.totalPages || 1;
+  if (isJobs) {
+    selectedJobsPage = page;
+    selectedJobsPageSize = pageSize;
+    if (els.jobsPageSize) els.jobsPageSize.value = String(pageSize);
+    if (els.jobsPageInfo) els.jobsPageInfo.textContent = `หน้า ${formatThaiNumber(page)} / ${formatThaiNumber(totalPages)} · ${formatThaiNumber(totalItems)} รายการ`;
+    if (els.jobsPrevPage) els.jobsPrevPage.disabled = !pagination?.hasPrev;
+    if (els.jobsNextPage) els.jobsNextPage.disabled = !pagination?.hasNext;
+    return;
+  }
+  selectedAssetsPage = page;
+  selectedAssetsPageSize = pageSize;
+  if (els.assetsPageSize) els.assetsPageSize.value = String(pageSize);
+  if (els.assetsPageInfo) els.assetsPageInfo.textContent = `หน้า ${formatThaiNumber(page)} / ${formatThaiNumber(totalPages)} · ${formatThaiNumber(totalItems)} รายการ`;
+  if (els.assetsPrevPage) els.assetsPrevPage.disabled = !pagination?.hasPrev;
+  if (els.assetsNextPage) els.assetsNextPage.disabled = !pagination?.hasNext;
 }
 
 async function refreshMetrics() {

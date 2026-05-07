@@ -571,19 +571,47 @@ app.patch("/api/admin/users/:id", requireUser, requireAdminUser, async (req, res
 
 app.get("/api/jobs", requireUser, async (req, res) => {
   try {
-    const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 100));
-    const { data, error } = await supabaseAdmin
-      .from("jobs")
-      .select("*")
-      .eq("created_by", req.user.id)
-      .order("created_at", { ascending: false })
-      .limit(limit);
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
 
-    if (error) throw error;
-    res.json({ ok: true, jobs: data || [] });
+    const result = await buildProductionJobsView(req.query);
+    res.json({ ok: true, ...result });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Jobs production view failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "jobs_view_failed",
+      error: "โหลดรายการงานไม่สำเร็จ"
+    });
+  }
+});
+
+app.get("/api/assets", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const result = await buildProductionAssetsView(req.query);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error("Assets production view failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "assets_view_failed",
+      error: "โหลดคลังภาพไม่สำเร็จ"
+    });
   }
 });
 
@@ -2894,6 +2922,423 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
     recentErrors,
     recentSystemEvents: paginateMonitoringItems(recentSystemEvents, pagination)
   };
+}
+
+async function buildProductionJobsView(query = {}) {
+  const range = normalizeKpiRange(query.range);
+  const paginationInput = normalizeProductionPagination(query);
+  const statusFilter = String(query.status || "").trim().toLowerCase();
+  const search = String(query.q || "").trim().toLowerCase();
+  const rangeMeta = getKpiRangeMeta(range);
+  const readLimit = range === "all" ? 5000 : 2500;
+
+  const [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult] = await Promise.all([
+    readMonitoringRows("jobs", [
+      "id, sku, product_name, brand, category, image_type, status, created_by, created_at, updated_at, form_json",
+      "id, sku, product_name, brand, category, image_type, status, created_by, created_at, form_json"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit
+    }),
+    readMonitoringRows("generations", [
+      "id, job_id, kind, request_id, status, created_by, created_at, updated_at, completed_at, error_message",
+      "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("approvals", [
+      "id, generation_id, approved_by, approved_at, export_path",
+      "id, generation_id, approved_by, approved_at"
+    ], {
+      since: rangeMeta.since,
+      dateColumn: "approved_at",
+      orderColumn: "approved_at",
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("assets", [
+      "id, job_id, type, bucket, public_url, storage_key, created_by, created_at",
+      "id, job_id, type, bucket, created_by, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("audit_events", [
+      "id, actor_id, job_id, generation_id, event_type, created_at",
+      "id, actor_id, job_id, generation_id, event_type, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    })
+  ]);
+
+  const jobs = jobsResult.data;
+  const generations = generationsResult.data;
+  const approvals = approvalsResult.data;
+  const assets = assetsResult.data;
+  const auditEvents = auditEventsResult.data;
+  const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
+  const profiles = await readKpiProfiles(userIds);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const generationsByJobId = groupBy(generations, "job_id");
+  const assetsByJobId = groupBy(assets, "job_id");
+  const auditEventsByJobId = groupBy(auditEvents, "job_id");
+  const approvalGenerationIds = new Set(approvals.map((approval) => approval.generation_id).filter(Boolean));
+  const approvalByGenerationId = new Map(approvals.map((approval) => [approval.generation_id, approval]));
+
+  const rows = jobs
+    .map((job) => serializeProductionJob({
+      job,
+      generations: generationsByJobId.get(job.id) || [],
+      assets: assetsByJobId.get(job.id) || [],
+      auditEvents: auditEventsByJobId.get(job.id) || [],
+      approvalGenerationIds,
+      approvalByGenerationId,
+      profile: profileById.get(job.created_by)
+    }))
+    .filter((job) => {
+      if (statusFilter && String(job.status || "").toLowerCase() !== statusFilter) return false;
+      if (!search) return true;
+      const haystack = [
+        job.id,
+        job.sku,
+        job.productName,
+        job.brand,
+        job.category,
+        job.status,
+        job.createdBy?.email,
+        job.createdBy?.name,
+        job.generationStatus,
+        job.approvalStatus,
+        job.exportStatus
+      ].join(" ").toLowerCase();
+      return haystack.includes(search);
+    });
+
+  const pagination = buildProductionPaginationMeta(paginationInput, rows.length);
+  return {
+    range,
+    rangeLabel: rangeMeta.label,
+    jobs: paginateProductionItems(rows, pagination),
+    pagination
+  };
+}
+
+async function buildProductionAssetsView(query = {}) {
+  const range = normalizeKpiRange(query.range);
+  const paginationInput = normalizeProductionPagination(query);
+  const typeFilter = normalizeProductionAssetFilter(query.type);
+  const jobIdFilter = String(query.jobId || "").trim().toLowerCase();
+  const search = String(query.q || "").trim().toLowerCase();
+  const rangeMeta = getKpiRangeMeta(range);
+  const readLimit = range === "all" ? 5000 : 2500;
+
+  const [assetsResult, jobsResult, generationsResult, approvalsResult, auditEventsResult] = await Promise.all([
+    readMonitoringRows("assets", [
+      "id, job_id, type, bucket, storage_key, public_url, file_name, mime_type, file_size, created_by, created_at",
+      "id, job_id, type, bucket, storage_key, public_url, created_by, created_at",
+      "id, job_id, type, bucket, created_by, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit
+    }),
+    readMonitoringRows("jobs", [
+      "id, sku, product_name, brand, category, status, created_by, created_at",
+      "id, sku, product_name, status, created_by, created_at"
+    ], {
+      since: null,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("generations", [
+      "id, job_id, kind, request_id, status, created_by, created_at, completed_at",
+      "id, job_id, kind, status, created_by, created_at, completed_at"
+    ], {
+      since: null,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("approvals", [
+      "id, generation_id, approved_by, approved_at, export_path",
+      "id, generation_id, approved_by, approved_at"
+    ], {
+      since: null,
+      dateColumn: "approved_at",
+      orderColumn: "approved_at",
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("audit_events", [
+      "id, actor_id, job_id, generation_id, event_type, event_json, created_at",
+      "id, actor_id, job_id, generation_id, event_type, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    })
+  ]);
+
+  const assets = assetsResult.data;
+  const jobs = jobsResult.data;
+  const generations = generationsResult.data;
+  const approvals = approvalsResult.data;
+  const auditEvents = auditEventsResult.data;
+  const userIds = collectMonitoringUserIds(assets, jobs, generations, approvals, auditEvents);
+  const profiles = await readKpiProfiles(userIds);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const generationsByJobId = groupBy(generations, "job_id");
+  const approvalByGenerationId = new Map(approvals.map((approval) => [approval.generation_id, approval]));
+  const generationIdByAssetId = buildGenerationIdByAssetId(auditEvents);
+
+  const rows = assets
+    .map((asset) => serializeProductionAsset({
+      asset,
+      job: jobById.get(asset.job_id),
+      generations: generationsByJobId.get(asset.job_id) || [],
+      generationId: generationIdByAssetId.get(asset.id) || null,
+      approvalByGenerationId,
+      profile: profileById.get(asset.created_by)
+    }))
+    .filter((asset) => {
+      if (!matchesProductionAssetType(asset, typeFilter)) return false;
+      if (jobIdFilter && !String(asset.jobId || "").toLowerCase().includes(jobIdFilter)) return false;
+      if (!search) return true;
+      const haystack = [
+        asset.id,
+        asset.jobId,
+        asset.generationId,
+        asset.sku,
+        asset.productName,
+        asset.type,
+        asset.typeGroup,
+        asset.fileName,
+        asset.bucket,
+        asset.storagePath,
+        asset.createdBy?.email,
+        asset.createdBy?.name
+      ].join(" ").toLowerCase();
+      return haystack.includes(search);
+    });
+
+  const pagination = buildProductionPaginationMeta(paginationInput, rows.length);
+  return {
+    range,
+    rangeLabel: rangeMeta.label,
+    assets: paginateProductionItems(rows, pagination),
+    pagination
+  };
+}
+
+function normalizeProductionAssetFilter(value) {
+  const type = String(value || "outputs").trim().toLowerCase();
+  if (["outputs", "hero", "support", "approved", "references", "all"].includes(type)) return type;
+  return "outputs";
+}
+
+function matchesProductionAssetType(asset, filter) {
+  if (filter === "all") return true;
+  if (filter === "outputs") return ["hero", "support", "approved"].includes(asset.typeGroup);
+  if (filter === "references") return asset.typeGroup === "reference";
+  return asset.typeGroup === filter;
+}
+
+function normalizeProductionPagination(query = {}) {
+  const page = Math.max(1, Number.parseInt(String(query.page || "1"), 10) || 1);
+  const requestedPageSize = Number.parseInt(String(query.pageSize || "10"), 10) || 10;
+  const allowedPageSizes = new Set([10, 50, 100]);
+  const pageSize = allowedPageSizes.has(requestedPageSize) ? requestedPageSize : 10;
+  return { page, pageSize };
+}
+
+function buildProductionPaginationMeta(input, totalItems) {
+  const safeTotal = Math.max(0, Number(totalItems || 0));
+  const totalPages = Math.max(1, Math.ceil(safeTotal / input.pageSize));
+  const page = Math.min(Math.max(1, input.page), totalPages);
+  return {
+    page,
+    pageSize: input.pageSize,
+    totalItems: safeTotal,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrev: page > 1
+  };
+}
+
+function paginateProductionItems(items, pagination) {
+  const start = (pagination.page - 1) * pagination.pageSize;
+  return items.slice(start, start + pagination.pageSize);
+}
+
+function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, profile }) {
+  const sortedGenerations = [...generations].sort((a, b) => new Date(b.completed_at || b.created_at || 0) - new Date(a.completed_at || a.created_at || 0));
+  const latestGeneration = sortedGenerations[0] || null;
+  const heroGeneration = sortedGenerations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || sortedGenerations[0] || null;
+  const supportGenerations = sortedGenerations.filter((generation) => String(generation.kind || "").toLowerCase() !== "hero");
+  const approvedGeneration = sortedGenerations.find((generation) => approvalGenerationIds.has(generation.id));
+  const approval = approvedGeneration ? approvalByGenerationId.get(approvedGeneration.id) : null;
+  const exportAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "approved_export");
+  const latestActivityAt = latestTimestamp([
+    job.updated_at,
+    job.created_at,
+    latestGeneration?.completed_at,
+    latestGeneration?.created_at,
+    approval?.approved_at,
+    exportAsset?.created_at,
+    ...auditEvents.map((event) => event.created_at)
+  ]);
+
+  return {
+    id: job.id,
+    shortId: shortServerId(job.id),
+    sku: safeProductionText(job.sku || job.form_json?.sku || ""),
+    productName: safeProductionText(job.product_name || job.form_json?.productName || "Untitled product"),
+    brand: safeProductionText(job.brand || job.form_json?.brand || ""),
+    category: safeProductionText(job.category || job.form_json?.category || ""),
+    imageType: safeProductionText(job.image_type || job.form_json?.imageType || ""),
+    status: job.status || "unknown",
+    createdAt: job.created_at || null,
+    updatedAt: job.updated_at || null,
+    createdBy: serializeProductionUser(profile, job.created_by),
+    generationStatus: latestGeneration?.status || "",
+    latestGenerationId: latestGeneration?.id || null,
+    heroStatus: heroGeneration?.status || "",
+    supportStatus: supportGenerations.length
+      ? summarizeProductionStatuses(supportGenerations.map((generation) => generation.status))
+      : "",
+    approvalStatus: approval ? "approved" : "pending",
+    approvedAt: approval?.approved_at || null,
+    exportStatus: exportAsset ? exportAsset.bucket === "google_drive" ? "google_drive" : "exported" : approval?.export_path ? "exported" : "not_exported",
+    exportUrl: safeUrl(approval?.export_path || exportAsset?.public_url || ""),
+    latestActivityAt,
+    assetCount: assets.length,
+    generationCount: generations.length
+  };
+}
+
+function serializeProductionAsset({ asset, job, generations, generationId, approvalByGenerationId, profile }) {
+  const typeGroup = classifyProductionAssetType(asset.type);
+  const relatedGeneration = generationId
+    ? generations.find((generation) => generation.id === generationId)
+    : inferAssetGeneration(asset, generations);
+  const approval = relatedGeneration ? approvalByGenerationId.get(relatedGeneration.id) : null;
+  const publicUrl = safeUrl(asset.public_url || "");
+  const storagePath = safeProductionText(asset.storage_key || "");
+  const googleDriveLink = asset.bucket === "google_drive" ? safeUrl(asset.public_url || asset.storage_key || approval?.export_path || "") : "";
+  return {
+    id: asset.id,
+    shortId: shortServerId(asset.id),
+    jobId: asset.job_id || null,
+    jobShortId: shortServerId(asset.job_id),
+    generationId: relatedGeneration?.id || generationId || null,
+    generationShortId: shortServerId(relatedGeneration?.id || generationId),
+    sku: safeProductionText(job?.sku || ""),
+    productName: safeProductionText(job?.product_name || "Untitled product"),
+    type: asset.type || "asset",
+    typeGroup,
+    bucket: asset.bucket || "",
+    fileName: safeProductionText(asset.file_name || path.basename(String(asset.storage_key || "")) || ""),
+    mimeType: asset.mime_type || "",
+    fileSize: Number.isFinite(asset.file_size) ? asset.file_size : null,
+    previewUrl: publicUrl,
+    imageUrl: publicUrl,
+    storagePath,
+    googleDriveLink,
+    createdAt: asset.created_at || null,
+    createdBy: serializeProductionUser(profile, asset.created_by),
+    status: productionAssetStatus(asset, approval)
+  };
+}
+
+function serializeProductionUser(profile, fallbackId = "") {
+  return {
+    id: profile?.id || fallbackId || null,
+    email: profile?.email || "",
+    name: profile?.full_name || profile?.email || ""
+  };
+}
+
+function groupBy(items, key) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const value = item?.[key];
+    if (!value) return;
+    if (!groups.has(value)) groups.set(value, []);
+    groups.get(value).push(item);
+  });
+  return groups;
+}
+
+function latestTimestamp(values) {
+  const timestamps = values
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function summarizeProductionStatuses(statuses) {
+  const normalized = statuses.map((status) => String(status || "").toLowerCase()).filter(Boolean);
+  if (!normalized.length) return "";
+  if (normalized.some((status) => isFailedStatus(status))) return "has_failed";
+  if (normalized.every((status) => isSuccessfulGenerationStatus(status))) return "done";
+  if (normalized.some((status) => ["running", "generating", "queued"].includes(status))) return "in_progress";
+  return normalized[0] || "";
+}
+
+function classifyProductionAssetType(type) {
+  const value = String(type || "").toLowerCase();
+  if (value.includes("reference")) return "reference";
+  if (value.includes("hero")) return "hero";
+  if (value.includes("support")) return "support";
+  if (value.includes("approved") || value.includes("export")) return "approved";
+  return "other";
+}
+
+function productionAssetStatus(asset, approval) {
+  if (asset.bucket === "google_drive") return "google_drive";
+  if (approval) return "approved";
+  if (asset.public_url) return "available";
+  return "metadata_only";
+}
+
+function inferAssetGeneration(asset, generations) {
+  const typeGroup = classifyProductionAssetType(asset.type);
+  if (typeGroup === "hero") return generations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || null;
+  if (typeGroup === "support") return generations.find((generation) => String(generation.kind || "").toLowerCase() !== "hero") || null;
+  return null;
+}
+
+function buildGenerationIdByAssetId(auditEvents) {
+  const map = new Map();
+  auditEvents.forEach((event) => {
+    const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+    if (eventJson.assetId && event.generation_id) map.set(eventJson.assetId, event.generation_id);
+  });
+  return map;
+}
+
+function safeUrl(value) {
+  const text = String(value || "").trim();
+  return /^https?:\/\//i.test(text) || text.startsWith("/") ? text.slice(0, 1000) : "";
+}
+
+function safeProductionText(value, maxLength = 240) {
+  return String(value || "")
+    .replace(/(access_token|refresh_token|provider_token|provider_refresh_token|service_role|password|token_json)[=:]\s*([^&\s,}]+)/gi, "$1=[hidden]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[hidden-token]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function shortServerId(value) {
+  return String(value || "").slice(0, 8);
 }
 
 function normalizeMonitoringPagination(query = {}) {
