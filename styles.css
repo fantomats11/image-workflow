@@ -1584,6 +1584,191 @@ tbody tr:hover {
   text-align: right;
 }
 
+.staff-management-card {
+  grid-column: 1 / -1;
+}
+
+.staff-admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) repeat(3, minmax(150px, 0.7fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.staff-admin-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.staff-admin-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffdfa;
+  padding: 13px;
+  box-shadow: var(--shadow-xs);
+}
+
+.staff-admin-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.staff-admin-main strong {
+  display: block;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.staff-admin-main span,
+.staff-admin-meta span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.staff-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.staff-badges span {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.staff-badges .admin {
+  border-color: #cbded3;
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.staff-badges .staff {
+  border-color: #c8d8ee;
+  background: #edf4fb;
+  color: var(--info);
+}
+
+.staff-badges .inactive,
+.staff-badges .password-required {
+  border-color: #ead7a7;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.staff-admin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.staff-admin-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.3fr) auto minmax(120px, 0.7fr) minmax(130px, 0.55fr) minmax(170px, 0.65fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.staff-admin-controls .ghost-button {
+  min-height: 42px;
+}
+
+.staff-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 8px 10px;
+}
+
+.staff-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.staff-toggle span {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.staff-admin-saving {
+  border: 1px solid #c8d8ee;
+  border-radius: var(--radius);
+  background: #edf4fb;
+  color: var(--info);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(25, 26, 24, 0.45);
+}
+
+.modal-panel {
+  width: min(720px, 100%);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  padding: 18px;
+  box-shadow: var(--shadow-lg);
+}
+
+.staff-create-modal h3 {
+  font-size: 22px;
+}
+
+.staff-create-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.staff-create-form .kpi-state,
+.staff-create-form .settings-actions,
+.staff-create-toggles {
+  grid-column: 1 / -1;
+}
+
+.staff-create-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 /* Platform experience layer */
 .app-shell {
   background:
@@ -2007,7 +2192,9 @@ tbody tr:hover {
   .lower-grid,
   .kpi-ops-grid,
   .kpi-detail-grid,
-  .settings-grid {
+  .settings-grid,
+  .staff-admin-toolbar,
+  .staff-admin-controls {
     grid-template-columns: 1fr;
   }
 
@@ -2153,6 +2340,8 @@ tbody tr:hover {
   .kpi-detail-grid,
   .asset-grid,
   .settings-grid,
+  .staff-admin-toolbar,
+  .staff-admin-controls,
   .form-grid,
   .upload-grid,
   .checklist,
@@ -2211,12 +2400,44 @@ tbody tr:hover {
   }
 
   .staff-row,
-  .activity-row {
+  .activity-row,
+  .staff-admin-main {
     grid-template-columns: 1fr;
   }
 
   .staff-metrics {
     justify-content: flex-start;
+  }
+
+  .staff-admin-main {
+    display: grid;
+  }
+
+  .staff-badges {
+    justify-content: flex-start;
+  }
+
+  .staff-admin-controls {
+    align-items: stretch;
+  }
+
+  .staff-admin-controls .ghost-button {
+    width: 100%;
+  }
+
+  .modal-backdrop {
+    align-items: start;
+    padding: 12px;
+  }
+
+  .modal-panel {
+    max-height: calc(100vh - 24px);
+    padding: 14px;
+  }
+
+  .staff-create-form,
+  .staff-create-toggles {
+    grid-template-columns: 1fr;
   }
 
   .activity-row small {

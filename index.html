@@ -529,6 +529,53 @@
                   <button class="primary-button compact" type="button" id="googleDriveConnectButton" data-action="google-drive-connect">เชื่อมต่อ Google Drive</button>
                 </div>
               </section>
+              <section class="settings-card staff-management-card" id="staffManagementSection" hidden>
+                <div class="settings-card-header">
+                  <div>
+                    <h4>Staff Management</h4>
+                    <p>จัดการสิทธิ์และสถานะของ profiles ที่มีอยู่แล้ว</p>
+                  </div>
+                  <div class="settings-actions">
+                    <button class="primary-button compact" type="button" id="openCreateStaffButton">เพิ่มผู้ใช้</button>
+                    <button class="ghost-button compact" type="button" id="refreshStaffButton">รีเฟรช</button>
+                  </div>
+                </div>
+                <div class="staff-admin-toolbar">
+                  <label>
+                    ค้นหา
+                    <input id="staffSearch" type="search" placeholder="ชื่อหรืออีเมล" />
+                  </label>
+                  <label>
+                    Role
+                    <select id="staffRoleFilter">
+                      <option value="">ทั้งหมด</option>
+                      <option value="admin">admin</option>
+                      <option value="staff">staff</option>
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select id="staffStatusFilter">
+                      <option value="">ทั้งหมด</option>
+                      <option value="active">active</option>
+                      <option value="inactive">inactive</option>
+                    </select>
+                  </label>
+                  <label>
+                    Password
+                    <select id="staffPasswordFilter">
+                      <option value="">ทั้งหมด</option>
+                      <option value="yes">ต้องเปลี่ยนรหัส</option>
+                      <option value="no">ปกติ</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="kpi-state" id="staffLoadingState" hidden>กำลังโหลดรายชื่อผู้ใช้งาน...</div>
+                <div class="kpi-state danger" id="staffErrorState" hidden>โหลดรายชื่อผู้ใช้งานไม่สำเร็จ</div>
+                <div class="kpi-state" id="staffSuccessState" hidden>สร้างผู้ใช้งานสำเร็จ</div>
+                <div class="kpi-state" id="staffEmptyState" hidden>ยังไม่มีผู้ใช้งาน</div>
+                <div class="staff-admin-list" id="staffAdminList"></div>
+              </section>
               <section class="settings-card">
                 <h4>Cloud Readiness</h4>
                 <div class="readiness-list">
@@ -544,6 +591,58 @@
         </section>
       </section>
     </main>
+
+    <div class="modal-backdrop" id="createStaffModal" hidden>
+      <section class="modal-panel staff-create-modal" role="dialog" aria-modal="true" aria-labelledby="createStaffTitle">
+        <div class="settings-card-header">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h3 id="createStaffTitle">เพิ่มผู้ใช้งานใหม่</h3>
+          </div>
+          <button class="ghost-button compact" type="button" id="closeCreateStaffButton">ปิด</button>
+        </div>
+        <form id="createStaffForm" class="staff-create-form">
+          <label>
+            ชื่อพนักงาน
+            <input id="createStaffFullName" type="text" autocomplete="name" placeholder="เช่น Somchai Sale" />
+          </label>
+          <label>
+            Email
+            <input id="createStaffEmail" type="email" autocomplete="email" required placeholder="staff@example.com" />
+          </label>
+          <label>
+            Role
+            <select id="createStaffRole">
+              <option value="staff">staff</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <label>
+            Temporary password
+            <input id="createStaffPassword" type="password" autocomplete="new-password" required minlength="8" />
+          </label>
+          <label>
+            Confirm temporary password
+            <input id="createStaffConfirmPassword" type="password" autocomplete="new-password" required minlength="8" />
+          </label>
+          <div class="staff-create-toggles">
+            <label class="staff-toggle">
+              <input id="createStaffIsActive" type="checkbox" checked />
+              <span>เปิดใช้งานทันที</span>
+            </label>
+            <label class="staff-toggle">
+              <input id="createStaffMustChangePassword" type="checkbox" checked />
+              <span>บังคับเปลี่ยนรหัสหลัง login</span>
+            </label>
+          </div>
+          <div class="kpi-state danger" id="createStaffError" hidden>สร้างผู้ใช้งานไม่สำเร็จ</div>
+          <div class="settings-actions">
+            <button class="primary-button" type="submit" id="createStaffSubmitButton">สร้างผู้ใช้งาน</button>
+            <button class="ghost-button" type="button" id="cancelCreateStaffButton">ยกเลิก</button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <script src="/vendor/supabase/supabase.js"></script>
     <script src="./app.js"></script>

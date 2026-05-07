@@ -105,13 +105,21 @@ async function requireAdminUser(req, res, next) {
   try {
     const profile = await getProfileForUser(req.user);
     if (!profile?.is_active || profile.must_change_password || profile.role !== "admin") {
-      return res.status(403).json({ error: "เฉพาะ Admin เท่านั้นที่เชื่อมต่อ Google Drive ได้" });
+      return res.status(403).json({
+        ok: false,
+        code: "admin_required",
+        error: "เฉพาะ Admin เท่านั้นที่ใช้งานส่วนนี้ได้"
+      });
     }
     req.profile = profile;
     next();
   } catch (error) {
     console.error("Admin check failed:", readableError(error));
-    res.status(500).json({ error: "ตรวจสอบสิทธิ์ Admin ไม่สำเร็จ" });
+    res.status(500).json({
+      ok: false,
+      code: "admin_check_failed",
+      error: "ตรวจสอบสิทธิ์ Admin ไม่สำเร็จ"
+    });
   }
 }
 
@@ -183,6 +191,227 @@ app.post("/api/me/password-changed", requireUser, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: readableError(error) });
+  }
+});
+
+app.get("/api/admin/users", requireUser, requireAdminUser, async (_req, res) => {
+  try {
+    const { data: profiles, error } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) throw error;
+
+    const latestActivityByActor = await readLatestActivityByActor();
+    const users = (profiles || []).map((profile) => serializeAdminUserProfile(profile, latestActivityByActor.get(profile.id)));
+    res.json({ ok: true, users });
+  } catch (error) {
+    console.error("Admin users list failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "admin_users_failed",
+      error: "โหลดรายชื่อผู้ใช้งานไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/admin/users", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const payloadResult = buildAdminUserCreatePayload(req.body);
+    if (!payloadResult.ok) {
+      return res.status(400).json({
+        ok: false,
+        code: payloadResult.code,
+        error: payloadResult.error
+      });
+    }
+
+    const payload = payloadResult.payload;
+    const existingProfileResult = await supabaseAdmin
+      .from("profiles")
+      .select("id, email")
+      .ilike("email", payload.email)
+      .maybeSingle();
+
+    if (existingProfileResult.error) throw existingProfileResult.error;
+    if (existingProfileResult.data) {
+      return res.status(409).json({
+        ok: false,
+        code: "profile_already_exists",
+        error: "อีเมลนี้มี profile อยู่แล้ว กรุณาใช้รายการเดิมใน Staff Management"
+      });
+    }
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: payload.email,
+      password: payload.temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
+        full_name: payload.full_name,
+        role: payload.role
+      }
+    });
+
+    if (authError) {
+      return res.status(isAuthUserExistsError(authError) ? 409 : 400).json({
+        ok: false,
+        code: isAuthUserExistsError(authError) ? "auth_user_already_exists" : "auth_user_create_failed",
+        error: isAuthUserExistsError(authError)
+          ? "อีเมลนี้มี Supabase Auth user อยู่แล้ว กรุณาใช้บัญชีเดิมหรือเพิ่ม profile ให้ตรงกับ Auth user"
+          : "สร้าง Auth user ไม่สำเร็จ"
+      });
+    }
+
+    const createdUser = authData?.user;
+    if (!createdUser?.id) {
+      return res.status(500).json({
+        ok: false,
+        code: "auth_user_missing",
+        error: "สร้าง Auth user แล้วแต่ไม่พบรหัสผู้ใช้งาน"
+      });
+    }
+
+    const profileInsert = {
+      id: createdUser.id,
+      email: payload.email,
+      full_name: payload.full_name,
+      role: payload.role,
+      is_active: payload.is_active,
+      must_change_password: payload.must_change_password
+    };
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .insert(profileInsert)
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .single();
+
+    if (profileError) {
+      console.error("Profile insert failed after auth user creation:", {
+        authUserId: createdUser.id,
+        email: payload.email,
+        error: readableError(profileError)
+      });
+      return res.status(500).json({
+        ok: false,
+        code: "profile_insert_failed",
+        error: "สร้าง Auth user แล้ว แต่สร้าง profile ไม่สำเร็จ กรุณาตรวจสอบใน Supabase ก่อนลองใหม่"
+      });
+    }
+
+    await recordAuditEvent({
+      actorId: req.user.id,
+      eventType: "user_created",
+      eventJson: {
+        admin_user_id: req.user.id,
+        admin_email: req.profile?.email || req.user.email || "",
+        created_user_id: profile.id,
+        created_user_email: profile.email || "",
+        role: profile.role,
+        is_active: profile.is_active !== false,
+        must_change_password: profile.must_change_password === true
+      }
+    });
+
+    res.status(201).json({
+      ok: true,
+      user: serializeAdminUserProfile(profile)
+    });
+  } catch (error) {
+    console.error("Admin user create failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "admin_user_create_failed",
+      error: "สร้างผู้ใช้งานไม่สำเร็จ"
+    });
+  }
+});
+
+app.patch("/api/admin/users/:id", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const userId = String(req.params.id || "").trim();
+    if (!isValidUuid(userId)) {
+      return res.status(400).json({
+        ok: false,
+        code: "invalid_user_id",
+        error: "รหัสผู้ใช้งานไม่ถูกต้อง"
+      });
+    }
+
+    const patchResult = buildAdminUserPatch(req.body);
+    if (!patchResult.ok) {
+      return res.status(400).json({
+        ok: false,
+        code: patchResult.code,
+        error: patchResult.error
+      });
+    }
+
+    if (!Object.keys(patchResult.patch).length) {
+      return res.status(400).json({
+        ok: false,
+        code: "empty_patch",
+        error: "ไม่มีข้อมูลที่ต้องอัปเดต"
+      });
+    }
+
+    const { data: existingProfile, error: existingError } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (!existingProfile) {
+      return res.status(404).json({
+        ok: false,
+        code: "user_not_found",
+        error: "ไม่พบผู้ใช้งานนี้"
+      });
+    }
+
+    const safetyResult = await validateAdminUserPatchSafety({
+      actorId: req.user.id,
+      existingProfile,
+      patch: patchResult.patch
+    });
+    if (!safetyResult.ok) {
+      return res.status(400).json({
+        ok: false,
+        code: safetyResult.code,
+        error: safetyResult.error
+      });
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from("profiles")
+      .update(patchResult.patch)
+      .eq("id", userId)
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .single();
+
+    if (updateError) throw updateError;
+
+    await recordProfileUpdateAuditEvents({
+      actorId: req.user.id,
+      before: existingProfile,
+      after: updatedProfile,
+      changedFields: Object.keys(patchResult.patch)
+    });
+
+    const latestActivityByActor = await readLatestActivityByActor();
+    res.json({
+      ok: true,
+      user: serializeAdminUserProfile(updatedProfile, latestActivityByActor.get(updatedProfile.id))
+    });
+  } catch (error) {
+    console.error("Admin user update failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "admin_user_update_failed",
+      error: "อัปเดตผู้ใช้งานไม่สำเร็จ"
+    });
   }
 });
 
@@ -2653,6 +2882,250 @@ function dedupeWarnings(warnings) {
 
 function formatThaiNumber(value) {
   return Number(value || 0).toLocaleString("th-TH");
+}
+
+function isValidUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function buildAdminUserCreatePayload(body = {}) {
+  const email = normalizeEmail(body.email);
+  const fullName = cleanOptionalString(body.full_name ?? body.fullName) || "";
+  const role = String(body.role || "staff").trim().toLowerCase();
+  const temporaryPassword = String(body.temporary_password ?? body.temporaryPassword ?? "").trim();
+  const confirmPassword = String(body.confirm_temporary_password ?? body.confirmTemporaryPassword ?? "").trim();
+  const isActive = Object.prototype.hasOwnProperty.call(body, "is_active") ? body.is_active : true;
+  const mustChangePassword = Object.prototype.hasOwnProperty.call(body, "must_change_password") ? body.must_change_password : true;
+
+  if (!isValidEmail(email)) {
+    return {
+      ok: false,
+      code: "invalid_email",
+      error: "อีเมลไม่ถูกต้อง"
+    };
+  }
+  if (fullName.length > 160) {
+    return {
+      ok: false,
+      code: "invalid_full_name",
+      error: "ชื่อพนักงานยาวเกินไป"
+    };
+  }
+  if (!["admin", "staff"].includes(role)) {
+    return {
+      ok: false,
+      code: "invalid_role",
+      error: "Role ต้องเป็น admin หรือ staff เท่านั้น"
+    };
+  }
+  if (temporaryPassword.length < 8) {
+    return {
+      ok: false,
+      code: "weak_temporary_password",
+      error: "Temporary password ต้องมีอย่างน้อย 8 ตัวอักษร"
+    };
+  }
+  if (temporaryPassword !== confirmPassword) {
+    return {
+      ok: false,
+      code: "password_mismatch",
+      error: "Temporary password และ confirm password ไม่ตรงกัน"
+    };
+  }
+  if (typeof isActive !== "boolean" || typeof mustChangePassword !== "boolean") {
+    return {
+      ok: false,
+      code: "invalid_status",
+      error: "สถานะต้องเป็น true หรือ false เท่านั้น"
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      email,
+      full_name: fullName,
+      role,
+      temporaryPassword,
+      is_active: isActive,
+      must_change_password: mustChangePassword
+    }
+  };
+}
+
+function buildAdminUserPatch(body = {}) {
+  const patch = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "full_name") || Object.prototype.hasOwnProperty.call(body, "fullName")) {
+    const fullName = cleanOptionalString(body.full_name ?? body.fullName) || "";
+    if (fullName.length > 160) {
+      return {
+        ok: false,
+        code: "invalid_full_name",
+        error: "ชื่อพนักงานยาวเกินไป"
+      };
+    }
+    patch.full_name = fullName;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "role")) {
+    const role = String(body.role || "").trim().toLowerCase();
+    if (!["admin", "staff"].includes(role)) {
+      return {
+        ok: false,
+        code: "invalid_role",
+        error: "Role ต้องเป็น admin หรือ staff เท่านั้น"
+      };
+    }
+    patch.role = role;
+  }
+
+  for (const field of ["is_active", "must_change_password"]) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      if (typeof body[field] !== "boolean") {
+        return {
+          ok: false,
+          code: `invalid_${field}`,
+          error: "สถานะต้องเป็น true หรือ false เท่านั้น"
+        };
+      }
+      patch[field] = body[field];
+    }
+  }
+
+  return { ok: true, patch };
+}
+
+async function validateAdminUserPatchSafety({ actorId, existingProfile, patch }) {
+  const isSelf = actorId === existingProfile.id;
+  if (isSelf && patch.is_active === false) {
+    return {
+      ok: false,
+      code: "self_deactivation_blocked",
+      error: "ไม่สามารถปิดใช้งานบัญชี Admin ของตัวเองได้"
+    };
+  }
+
+  const currentRole = String(existingProfile.role || "").trim().toLowerCase();
+  const targetRole = patch.role || currentRole;
+  const targetActive = Object.prototype.hasOwnProperty.call(patch, "is_active")
+    ? patch.is_active
+    : existingProfile.is_active !== false;
+  const removesActiveAdmin = currentRole === "admin" && (targetRole !== "admin" || targetActive === false);
+  if (!removesActiveAdmin) return { ok: true };
+
+  const hasOtherAdmin = await hasAnotherActiveAdmin(existingProfile.id);
+  if (!hasOtherAdmin) {
+    return {
+      ok: false,
+      code: "last_admin_blocked",
+      error: "ไม่สามารถเปลี่ยนหรือปิด admin คนสุดท้ายได้"
+    };
+  }
+
+  return { ok: true };
+}
+
+async function hasAnotherActiveAdmin(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id")
+    .ilike("role", "admin")
+    .eq("is_active", true)
+    .neq("id", userId)
+    .limit(1);
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
+function normalizeEmail(value) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ""));
+}
+
+function isAuthUserExistsError(error) {
+  return /already registered|already exists|user.*exists|email.*exists/i.test(error?.message || "");
+}
+
+async function readLatestActivityByActor() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("audit_events")
+      .select("actor_id, event_type, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+
+    const latestByActor = new Map();
+    (data || []).forEach((event) => {
+      if (event.actor_id && !latestByActor.has(event.actor_id)) {
+        latestByActor.set(event.actor_id, {
+          type: event.event_type || "",
+          at: event.created_at || null
+        });
+      }
+    });
+    return latestByActor;
+  } catch (error) {
+    console.warn("Latest user activity unavailable:", readableError(error));
+    return new Map();
+  }
+}
+
+function serializeAdminUserProfile(profile, latestActivity = null) {
+  return {
+    id: profile.id,
+    email: profile.email || "",
+    full_name: profile.full_name || "",
+    role: String(profile.role || "staff").trim().toLowerCase() === "admin" ? "admin" : "staff",
+    is_active: profile.is_active !== false,
+    must_change_password: profile.must_change_password === true,
+    created_at: profile.created_at || null,
+    latest_activity: latestActivity
+  };
+}
+
+async function recordProfileUpdateAuditEvents({ actorId, before, after, changedFields }) {
+  const safeBefore = serializeAdminUserProfile(before);
+  const safeAfter = serializeAdminUserProfile(after);
+  const eventJson = {
+    target_user_id: after.id,
+    target_email: after.email || "",
+    changed_fields: changedFields,
+    before: safeBefore,
+    after: safeAfter
+  };
+
+  await recordAuditEvent({
+    actorId,
+    eventType: "user_profile_updated",
+    eventJson
+  });
+
+  if (safeBefore.role !== safeAfter.role) {
+    await recordAuditEvent({
+      actorId,
+      eventType: "user_role_changed",
+      eventJson
+    });
+  }
+  if (safeBefore.is_active !== safeAfter.is_active) {
+    await recordAuditEvent({
+      actorId,
+      eventType: safeAfter.is_active === false ? "user_deactivated" : "user_activated",
+      eventJson
+    });
+  }
+  if ((before.must_change_password === true) !== (after.must_change_password === true)) {
+    await recordAuditEvent({
+      actorId,
+      eventType: "user_password_change_required_updated",
+      eventJson
+    });
+  }
 }
 
 function readableError(error) {

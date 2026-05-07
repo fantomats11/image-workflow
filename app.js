@@ -358,7 +358,32 @@ const els = {
   googleDriveIntegrationSection: document.getElementById("googleDriveIntegrationSection"),
   googleDriveStatusPill: document.getElementById("googleDriveStatusPill"),
   googleDriveStatusText: document.getElementById("googleDriveStatusText"),
-  googleDriveConnectButton: document.getElementById("googleDriveConnectButton")
+  googleDriveConnectButton: document.getElementById("googleDriveConnectButton"),
+  staffManagementSection: document.getElementById("staffManagementSection"),
+  refreshStaffButton: document.getElementById("refreshStaffButton"),
+  staffSearch: document.getElementById("staffSearch"),
+  staffRoleFilter: document.getElementById("staffRoleFilter"),
+  staffStatusFilter: document.getElementById("staffStatusFilter"),
+  staffPasswordFilter: document.getElementById("staffPasswordFilter"),
+  staffLoadingState: document.getElementById("staffLoadingState"),
+  staffErrorState: document.getElementById("staffErrorState"),
+  staffSuccessState: document.getElementById("staffSuccessState"),
+  staffEmptyState: document.getElementById("staffEmptyState"),
+  staffAdminList: document.getElementById("staffAdminList"),
+  openCreateStaffButton: document.getElementById("openCreateStaffButton"),
+  createStaffModal: document.getElementById("createStaffModal"),
+  closeCreateStaffButton: document.getElementById("closeCreateStaffButton"),
+  cancelCreateStaffButton: document.getElementById("cancelCreateStaffButton"),
+  createStaffForm: document.getElementById("createStaffForm"),
+  createStaffFullName: document.getElementById("createStaffFullName"),
+  createStaffEmail: document.getElementById("createStaffEmail"),
+  createStaffRole: document.getElementById("createStaffRole"),
+  createStaffPassword: document.getElementById("createStaffPassword"),
+  createStaffConfirmPassword: document.getElementById("createStaffConfirmPassword"),
+  createStaffIsActive: document.getElementById("createStaffIsActive"),
+  createStaffMustChangePassword: document.getElementById("createStaffMustChangePassword"),
+  createStaffError: document.getElementById("createStaffError"),
+  createStaffSubmitButton: document.getElementById("createStaffSubmitButton")
 };
 
 let currentPrompt = "";
@@ -376,6 +401,8 @@ let jobHistory = localJobHistory;
 let jobHistoryError = "";
 let latestMetricData = null;
 let selectedKpiRange = "today";
+let latestStaffUsers = [];
+const staffUpdateInProgress = new Set();
 let supabaseClient = null;
 let currentSession = null;
 let currentProfile = null;
@@ -972,6 +999,7 @@ function applyRoleUi() {
   const settingsLink = els.pageNav.querySelector('[data-page-link="settings"]');
   if (settingsLink) settingsLink.hidden = !isAdmin();
   if (els.googleDriveIntegrationSection) els.googleDriveIntegrationSection.hidden = !isAdmin();
+  if (els.staffManagementSection) els.staffManagementSection.hidden = !isAdmin();
 }
 
 function getProfileErrorMessage(error) {
@@ -1130,6 +1158,7 @@ function navigateToPage(page) {
   if (targetPage === "settings") {
     renderSettingsPreview();
     refreshGoogleDriveStatus();
+    refreshStaffUsers();
   }
 }
 
@@ -1209,6 +1238,20 @@ function bindEvents() {
     });
     refreshMetrics();
   });
+  els.refreshStaffButton.addEventListener("click", refreshStaffUsers);
+  els.openCreateStaffButton.addEventListener("click", openCreateStaffModal);
+  els.closeCreateStaffButton.addEventListener("click", closeCreateStaffModal);
+  els.cancelCreateStaffButton.addEventListener("click", closeCreateStaffModal);
+  els.createStaffModal.addEventListener("click", (event) => {
+    if (event.target === els.createStaffModal) closeCreateStaffModal();
+  });
+  els.createStaffForm.addEventListener("submit", handleCreateStaffSubmit);
+  [els.staffSearch, els.staffRoleFilter, els.staffStatusFilter, els.staffPasswordFilter].forEach((filter) => {
+    filter.addEventListener("input", renderStaffUsers);
+    filter.addEventListener("change", renderStaffUsers);
+  });
+  els.staffAdminList.addEventListener("change", handleStaffFieldChange);
+  els.staffAdminList.addEventListener("click", handleStaffListClick);
   els.historySearch.addEventListener("input", renderHistory);
   els.historyStatusFilter.addEventListener("change", renderHistory);
   els.historyCategoryFilter.addEventListener("change", renderHistory);
@@ -2758,6 +2801,312 @@ async function connectGoogleDrive() {
     els.googleDriveStatusText.textContent = getSafeAuthErrorMessage(error);
     els.googleDriveConnectButton.disabled = false;
     els.googleDriveConnectButton.textContent = "เชื่อมต่อ Google Drive";
+  }
+}
+
+async function refreshStaffUsers() {
+  if (!isAdmin() || !els.staffManagementSection) return;
+
+  els.staffManagementSection.hidden = false;
+  setStaffLoading(true);
+  setStaffError("");
+
+  try {
+    const response = await authFetch("/api/admin/users");
+    const data = await readJsonResponse(response, "โหลดรายชื่อผู้ใช้งานไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "โหลดรายชื่อผู้ใช้งานไม่สำเร็จ");
+    latestStaffUsers = Array.isArray(data.users) ? data.users : [];
+    renderStaffUsers();
+  } catch (error) {
+    setStaffError(`โหลดรายชื่อผู้ใช้งานไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
+    latestStaffUsers = [];
+    renderStaffUsers();
+  } finally {
+    setStaffLoading(false);
+  }
+}
+
+function setStaffLoading(isLoading) {
+  els.staffLoadingState.hidden = !isLoading;
+  els.refreshStaffButton.disabled = isLoading;
+}
+
+function setStaffError(message) {
+  els.staffErrorState.hidden = !message;
+  els.staffErrorState.textContent = message || "โหลดรายชื่อผู้ใช้งานไม่สำเร็จ";
+}
+
+function setStaffSuccess(message) {
+  els.staffSuccessState.hidden = !message;
+  els.staffSuccessState.textContent = message || "สร้างผู้ใช้งานสำเร็จ";
+  if (message) {
+    setTimeout(() => {
+      if (els.staffSuccessState.textContent === message) els.staffSuccessState.hidden = true;
+    }, 4000);
+  }
+}
+
+function openCreateStaffModal() {
+  if (!isAdmin()) return;
+  clearCreateStaffError();
+  els.createStaffModal.hidden = false;
+  document.body.classList.add("modal-open");
+  setTimeout(() => els.createStaffEmail.focus(), 0);
+}
+
+function closeCreateStaffModal() {
+  els.createStaffModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  setCreateStaffLoading(false);
+  clearCreateStaffError();
+  els.createStaffPassword.value = "";
+  els.createStaffConfirmPassword.value = "";
+}
+
+function resetCreateStaffForm() {
+  els.createStaffForm.reset();
+  els.createStaffRole.value = "staff";
+  els.createStaffIsActive.checked = true;
+  els.createStaffMustChangePassword.checked = true;
+  els.createStaffPassword.value = "";
+  els.createStaffConfirmPassword.value = "";
+}
+
+function setCreateStaffLoading(isLoading) {
+  els.createStaffSubmitButton.disabled = isLoading;
+  els.closeCreateStaffButton.disabled = isLoading;
+  els.cancelCreateStaffButton.disabled = isLoading;
+  els.createStaffSubmitButton.textContent = isLoading ? "กำลังสร้าง..." : "สร้างผู้ใช้งาน";
+}
+
+function setCreateStaffError(message) {
+  els.createStaffError.hidden = !message;
+  els.createStaffError.textContent = message || "สร้างผู้ใช้งานไม่สำเร็จ";
+}
+
+function clearCreateStaffError() {
+  setCreateStaffError("");
+}
+
+async function handleCreateStaffSubmit(event) {
+  event.preventDefault();
+  if (!isAdmin()) return;
+
+  clearCreateStaffError();
+  setStaffSuccess("");
+
+  const payload = {
+    full_name: els.createStaffFullName.value.trim(),
+    email: els.createStaffEmail.value.trim(),
+    role: els.createStaffRole.value,
+    temporary_password: els.createStaffPassword.value,
+    confirm_temporary_password: els.createStaffConfirmPassword.value,
+    is_active: els.createStaffIsActive.checked,
+    must_change_password: els.createStaffMustChangePassword.checked
+  };
+
+  const validationMessage = validateCreateStaffPayload(payload);
+  if (validationMessage) {
+    setCreateStaffError(validationMessage);
+    return;
+  }
+
+  if (payload.role === "admin" && !window.confirm(`ยืนยันสร้างบัญชี admin สำหรับ ${payload.email}?`)) {
+    return;
+  }
+
+  try {
+    setCreateStaffLoading(true);
+    const response = await authFetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await readJsonResponse(response, "สร้างผู้ใช้งานไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "สร้างผู้ใช้งานไม่สำเร็จ");
+
+    resetCreateStaffForm();
+    closeCreateStaffModal();
+    setStaffSuccess(`สร้างผู้ใช้งาน ${data.user?.email || payload.email} สำเร็จ`);
+    await refreshStaffUsers();
+  } catch (error) {
+    els.createStaffPassword.value = "";
+    els.createStaffConfirmPassword.value = "";
+    setCreateStaffError(`สร้างผู้ใช้งานไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
+  } finally {
+    setCreateStaffLoading(false);
+  }
+}
+
+function validateCreateStaffPayload(payload) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) return "อีเมลไม่ถูกต้อง";
+  if (!["admin", "staff"].includes(payload.role)) return "Role ต้องเป็น admin หรือ staff เท่านั้น";
+  if (payload.temporary_password.length < 8) return "Temporary password ต้องมีอย่างน้อย 8 ตัวอักษร";
+  if (payload.temporary_password !== payload.confirm_temporary_password) return "Temporary password และ confirm password ไม่ตรงกัน";
+  return "";
+}
+
+function renderStaffUsers() {
+  if (!els.staffAdminList) return;
+
+  const users = getFilteredStaffUsers();
+  els.staffEmptyState.hidden = users.length > 0 || Boolean(latestStaffUsers.length);
+
+  if (!users.length) {
+    els.staffAdminList.innerHTML = latestStaffUsers.length
+      ? '<div class="empty-state">ไม่พบผู้ใช้งานตาม filter นี้</div>'
+      : "";
+    return;
+  }
+
+  els.staffAdminList.innerHTML = users.map(renderStaffUserCard).join("");
+}
+
+function getFilteredStaffUsers() {
+  const query = els.staffSearch.value.trim().toLowerCase();
+  const role = els.staffRoleFilter.value;
+  const status = els.staffStatusFilter.value;
+  const password = els.staffPasswordFilter.value;
+
+  return latestStaffUsers.filter((user) => {
+    const text = `${user.full_name || ""} ${user.email || ""}`.toLowerCase();
+    const queryMatch = !query || text.includes(query);
+    const roleMatch = !role || user.role === role;
+    const statusMatch = !status || (status === "active" ? user.is_active === true : user.is_active === false);
+    const passwordMatch = !password || (password === "yes" ? user.must_change_password === true : user.must_change_password !== true);
+    return queryMatch && roleMatch && statusMatch && passwordMatch;
+  });
+}
+
+function renderStaffUserCard(user) {
+  const updating = staffUpdateInProgress.has(user.id);
+  const isSelf = currentProfile?.id === user.id;
+  return `
+    <article class="staff-admin-card" data-user-id="${escapeHtml(user.id)}">
+      <div class="staff-admin-main">
+        <div>
+          <strong>${escapeHtml(user.full_name || "ยังไม่ได้ใส่ชื่อ")}</strong>
+          <span>${escapeHtml(user.email || "-")}${isSelf ? " · บัญชีของคุณ" : ""}</span>
+        </div>
+        <div class="staff-badges">
+          <span class="role ${escapeHtml(user.role)}">${escapeHtml(user.role)}</span>
+          <span class="${user.is_active ? "active" : "inactive"}">${user.is_active ? "active" : "inactive"}</span>
+          <span class="${user.must_change_password ? "password-required" : "normal"}">${user.must_change_password ? "password required" : "normal"}</span>
+        </div>
+      </div>
+      <div class="staff-admin-meta">
+        <span>สร้างเมื่อ ${escapeHtml(formatJobTime(user.created_at))}</span>
+        <span>ล่าสุด ${escapeHtml(formatLatestStaffActivity(user.latest_activity))}</span>
+      </div>
+      <div class="staff-admin-controls">
+        <label>
+          ชื่อพนักงาน
+          <input type="text" data-staff-field="full_name" value="${escapeHtml(user.full_name || "")}" ${updating ? "disabled" : ""} />
+        </label>
+        <button class="ghost-button compact" type="button" data-staff-action="save-name" ${updating ? "disabled" : ""}>บันทึกชื่อ</button>
+        <label>
+          Role
+          <select data-staff-field="role" ${updating ? "disabled" : ""}>
+            <option value="staff" ${user.role === "staff" ? "selected" : ""}>staff</option>
+            <option value="admin" ${user.role === "admin" ? "selected" : ""}>admin</option>
+          </select>
+        </label>
+        <label class="staff-toggle">
+          <input type="checkbox" data-staff-field="is_active" ${user.is_active ? "checked" : ""} ${updating ? "disabled" : ""} />
+          <span>เปิดใช้งาน</span>
+        </label>
+        <label class="staff-toggle">
+          <input type="checkbox" data-staff-field="must_change_password" ${user.must_change_password ? "checked" : ""} ${updating ? "disabled" : ""} />
+          <span>บังคับเปลี่ยนรหัส</span>
+        </label>
+      </div>
+      ${updating ? '<div class="staff-admin-saving">กำลังบันทึก...</div>' : ""}
+    </article>
+  `;
+}
+
+function formatLatestStaffActivity(activity) {
+  if (!activity?.at) return "ยังไม่มีข้อมูล";
+  return `${formatJobTime(activity.at)}${activity.type ? ` · ${activity.type}` : ""}`;
+}
+
+async function handleStaffFieldChange(event) {
+  const field = event.target.dataset.staffField;
+  if (!field || field === "full_name") return;
+  const card = event.target.closest("[data-user-id]");
+  if (!card) return;
+
+  const user = latestStaffUsers.find((item) => item.id === card.dataset.userId);
+  if (!user) return;
+
+  const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+  const confirmed = confirmStaffRiskyChange(user, field, value);
+  if (!confirmed) {
+    renderStaffUsers();
+    return;
+  }
+
+  await updateStaffUser(user.id, { [field]: value });
+}
+
+async function handleStaffListClick(event) {
+  const button = event.target.closest("[data-staff-action]");
+  if (!button) return;
+
+  const card = button.closest("[data-user-id]");
+  if (!card) return;
+  const userId = card.dataset.userId;
+  const nameInput = card.querySelector('[data-staff-field="full_name"]');
+  const user = latestStaffUsers.find((item) => item.id === userId);
+  if (!user || !nameInput) return;
+
+  const fullName = nameInput.value.trim();
+  if (fullName === (user.full_name || "")) return;
+  await updateStaffUser(userId, { full_name: fullName });
+}
+
+function confirmStaffRiskyChange(user, field, value) {
+  const label = user.email || user.full_name || "ผู้ใช้นี้";
+  if (field === "is_active" && value === false) {
+    return window.confirm(`ยืนยันปิดใช้งานบัญชี ${label}? ผู้ใช้นี้จะเข้าใช้งาน workflow ไม่ได้`);
+  }
+  if (field === "role" && user.role === "admin" && value === "staff") {
+    return window.confirm(`ยืนยันเปลี่ยน ${label} จาก admin เป็น staff?`);
+  }
+  if (field === "role" && user.role !== "admin" && value === "admin") {
+    return window.confirm(`ยืนยันให้สิทธิ์ admin กับ ${label}?`);
+  }
+  return true;
+}
+
+async function updateStaffUser(userId, patch) {
+  if (staffUpdateInProgress.has(userId)) return;
+  staffUpdateInProgress.add(userId);
+  setStaffError("");
+  renderStaffUsers();
+
+  try {
+    const response = await authFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    });
+    const data = await readJsonResponse(response, "อัปเดตผู้ใช้งานไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "อัปเดตผู้ใช้งานไม่สำเร็จ");
+
+    latestStaffUsers = latestStaffUsers.map((user) => (user.id === userId ? data.user : user));
+    if (currentProfile?.id === userId) {
+      currentProfile = { ...currentProfile, ...data.user };
+      setAppState(appState.state, "staff-management:self-updated", { profile: currentProfile });
+      applyRoleUi();
+      if (!isAdmin()) navigateToPage("create");
+    }
+  } catch (error) {
+    setStaffError(`อัปเดตผู้ใช้งานไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
+    await refreshStaffUsers();
+  } finally {
+    staffUpdateInProgress.delete(userId);
+    renderStaffUsers();
   }
 }
 
