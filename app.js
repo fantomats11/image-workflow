@@ -350,6 +350,23 @@ const els = {
   kpiStatusBreakdown: document.getElementById("kpiStatusBreakdown"),
   kpiStaffPerformance: document.getElementById("kpiStaffPerformance"),
   kpiRecentActivity: document.getElementById("kpiRecentActivity"),
+  refreshMonitoringButton: document.getElementById("refreshMonitoringButton"),
+  monitoringRangeControls: document.getElementById("monitoringRangeControls"),
+  monitoringPageSize: document.getElementById("monitoringPageSize"),
+  monitoringPrevPage: document.getElementById("monitoringPrevPage"),
+  monitoringNextPage: document.getElementById("monitoringNextPage"),
+  monitoringPageInfo: document.getElementById("monitoringPageInfo"),
+  monitoringLoadingState: document.getElementById("monitoringLoadingState"),
+  monitoringErrorState: document.getElementById("monitoringErrorState"),
+  monitoringEmptyState: document.getElementById("monitoringEmptyState"),
+  monitoringHealthSummary: document.getElementById("monitoringHealthSummary"),
+  monitoringUpdatedAt: document.getElementById("monitoringUpdatedAt"),
+  monitoringWarnings: document.getElementById("monitoringWarnings"),
+  monitoringSummaryCards: document.getElementById("monitoringSummaryCards"),
+  monitoringIntegrationHealth: document.getElementById("monitoringIntegrationHealth"),
+  monitoringStuckJobs: document.getElementById("monitoringStuckJobs"),
+  monitoringFailedItems: document.getElementById("monitoringFailedItems"),
+  monitoringRecentEvents: document.getElementById("monitoringRecentEvents"),
   historyBody: document.getElementById("historyBody"),
   qcList: document.getElementById("qcList"),
   qcScore: document.getElementById("qcScore"),
@@ -413,6 +430,10 @@ let jobHistory = localJobHistory;
 let jobHistoryError = "";
 let latestMetricData = null;
 let selectedKpiRange = "today";
+let latestMonitoringData = null;
+let selectedMonitoringRange = "today";
+let selectedMonitoringPage = 1;
+let selectedMonitoringPageSize = 10;
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
 const staffUpdateInProgress = new Set();
@@ -445,6 +466,7 @@ const pageMeta = {
   jobs: { eyebrow: "Production Control", title: "งานทั้งหมด" },
   assets: { eyebrow: "Asset Library", title: "คลังภาพ" },
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
+  monitoring: { eyebrow: "Production Monitoring", title: "Error Center" },
   settings: { eyebrow: "Admin", title: "ตั้งค่าระบบภาพ" }
 };
 
@@ -770,6 +792,7 @@ function clearFrontendAuthState() {
   dbJobHistory = [];
   jobHistoryError = "";
   latestMetricData = null;
+  latestMonitoringData = null;
   resetTransientWorkflowState();
   jobHistory = mergeJobHistory();
   renderHistory();
@@ -1010,7 +1033,9 @@ function handleApproveSave() {
 
 function applyRoleUi() {
   const settingsLink = els.pageNav.querySelector('[data-page-link="settings"]');
+  const monitoringLink = els.pageNav.querySelector('[data-page-link="monitoring"]');
   if (settingsLink) settingsLink.hidden = !isAdmin();
+  if (monitoringLink) monitoringLink.hidden = !isAdmin();
   if (els.googleDriveIntegrationSection) els.googleDriveIntegrationSection.hidden = !isAdmin();
   if (els.staffManagementSection) els.staffManagementSection.hidden = !isAdmin();
 }
@@ -1149,7 +1174,7 @@ function getPageFromHash() {
 
 function navigateToPage(page) {
   let targetPage = pageMeta[page] ? page : "create";
-  if (targetPage === "settings" && !isAdmin()) {
+  if ((targetPage === "settings" || targetPage === "monitoring") && !isAdmin()) {
     targetPage = "create";
     if (window.location.hash !== "#create") window.location.hash = "create";
   }
@@ -1168,6 +1193,7 @@ function navigateToPage(page) {
   }
   if (targetPage === "assets") renderAssets();
   if (targetPage === "kpi") refreshMetrics();
+  if (targetPage === "monitoring" && isAdmin()) refreshMonitoring();
   if (targetPage === "settings") {
     renderSettingsPreview();
     refreshGoogleDriveStatus();
@@ -1250,6 +1276,31 @@ function bindEvents() {
       item.classList.toggle("active", item === button);
     });
     refreshMetrics();
+  });
+  els.refreshMonitoringButton.addEventListener("click", refreshMonitoring);
+  els.monitoringRangeControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-monitoring-range]");
+    if (!button) return;
+    selectedMonitoringRange = button.dataset.monitoringRange || "7d";
+    selectedMonitoringPage = 1;
+    els.monitoringRangeControls.querySelectorAll("[data-monitoring-range]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    refreshMonitoring();
+  });
+  els.monitoringPageSize.addEventListener("change", () => {
+    selectedMonitoringPageSize = normalizeMonitoringPageSize(els.monitoringPageSize.value);
+    selectedMonitoringPage = 1;
+    refreshMonitoring();
+  });
+  els.monitoringPrevPage.addEventListener("click", () => {
+    selectedMonitoringPage = Math.max(1, selectedMonitoringPage - 1);
+    refreshMonitoring();
+  });
+  els.monitoringNextPage.addEventListener("click", () => {
+    const totalPages = latestMonitoringData?.pagination?.totalPages || selectedMonitoringPage + 1;
+    selectedMonitoringPage = Math.min(totalPages, selectedMonitoringPage + 1);
+    refreshMonitoring();
   });
   els.refreshStaffButton.addEventListener("click", refreshStaffUsers);
   els.openCreateStaffButton.addEventListener("click", openCreateStaffModal);
@@ -3562,6 +3613,286 @@ function renderRecentActivity(items) {
         .join("")}
     </div>
   `;
+}
+
+async function refreshMonitoring() {
+  if (!isAppReady() || !isAdmin()) return;
+  setMonitoringLoading(true);
+  try {
+    const params = new URLSearchParams({
+      range: selectedMonitoringRange,
+      page: String(selectedMonitoringPage),
+      pageSize: String(selectedMonitoringPageSize)
+    });
+    const response = await authFetch(`/api/admin/monitoring?${params.toString()}`);
+    const data = await readMonitoringApiJson(response);
+    if (!response.ok || !data.ok) {
+      throw new Error(getApiErrorMessage(response, data, "โหลด Monitoring ไม่สำเร็จ"));
+    }
+    latestMonitoringData = data;
+    selectedMonitoringPage = data.pagination?.page || selectedMonitoringPage;
+    selectedMonitoringPageSize = data.pagination?.pageSize || selectedMonitoringPageSize;
+    renderMonitoringFromCache();
+  } catch (error) {
+    renderMonitoringError(error);
+  } finally {
+    setMonitoringLoading(false);
+  }
+}
+
+async function readMonitoringApiJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    await response.text().catch(() => "");
+    throw new Error("Monitoring API ไม่ได้ส่ง JSON กลับมา กรุณาตรวจสอบ endpoint /api/admin/monitoring");
+  }
+  return response.json();
+}
+
+function normalizeMonitoringPageSize(value) {
+  const size = Number.parseInt(String(value || "10"), 10);
+  return [10, 50, 100].includes(size) ? size : 10;
+}
+
+function renderMonitoringFromCache() {
+  if (!latestMonitoringData) return;
+
+  const summary = latestMonitoringData.summary || {};
+  const warnings = latestMonitoringData.warnings || [];
+  const actionableWarnings = warnings.filter((warning) => warning.code !== "no_recent_activity");
+  const hasProblem = Boolean(
+    summary.totalErrors ||
+    summary.failedJobs ||
+    summary.failedGenerations ||
+    summary.failedExports ||
+    summary.stuckJobs ||
+    summary.storageFailures ||
+    summary.approvalFailures ||
+    actionableWarnings.length
+  );
+
+  els.monitoringErrorState.hidden = true;
+  els.monitoringEmptyState.hidden = hasProblem;
+  els.monitoringHealthSummary.textContent = buildMonitoringHealthSummary(latestMonitoringData);
+  els.monitoringUpdatedAt.textContent = latestMonitoringData.generatedAt
+    ? `อัปเดต ${formatDateTime(latestMonitoringData.generatedAt)}`
+    : "รอข้อมูลล่าสุด";
+
+  renderMonitoringWarnings(warnings);
+  renderMonitoringSummaryCards(latestMonitoringData);
+  renderMonitoringPagination(latestMonitoringData.pagination);
+  renderMonitoringIntegrationHealth(latestMonitoringData.integrationHealth?.googleDrive);
+  renderMonitoringStuckJobs(latestMonitoringData.stuckJobs || []);
+  renderMonitoringFailedItems(latestMonitoringData.failedItems || []);
+  renderMonitoringRecentEvents(latestMonitoringData.recentSystemEvents || []);
+}
+
+function setMonitoringLoading(isLoading) {
+  if (els.monitoringLoadingState) els.monitoringLoadingState.hidden = !isLoading;
+  if (els.refreshMonitoringButton) els.refreshMonitoringButton.disabled = isLoading;
+  if (els.monitoringPageSize) els.monitoringPageSize.disabled = isLoading;
+  if (els.monitoringPrevPage) els.monitoringPrevPage.disabled = isLoading || !(latestMonitoringData?.pagination?.hasPrev);
+  if (els.monitoringNextPage) els.monitoringNextPage.disabled = isLoading || !(latestMonitoringData?.pagination?.hasNext);
+}
+
+function renderMonitoringError(error) {
+  latestMonitoringData = null;
+  els.monitoringErrorState.hidden = false;
+  els.monitoringErrorState.textContent = `โหลด Monitoring / Error Center ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
+  els.monitoringEmptyState.hidden = true;
+  els.monitoringHealthSummary.textContent = "ระบบยังโหลด Monitoring ไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
+  els.monitoringUpdatedAt.textContent = "โหลดไม่สำเร็จ";
+  [
+    els.monitoringWarnings,
+    els.monitoringSummaryCards,
+    els.monitoringIntegrationHealth,
+    els.monitoringStuckJobs,
+    els.monitoringFailedItems,
+    els.monitoringRecentEvents
+  ].forEach((target) => {
+    if (target) target.innerHTML = "";
+  });
+  renderMonitoringPagination(null);
+}
+
+function renderMonitoringPagination(pagination) {
+  const page = pagination?.page || selectedMonitoringPage || 1;
+  const pageSize = pagination?.pageSize || selectedMonitoringPageSize || 10;
+  const totalItems = pagination?.totalItems || 0;
+  const totalPages = pagination?.totalPages || 1;
+  selectedMonitoringPage = page;
+  selectedMonitoringPageSize = pageSize;
+  if (els.monitoringPageSize) els.monitoringPageSize.value = String(pageSize);
+  if (els.monitoringPageInfo) {
+    els.monitoringPageInfo.textContent = `หน้า ${formatThaiNumber(page)} / ${formatThaiNumber(totalPages)} · ${formatThaiNumber(totalItems)} รายการ`;
+  }
+  if (els.monitoringPrevPage) els.monitoringPrevPage.disabled = !pagination?.hasPrev;
+  if (els.monitoringNextPage) els.monitoringNextPage.disabled = !pagination?.hasNext;
+}
+
+function buildMonitoringHealthSummary(data) {
+  const summary = data.summary || {};
+  const driveConnected = data.integrationHealth?.googleDrive?.connected === true;
+  if (summary.totalErrors || summary.stuckJobs) {
+    return `พบปัญหาที่ต้องตรวจสอบ ${formatThaiNumber(summary.totalErrors || 0)} รายการ และงานค้าง ${formatThaiNumber(summary.stuckJobs || 0)} รายการ`;
+  }
+  if (!driveConnected) return "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
+  if (summary.pendingApprovals) return `ระบบทำงานได้ แต่มีงานรอ approve ${formatThaiNumber(summary.pendingApprovals)} รายการ`;
+  return "ยังไม่พบปัญหาในช่วงเวลานี้";
+}
+
+function renderMonitoringWarnings(warnings) {
+  const visibleWarnings = warnings.filter((warning) => warning.code !== "no_recent_activity");
+  if (!visibleWarnings.length) {
+    els.monitoringWarnings.innerHTML = '<div class="warning-item ok">ยังไม่พบปัญหาในช่วงเวลานี้</div>';
+    return;
+  }
+  els.monitoringWarnings.innerHTML = visibleWarnings
+    .map((warning) => `<div class="warning-item ${monitoringWarningClass(warning.code)}">${escapeHtml(warning.message || "มี warning ที่ต้องตรวจสอบ")}</div>`)
+    .join("");
+}
+
+function monitoringWarningClass(code) {
+  const value = String(code || "");
+  if (value.includes("failed") || value.includes("failure") || value.includes("storage") || value.includes("stuck")) return "danger";
+  return "";
+}
+
+function renderMonitoringSummaryCards(data) {
+  const summary = data.summary || {};
+  const drive = data.integrationHealth?.googleDrive || {};
+  const cards = [
+    ["Warnings / errors", summary.warningsCount, "จำนวน warning และ error ที่ต้องตรวจสอบ", summary.warningsCount ? "warning" : "ok"],
+    ["Failed jobs", summary.failedJobs, "jobs ที่ status failed", summary.failedJobs ? "danger" : "ok"],
+    ["Failed generations", summary.failedGenerations, "generation ที่ failed หรือมี error_message", summary.failedGenerations ? "danger" : "ok"],
+    ["Failed exports", summary.failedExports, "Google Drive/export failure จาก audit events", summary.failedExports ? "danger" : "ok"],
+    ["Stuck jobs", summary.stuckJobs, "queued/running/generating เกิน 30 นาที", summary.stuckJobs ? "warning" : "ok"],
+    ["Pending approvals", summary.pendingApprovals, "generate สำเร็จแต่ยังไม่ approve", summary.pendingApprovals ? "warning" : "ok"],
+    ["Google Drive", drive.connected ? "Connected" : "Disconnected", drive.updatedAt ? `อัปเดตล่าสุด ${formatDateTime(drive.updatedAt)}` : "ยังไม่มีเวลาอัปเดตล่าสุด", drive.connected ? "ok" : "warning"],
+    ["Latest error", summary.latestErrorTime ? formatDateTime(summary.latestErrorTime) : "ไม่มี", "เวลาของ failure ล่าสุดในช่วงนี้", summary.latestErrorTime ? "danger" : "ok"]
+  ];
+
+  els.monitoringSummaryCards.innerHTML = cards
+    .map(([label, value, helper, state]) => `
+      <section class="kpi-card monitoring-card ${escapeHtml(state)}">
+        <strong>${escapeHtml(label)}</strong>
+        <div class="kpi-number">${escapeHtml(formatKpiValue(value))}</div>
+        <p>${escapeHtml(helper)}</p>
+      </section>
+    `)
+    .join("");
+}
+
+function renderMonitoringIntegrationHealth(googleDrive) {
+  const connected = googleDrive?.connected === true;
+  els.monitoringIntegrationHealth.innerHTML = `
+    <div class="integration-health ${connected ? "ok" : "warning"}">
+      <div>
+        <strong>${connected ? "Google Drive connected" : "Google Drive disconnected"}</strong>
+        <span>${connected ? "พร้อม export ไฟล์ approve ไปยัง Google Drive" : "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน"}</span>
+      </div>
+      <div class="monitoring-meta-list">
+        <span>Mode: ${escapeHtml(googleDrive?.mode || "-")}</span>
+        <span>Configured: ${googleDrive?.configured ? "yes" : "no"}</span>
+        <span>Latest update: ${googleDrive?.updatedAt ? escapeHtml(formatDateTime(googleDrive.updatedAt)) : "-"}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderMonitoringStuckJobs(items) {
+  if (!items.length) {
+    els.monitoringStuckJobs.innerHTML = '<div class="empty-state">ยังไม่มีรายการในช่วงเวลานี้</div>';
+    return;
+  }
+  els.monitoringStuckJobs.innerHTML = `<div class="monitoring-list">${items.map(renderMonitoringStuckRow).join("")}</div>`;
+}
+
+function renderMonitoringStuckRow(item) {
+  return `
+    <article class="monitoring-row warning">
+      <div class="monitoring-row-main">
+        <time>${escapeHtml(formatDateTime(item.updatedAt || item.createdAt))}</time>
+        <strong>${escapeHtml(item.type || "job")} · ${escapeHtml(item.status || "unknown")}</strong>
+        <span>${escapeHtml(item.user || "ไม่ระบุผู้ใช้งาน")}</span>
+      </div>
+      <div class="monitoring-row-detail">
+        <span>${item.jobId ? `Job ${escapeHtml(shortId(item.jobId))}` : "Job -"}</span>
+        <span>${item.generationId ? `Gen ${escapeHtml(shortId(item.generationId))}` : "Gen -"}</span>
+        <span>ค้างประมาณ ${escapeHtml(formatDurationMinutes(item.ageMinutes))}</span>
+      </div>
+      <p>${escapeHtml(item.recommendedAction || "ตรวจสอบ queue และ retry ถ้าจำเป็น")}</p>
+    </article>
+  `;
+}
+
+function renderMonitoringFailedItems(items) {
+  if (!items.length) {
+    els.monitoringFailedItems.innerHTML = '<div class="empty-state">ยังไม่มีรายการในช่วงเวลานี้</div>';
+    return;
+  }
+  els.monitoringFailedItems.innerHTML = `<div class="monitoring-list">${items.map(renderMonitoringFailureRow).join("")}</div>`;
+}
+
+function renderMonitoringFailureRow(item) {
+  return `
+    <article class="monitoring-row danger">
+      <div class="monitoring-row-main">
+        <time>${escapeHtml(formatDateTime(item.time))}</time>
+        <strong>${escapeHtml(formatMonitoringType(item.type))} · ${escapeHtml(item.status || "failed")}</strong>
+        <span>${escapeHtml(item.user || "ไม่ระบุผู้ใช้งาน")}</span>
+      </div>
+      <div class="monitoring-row-detail">
+        <span>${item.jobId ? `Job ${escapeHtml(shortId(item.jobId))}` : "Job -"}</span>
+        <span>${item.generationId ? `Gen ${escapeHtml(shortId(item.generationId))}` : "Gen -"}</span>
+        <span>${escapeHtml(item.detail || "ไม่มีรายละเอียดเพิ่มเติม")}</span>
+      </div>
+      <p>${escapeHtml(item.recommendedAction || "ตรวจสอบรายการนี้และ retry ถ้าจำเป็น")}</p>
+    </article>
+  `;
+}
+
+function renderMonitoringRecentEvents(items) {
+  if (!items.length) {
+    els.monitoringRecentEvents.innerHTML = '<div class="empty-state">ยังไม่มีรายการในช่วงเวลานี้</div>';
+    return;
+  }
+  els.monitoringRecentEvents.innerHTML = `<div class="monitoring-list compact">${items.map(renderMonitoringEventRow).join("")}</div>`;
+}
+
+function renderMonitoringEventRow(item) {
+  return `
+    <article class="monitoring-row ${item.status === "failed" ? "danger" : "neutral"}">
+      <div class="monitoring-row-main">
+        <time>${escapeHtml(formatDateTime(item.time))}</time>
+        <strong>${escapeHtml(item.eventType || "activity")}</strong>
+        <span>${escapeHtml(item.user || "ไม่ระบุผู้ใช้งาน")}</span>
+      </div>
+      <div class="monitoring-row-detail">
+        <span>${escapeHtml(item.status || "recorded")}</span>
+        <span>${item.jobId ? `Job ${escapeHtml(shortId(item.jobId))}` : "Job -"}</span>
+        <span>${item.generationId ? `Gen ${escapeHtml(shortId(item.generationId))}` : "Gen -"}</span>
+        ${item.detail ? `<span>${escapeHtml(item.detail)}</span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function formatMonitoringType(type) {
+  const labels = {
+    generate: "Generate",
+    approve: "Approve",
+    export: "Export",
+    storage: "Storage",
+    system: "System"
+  };
+  return labels[type] || type || "System";
+}
+
+function formatDurationMinutes(value) {
+  const minutes = Number(value || 0);
+  if (minutes < 60) return `${formatThaiNumber(minutes)} นาที`;
+  return `${formatThaiNumber(Math.round((minutes / 60) * 10) / 10)} ชม.`;
 }
 
 function formatKpiValue(value) {

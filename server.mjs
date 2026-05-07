@@ -63,9 +63,6 @@ const upload = multer({
 });
 
 app.use(express.json({ limit: "2mb" }));
-app.use("/vendor/supabase", express.static(path.join(__dirname, "node_modules/@supabase/supabase-js/dist/umd")));
-app.use(express.static(__dirname));
-app.use("/approved", express.static(approvedDir));
 
 async function requireUser(req, res, next) {
   try {
@@ -122,6 +119,62 @@ async function requireAdminUser(req, res, next) {
     });
   }
 }
+
+function logMonitoringRequest(req, res, next) {
+  console.info("[monitoring] request received");
+  console.info("[monitoring] range", normalizeKpiRange(req.query.range));
+  res.on("finish", () => {
+    console.info("[monitoring] response sent", { status: res.statusCode });
+  });
+  next();
+}
+
+async function requireMonitoringAdminUser(req, res, next) {
+  try {
+    console.info("[monitoring] user id/email", {
+      id: req.user?.id || "",
+      email: req.user?.email || ""
+    });
+    const profile = await getProfileForUser(req.user);
+    if (!profile?.is_active || profile.must_change_password || profile.role !== "admin") {
+      return res.status(403).json({
+        ok: false,
+        code: "admin_required",
+        error: "Admin access required."
+      });
+    }
+    req.profile = profile;
+    console.info("[monitoring] admin verified");
+    next();
+  } catch (error) {
+    console.error("[monitoring] admin check failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "monitoring_error",
+      error: "ตรวจสอบสิทธิ์ Monitoring ไม่สำเร็จ"
+    });
+  }
+}
+
+app.get("/api/admin/monitoring", logMonitoringRequest, requireUser, requireMonitoringAdminUser, async (req, res) => {
+  try {
+    const range = normalizeKpiRange(req.query.range);
+    const pagination = normalizeMonitoringPagination(req.query);
+    const monitoring = await buildMonitoringCenter(range, pagination);
+    res.json({ ok: true, ...monitoring });
+  } catch (error) {
+    console.error("[monitoring] failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "monitoring_error",
+      error: "โหลด Monitoring / Error Center ไม่สำเร็จ"
+    });
+  }
+});
+
+app.use("/vendor/supabase", express.static(path.join(__dirname, "node_modules/@supabase/supabase-js/dist/umd")));
+app.use(express.static(__dirname));
+app.use("/approved", express.static(approvedDir));
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -2677,6 +2730,468 @@ async function buildKpiSummary(range) {
       googleDrive: googleDriveStatus
     }
   };
+}
+
+async function buildMonitoringCenter(range, paginationInput = normalizeMonitoringPagination()) {
+  const rangeMeta = getKpiRangeMeta(range);
+  const limit = range === "all" ? 5000 : 2500;
+  const readWarnings = [];
+
+  const [
+    jobsResult,
+    generationsResult,
+    approvalsResult,
+    assetsResult,
+    auditEventsResult
+  ] = await Promise.all([
+    readMonitoringRows("jobs", [
+      "id, sku, product_name, status, created_by, created_at, updated_at",
+      "id, sku, product_name, status, created_by, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit
+    }),
+    readMonitoringRows("generations", [
+      "id, job_id, kind, request_id, status, created_by, created_at, updated_at, completed_at, error_message",
+      "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message"
+    ], {
+      since: rangeMeta.since,
+      limit
+    }),
+    readMonitoringRows("approvals", [
+      "id, generation_id, approved_by, approved_at, export_path, note",
+      "id, generation_id, approved_by, approved_at, export_path"
+    ], {
+      since: rangeMeta.since,
+      dateColumn: "approved_at",
+      orderColumn: "approved_at",
+      limit
+    }),
+    readMonitoringRows("assets", [
+      "id, job_id, type, bucket, storage_key, public_url, created_by, created_at",
+      "id, job_id, type, bucket, created_by, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit,
+      optional: true
+    }),
+    readMonitoringRows("audit_events", [
+      "id, actor_id, job_id, generation_id, event_type, event_json, created_at",
+      "id, actor_id, job_id, generation_id, event_type, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit,
+      optional: true
+    })
+  ]);
+
+  [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult].forEach((result) => {
+    if (result.error) {
+      readWarnings.push(createWarning(`${result.table}_unavailable`, `ยังอ่านข้อมูล ${result.table} ไม่ได้ จึงแสดงผลส่วนนั้นเป็นค่าว่าง`));
+    }
+    if (result.limited) {
+      readWarnings.push(createWarning(`${result.table}_limited`, `ข้อมูล ${result.table} ถูกจำกัดที่ ${result.limit.toLocaleString("th-TH")} แถวเพื่อประสิทธิภาพ`));
+    }
+  });
+
+  const jobs = jobsResult.data;
+  const generations = generationsResult.data;
+  const approvals = approvalsResult.data;
+  const assets = assetsResult.data;
+  const auditEvents = auditEventsResult.data;
+  const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
+  const profiles = await readKpiProfiles(userIds);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const generationById = new Map(generations.map((generation) => [generation.id, generation]));
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const approvedGenerationIds = new Set(approvals.map((approval) => approval.generation_id).filter(Boolean));
+
+  const failedJobs = jobs.filter((job) => isFailedStatus(job.status));
+  const failedGenerations = generations.filter((generation) => isFailedStatus(generation.status) || generation.error_message);
+  const exportFailureEvents = auditEvents.filter((event) => isExportFailureEvent(event.event_type));
+  const storageFailureEvents = auditEvents.filter((event) => isStorageFailureEvent(event.event_type));
+  const approvalFailureEvents = auditEvents.filter((event) => isApprovalFailureEvent(event.event_type));
+  const systemFailureEvents = auditEvents.filter((event) => isMonitoringFailureEvent(event.event_type));
+  const pendingApprovals = generations.filter(
+    (generation) => isSuccessfulGenerationStatus(generation.status) && !approvedGenerationIds.has(generation.id)
+  );
+  const stuckJobs = buildMonitoringStuckItems({ jobs, generations, profileById });
+  const googleDriveStatus = await getSafeGoogleDriveStatus();
+
+  const failedItems = buildMonitoringFailedItems({
+    failedJobs,
+    failedGenerations,
+    failureEvents: systemFailureEvents,
+    jobById,
+    generationById,
+    profileById
+  });
+  const recentErrors = failedItems.slice(0, 30);
+  const latestErrorTime = recentErrors[0]?.time || null;
+  const recentSystemEvents = buildMonitoringRecentEvents({ auditEvents, jobById, generationById, profileById });
+  const pagination = buildMonitoringPaginationMeta(paginationInput, {
+    stuckJobs: stuckJobs.length,
+    failedItems: failedItems.length,
+    recentSystemEvents: recentSystemEvents.length
+  });
+
+  const warnings = [
+    ...readWarnings,
+    ...buildMonitoringWarnings({
+      googleDriveStatus,
+      failedJobs,
+      failedGenerations,
+      exportFailureEvents,
+      storageFailureEvents,
+      approvalFailureEvents,
+      stuckJobs,
+      pendingApprovals,
+      jobs,
+      generations,
+      approvals,
+      auditEvents
+    })
+  ];
+  const dedupedWarnings = dedupeWarnings(warnings);
+
+  return {
+    range,
+    rangeLabel: rangeMeta.label,
+    generatedAt: new Date().toISOString(),
+    health: {
+      googleDriveConnected: googleDriveStatus.connected,
+      recentActivityExists: Boolean(jobs.length || generations.length || approvals.length || auditEvents.length),
+      failedJobs: failedJobs.length,
+      failedGenerations: failedGenerations.length,
+      pendingApprovals: pendingApprovals.length,
+      stuckJobs: stuckJobs.length,
+      warningsCount: dedupedWarnings.length
+    },
+    integrationHealth: {
+      googleDrive: {
+        mode: googleDriveStatus.mode,
+        configured: googleDriveStatus.configured,
+        connected: googleDriveStatus.connected,
+        updatedAt: googleDriveStatus.updatedAt
+      }
+    },
+    pagination,
+    summary: {
+      totalErrors: failedJobs.length + failedGenerations.length + exportFailureEvents.length + storageFailureEvents.length + approvalFailureEvents.length,
+      failedJobs: failedJobs.length,
+      failedGenerations: failedGenerations.length,
+      failedExports: exportFailureEvents.length,
+      stuckJobs: stuckJobs.length,
+      storageFailures: storageFailureEvents.length,
+      approvalFailures: approvalFailureEvents.length,
+      pendingApprovals: pendingApprovals.length,
+      warningsCount: dedupedWarnings.length,
+      latestErrorTime
+    },
+    warnings: dedupedWarnings,
+    stuckJobs: paginateMonitoringItems(stuckJobs, pagination),
+    failedItems: paginateMonitoringItems(failedItems, pagination),
+    recentErrors,
+    recentSystemEvents: paginateMonitoringItems(recentSystemEvents, pagination)
+  };
+}
+
+function normalizeMonitoringPagination(query = {}) {
+  const page = Math.max(1, Number.parseInt(String(query.page || "1"), 10) || 1);
+  const requestedPageSize = Number.parseInt(String(query.pageSize || "10"), 10) || 10;
+  const allowedPageSizes = new Set([10, 50, 100]);
+  const pageSize = allowedPageSizes.has(requestedPageSize) ? requestedPageSize : 10;
+  return { page, pageSize };
+}
+
+function buildMonitoringPaginationMeta(input, totalsByList) {
+  const totalItems = Math.max(0, ...Object.values(totalsByList).map((value) => Number(value || 0)));
+  const totalPages = Math.max(1, Math.ceil(totalItems / input.pageSize));
+  const page = Math.min(Math.max(1, input.page), totalPages);
+  return {
+    page,
+    pageSize: input.pageSize,
+    totalItems,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrev: page > 1,
+    totals: {
+      stuckJobs: Number(totalsByList.stuckJobs || 0),
+      failedItems: Number(totalsByList.failedItems || 0),
+      recentSystemEvents: Number(totalsByList.recentSystemEvents || 0)
+    }
+  };
+}
+
+function paginateMonitoringItems(items, pagination) {
+  const start = (pagination.page - 1) * pagination.pageSize;
+  return items.slice(start, start + pagination.pageSize);
+}
+
+async function readMonitoringRows(table, selects, { since = null, dateColumn = "created_at", orderColumn = "created_at", limit = 2500, optional = false } = {}) {
+  const selectOptions = Array.isArray(selects) ? selects : [selects];
+  let lastError = null;
+  for (const select of selectOptions) {
+    try {
+      let query = supabaseAdmin.from(table).select(select);
+      if (since) query = query.gte(dateColumn, since);
+      const { data, error } = await query.order(orderColumn, { ascending: false }).limit(limit);
+      if (error) throw error;
+      const rows = data || [];
+      return { table, data: rows, error: null, limit, limited: rows.length >= limit };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (optional) {
+    console.warn(`Optional monitoring table ${table} unavailable:`, readableError(lastError));
+    return { table, data: [], error: lastError, limit, limited: false };
+  }
+  throw lastError;
+}
+
+function collectMonitoringUserIds(...groups) {
+  const ids = new Set();
+  groups.flat().forEach((item) => {
+    [item?.created_by, item?.approved_by, item?.checked_by, item?.actor_id, item?.updated_by].forEach((id) => {
+      if (id) ids.add(id);
+    });
+  });
+  return ids;
+}
+
+function buildMonitoringWarnings({
+  googleDriveStatus,
+  failedJobs,
+  failedGenerations,
+  exportFailureEvents,
+  storageFailureEvents,
+  approvalFailureEvents,
+  stuckJobs,
+  pendingApprovals,
+  jobs,
+  generations,
+  approvals,
+  auditEvents
+}) {
+  const warnings = [];
+  if (!googleDriveStatus.connected) {
+    warnings.push(createWarning("google_drive_disconnected", "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน"));
+  }
+  if (failedJobs.length) warnings.push(createWarning("failed_jobs", `มี jobs failed ${formatThaiNumber(failedJobs.length)} งานในช่วงนี้`));
+  if (failedGenerations.length) warnings.push(createWarning("failed_generations", `มี generation failed ${formatThaiNumber(failedGenerations.length)} รายการในช่วงนี้`));
+  if (exportFailureEvents.length) warnings.push(createWarning("failed_exports", `มี export/Google Drive failure ${formatThaiNumber(exportFailureEvents.length)} รายการ`));
+  if (storageFailureEvents.length) warnings.push(createWarning("storage_failures", `มี Supabase Storage failure ${formatThaiNumber(storageFailureEvents.length)} รายการ`));
+  if (approvalFailureEvents.length) warnings.push(createWarning("approval_failures", `มี approve/save failure ${formatThaiNumber(approvalFailureEvents.length)} รายการ`));
+  if (stuckJobs.length) warnings.push(createWarning("stuck_jobs", `พบงานที่อาจค้างเกิน 30 นาที ${formatThaiNumber(stuckJobs.length)} รายการ`));
+  if (pendingApprovals.length) warnings.push(createWarning("pending_approvals", `มีงาน generate สำเร็จแต่ยังไม่ approve ${formatThaiNumber(pendingApprovals.length)} รายการ`));
+  if (!jobs.length && !generations.length && !approvals.length && !auditEvents.length) {
+    warnings.push(createWarning("no_recent_activity", "ยังไม่มี production activity ในช่วงเวลานี้"));
+  }
+  return warnings;
+}
+
+function buildMonitoringStuckItems({ jobs, generations, profileById }) {
+  const now = Date.now();
+  const thresholdMinutes = 30;
+  const activeStatuses = new Set(["queued", "running", "processing", "generating", "uploading", "pending", "in_progress"]);
+  const rows = [];
+
+  jobs.forEach((job) => {
+    const status = String(job.status || "").trim().toLowerCase();
+    if (!activeStatuses.has(status)) return;
+    const anchor = job.updated_at || job.created_at;
+    const ageMinutes = minutesSince(anchor, now);
+    if (ageMinutes < thresholdMinutes) return;
+    rows.push({
+      id: `job:${job.id}`,
+      type: "job",
+      jobId: job.id,
+      generationId: null,
+      status: job.status || "unknown",
+      createdAt: job.created_at || null,
+      updatedAt: job.updated_at || job.created_at || null,
+      user: formatProfileName(profileById.get(job.created_by)),
+      ageMinutes,
+      detail: safeMonitoringText(job.product_name || job.sku || "job is still active"),
+      recommendedAction: "ตรวจสอบ queue/server log แล้วพิจารณา retry หรือสร้างงานใหม่ถ้างานค้างจริง"
+    });
+  });
+
+  generations.forEach((generation) => {
+    const status = String(generation.status || "").trim().toLowerCase();
+    if (!activeStatuses.has(status) || generation.completed_at) return;
+    const anchor = generation.updated_at || generation.created_at;
+    const ageMinutes = minutesSince(anchor, now);
+    if (ageMinutes < thresholdMinutes) return;
+    rows.push({
+      id: `generation:${generation.id}`,
+      type: "generation",
+      jobId: generation.job_id || null,
+      generationId: generation.id,
+      status: generation.status || "unknown",
+      createdAt: generation.created_at || null,
+      updatedAt: generation.updated_at || generation.created_at || null,
+      user: formatProfileName(profileById.get(generation.created_by)),
+      ageMinutes,
+      detail: safeMonitoringText(`${generation.kind || "generation"} ${generation.request_id || ""}`.trim()),
+      recommendedAction: "ตรวจสอบ FAL/generation queue ถ้าไม่มีผลลัพธ์ให้ retry จาก job เดิม"
+    });
+  });
+
+  return rows.sort((a, b) => b.ageMinutes - a.ageMinutes);
+}
+
+function buildMonitoringFailedItems({ failedJobs, failedGenerations, failureEvents, jobById, generationById, profileById }) {
+  const rows = [
+    ...failedJobs.map((job) => ({
+      id: `job:${job.id}`,
+      time: job.updated_at || job.created_at || null,
+      type: "generate",
+      status: job.status || "failed",
+      user: formatProfileName(profileById.get(job.created_by)),
+      jobId: job.id,
+      generationId: null,
+      detail: safeMonitoringText(job.product_name || job.sku || "job status failed"),
+      recommendedAction: "เปิดงานนี้ ตรวจสอบ reference/input ล่าสุด แล้ว retry generation ถ้าข้อมูลพร้อม"
+    })),
+    ...failedGenerations.map((generation) => {
+      const job = generation.job_id ? jobById.get(generation.job_id) : null;
+      return {
+        id: `generation:${generation.id}`,
+        time: generation.completed_at || generation.updated_at || generation.created_at || null,
+        type: "generate",
+        status: generation.status || "failed",
+        user: formatProfileName(profileById.get(generation.created_by)),
+        jobId: generation.job_id || null,
+        generationId: generation.id,
+        detail: safeMonitoringText(generation.error_message || generation.request_id || job?.product_name || "generation failed"),
+        recommendedAction: "ตรวจสอบ FAL error/input image แล้ว Generate ใหม่จากงานเดิมเมื่อแก้สาเหตุแล้ว"
+      };
+    }),
+    ...failureEvents.map((event) => {
+      const generation = event.generation_id ? generationById.get(event.generation_id) : null;
+      const job = event.job_id ? jobById.get(event.job_id) : generation?.job_id ? jobById.get(generation.job_id) : null;
+      return {
+        id: `event:${event.id}`,
+        time: event.created_at || null,
+        type: monitoringFailureType(event.event_type),
+        status: statusFromEventType(event.event_type) || "failed",
+        user: formatProfileName(profileById.get(event.actor_id)),
+        jobId: event.job_id || generation?.job_id || null,
+        generationId: event.generation_id || null,
+        detail: safeMonitoringEventDetail(event),
+        recommendedAction: recommendedMonitoringAction(event.event_type, job)
+      };
+    })
+  ];
+
+  return rows
+    .filter((item) => item.time)
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+}
+
+function buildMonitoringRecentEvents({ auditEvents, jobById, generationById, profileById }) {
+  const relatedTypes = new Set([
+    "generation_started",
+    "generation_completed",
+    "generation_failed",
+    "approval_recorded",
+    "approval_record_failed",
+    "approved_export_recorded",
+    "google_drive_connected",
+    "google_drive_export_failed",
+    "storage_upload_failed",
+    "user_created",
+    "user_password_reset",
+    "user_profile_updated"
+  ]);
+
+  return auditEvents
+    .filter((event) => relatedTypes.has(String(event.event_type || "")))
+    .map((event) => {
+      const generation = event.generation_id ? generationById.get(event.generation_id) : null;
+      const job = event.job_id ? jobById.get(event.job_id) : generation?.job_id ? jobById.get(generation.job_id) : null;
+      return {
+        id: event.id,
+        time: event.created_at || null,
+        eventType: event.event_type || "activity",
+        status: statusFromEventType(event.event_type) || "recorded",
+        user: formatProfileName(profileById.get(event.actor_id)),
+        jobId: event.job_id || generation?.job_id || null,
+        generationId: event.generation_id || null,
+        detail: safeMonitoringEventDetail(event) || safeMonitoringText(job?.product_name || job?.sku || "")
+      };
+    })
+    .filter((item) => item.time)
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+}
+
+function minutesSince(value, now = Date.now()) {
+  const timestamp = new Date(value || 0).getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+  return Math.max(0, Math.round((now - timestamp) / 60000));
+}
+
+function isMonitoringFailureEvent(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  return type.includes("failed") || type.includes("failure") || type.includes("error");
+}
+
+function isExportFailureEvent(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  return type.includes("export") && isMonitoringFailureEvent(type);
+}
+
+function isStorageFailureEvent(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  return type.includes("storage") && isMonitoringFailureEvent(type);
+}
+
+function isApprovalFailureEvent(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  return (type.includes("approval") || type.includes("approve")) && isMonitoringFailureEvent(type);
+}
+
+function monitoringFailureType(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  if (type.includes("generation")) return "generate";
+  if (type.includes("approval") || type.includes("approve")) return "approve";
+  if (type.includes("export") || type.includes("drive")) return "export";
+  if (type.includes("storage")) return "storage";
+  return "system";
+}
+
+function recommendedMonitoringAction(eventType, job = null) {
+  const type = String(eventType || "").toLowerCase();
+  if (type.includes("drive") || type.includes("export")) return "ตรวจสอบ Google Drive connection/folder permission แล้ว approve/export ใหม่";
+  if (type.includes("storage")) return "ตรวจสอบ Supabase Storage bucket/permission และดูว่า asset fallback ถูกบันทึกไว้หรือไม่";
+  if (type.includes("approval") || type.includes("approve")) return "ตรวจสอบ approval record และ export path จากนั้น approve/save ใหม่ถ้าจำเป็น";
+  if (type.includes("generation")) return "ตรวจสอบ FAL error และ reference image ก่อน retry generation";
+  return job?.id ? "เปิดงานที่เกี่ยวข้องแล้วตรวจสอบ log ล่าสุด" : "ตรวจสอบ system log และ audit event ล่าสุด";
+}
+
+function safeMonitoringEventDetail(event) {
+  const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+  const candidates = [
+    eventJson.errorMessage,
+    eventJson.error,
+    eventJson.message,
+    eventJson.provider && eventJson.integration ? `${eventJson.provider} ${eventJson.integration}` : "",
+    eventJson.assetId ? `asset ${eventJson.assetId}` : "",
+    event.event_type
+  ];
+  return safeMonitoringText(candidates.find(Boolean) || "");
+}
+
+function safeMonitoringText(value, maxLength = 180) {
+  return String(value || "")
+    .replace(/(access_token|refresh_token|provider_token|provider_refresh_token|service_role|password|token_json)[=:]\s*([^&\s,}]+)/gi, "$1=[hidden]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[hidden-token]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
 async function readKpiRows(table, select, { since = null, dateColumn = "created_at", orderColumn = "created_at", limit = 3000, optional = false } = {}) {

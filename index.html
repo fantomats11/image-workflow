@@ -66,6 +66,7 @@
           <a href="#jobs" data-page-link="jobs">งานทั้งหมด</a>
           <a href="#assets" data-page-link="assets">คลังภาพ</a>
           <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
+          <a href="#monitoring" data-page-link="monitoring">Monitoring</a>
           <a href="#settings" data-page-link="settings">ตั้งค่า</a>
         </nav>
 
@@ -495,6 +496,98 @@
                 </div>
               </div>
               <div id="kpiRecentActivity"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="page-view" id="page-monitoring" data-page="monitoring">
+          <section class="panel page-panel" id="monitoring">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Production Monitoring</p>
+                <h3>Error Center</h3>
+              </div>
+              <button class="ghost-button compact" type="button" id="refreshMonitoringButton">รีเฟรช</button>
+            </div>
+
+            <div class="kpi-range-tabs" id="monitoringRangeControls" aria-label="เลือกช่วงเวลา Monitoring">
+              <button class="active" type="button" data-monitoring-range="today">Today</button>
+              <button type="button" data-monitoring-range="7d">Last 7 days</button>
+              <button type="button" data-monitoring-range="30d">Last 30 days</button>
+              <button type="button" data-monitoring-range="all">All time</button>
+            </div>
+
+            <div class="monitoring-pagination-toolbar" aria-label="Monitoring pagination">
+              <label>
+                รายการต่อหน้า
+                <select id="monitoringPageSize">
+                  <option value="10">10</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+              <div class="monitoring-pagination-controls" id="monitoringPaginationControls">
+                <button class="ghost-button compact" type="button" id="monitoringPrevPage">Previous</button>
+                <span id="monitoringPageInfo">หน้า 1 / 1 · 0 รายการ</span>
+                <button class="ghost-button compact" type="button" id="monitoringNextPage">Next</button>
+              </div>
+            </div>
+
+            <div class="kpi-state" id="monitoringLoadingState" hidden>กำลังโหลด Monitoring / Error Center...</div>
+            <div class="kpi-state danger" id="monitoringErrorState" hidden>โหลด Monitoring ไม่สำเร็จ</div>
+            <div class="kpi-state" id="monitoringEmptyState" hidden>ยังไม่พบปัญหาในช่วงเวลานี้</div>
+
+            <div class="executive-summary-card monitoring-health-card">
+              <div>
+                <span>Operational status</span>
+                <p id="monitoringHealthSummary">รอข้อมูลสถานะระบบล่าสุด</p>
+              </div>
+              <small id="monitoringUpdatedAt">รอข้อมูลล่าสุด</small>
+            </div>
+
+            <div class="warning-list" id="monitoringWarnings"></div>
+            <div class="kpi-grid executive-kpi-grid monitoring-summary-grid" id="monitoringSummaryCards"></div>
+
+            <div class="monitoring-layout">
+              <section class="kpi-section-card monitoring-integration-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Integration</p>
+                    <h4>Google Drive health</h4>
+                  </div>
+                </div>
+                <div id="monitoringIntegrationHealth"></div>
+              </section>
+
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Queue</p>
+                    <h4>Likely stuck jobs</h4>
+                  </div>
+                </div>
+                <div id="monitoringStuckJobs"></div>
+              </section>
+            </div>
+
+            <section class="kpi-section-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Failures</p>
+                  <h4>Failed items and recommended action</h4>
+                </div>
+              </div>
+              <div id="monitoringFailedItems"></div>
+            </section>
+
+            <section class="kpi-section-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Audit</p>
+                  <h4>Recent system events</h4>
+                </div>
+              </div>
+              <div id="monitoringRecentEvents"></div>
             </section>
           </section>
         </section>

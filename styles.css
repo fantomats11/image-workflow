@@ -1295,12 +1295,19 @@ tbody tr:hover {
   color: var(--success);
 }
 
+.warning-item.danger {
+  border-color: #efc7c4;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .executive-kpi-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .kpi-ops-grid,
-.kpi-detail-grid {
+.kpi-detail-grid,
+.monitoring-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr);
   gap: 14px;
@@ -1543,6 +1550,174 @@ tbody tr:hover {
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-health-card {
+  border-color: #d5d2c8;
+  background: #fbfaf7;
+}
+
+.monitoring-pagination-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.monitoring-pagination-toolbar label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-pagination-toolbar select {
+  min-width: 96px;
+  min-height: 38px;
+}
+
+.monitoring-pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.monitoring-pagination-controls span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.monitoring-summary-grid {
+  margin-bottom: 14px;
+}
+
+.monitoring-card {
+  border-left: 4px solid var(--line-strong);
+}
+
+.monitoring-card.ok {
+  border-left-color: var(--success);
+}
+
+.monitoring-card.warning {
+  border-left-color: var(--warning);
+  background: #fffaf0;
+}
+
+.monitoring-card.danger {
+  border-left-color: var(--danger);
+  background: #fff7f6;
+}
+
+.integration-health {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+}
+
+.integration-health.ok {
+  border-color: #cbded3;
+  background: #f8fcf9;
+}
+
+.integration-health.warning {
+  border-color: #ead7a7;
+  background: #fffaf0;
+}
+
+.integration-health strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.integration-health span,
+.monitoring-meta-list span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.monitoring-meta-list,
+.monitoring-list {
+  display: grid;
+  gap: 10px;
+}
+
+.monitoring-list.compact {
+  gap: 8px;
+}
+
+.monitoring-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 11px 12px;
+}
+
+.monitoring-row.warning {
+  border-left-color: var(--warning);
+  background: #fffaf0;
+}
+
+.monitoring-row.danger {
+  border-left-color: var(--danger);
+  background: #fff8f7;
+}
+
+.monitoring-row.neutral {
+  border-left-color: var(--info);
+}
+
+.monitoring-row-main,
+.monitoring-row-detail {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+}
+
+.monitoring-row-main time,
+.monitoring-row-main span,
+.monitoring-row-detail span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-row-main strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-row p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -2197,6 +2372,7 @@ tbody tr:hover {
   .lower-grid,
   .kpi-ops-grid,
   .kpi-detail-grid,
+  .monitoring-layout,
   .settings-grid,
   .staff-admin-toolbar,
   .staff-admin-controls {
@@ -2343,6 +2519,7 @@ tbody tr:hover {
   .kpi-grid,
   .kpi-ops-grid,
   .kpi-detail-grid,
+  .monitoring-layout,
   .asset-grid,
   .settings-grid,
   .staff-admin-toolbar,
@@ -2371,6 +2548,23 @@ tbody tr:hover {
 
   .kpi-range-tabs button {
     width: 100%;
+  }
+
+  .monitoring-pagination-toolbar,
+  .monitoring-pagination-controls {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .monitoring-pagination-toolbar select,
+  .monitoring-pagination-controls button {
+    width: 100%;
+  }
+
+  .monitoring-pagination-controls span {
+    text-align: center;
+    white-space: normal;
   }
 
   .executive-summary-card {
@@ -2406,6 +2600,8 @@ tbody tr:hover {
 
   .staff-row,
   .activity-row,
+  .monitoring-row-main,
+  .monitoring-row-detail,
   .staff-admin-main {
     grid-template-columns: 1fr;
   }
