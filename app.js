@@ -383,7 +383,19 @@ const els = {
   createStaffIsActive: document.getElementById("createStaffIsActive"),
   createStaffMustChangePassword: document.getElementById("createStaffMustChangePassword"),
   createStaffError: document.getElementById("createStaffError"),
-  createStaffSubmitButton: document.getElementById("createStaffSubmitButton")
+  createStaffSubmitButton: document.getElementById("createStaffSubmitButton"),
+  resetPasswordModal: document.getElementById("resetPasswordModal"),
+  closeResetPasswordButton: document.getElementById("closeResetPasswordButton"),
+  cancelResetPasswordButton: document.getElementById("cancelResetPasswordButton"),
+  resetPasswordForm: document.getElementById("resetPasswordForm"),
+  resetPasswordUserLabel: document.getElementById("resetPasswordUserLabel"),
+  resetPasswordStatusLabel: document.getElementById("resetPasswordStatusLabel"),
+  resetPasswordInactiveNote: document.getElementById("resetPasswordInactiveNote"),
+  resetPasswordValue: document.getElementById("resetPasswordValue"),
+  resetPasswordConfirmValue: document.getElementById("resetPasswordConfirmValue"),
+  resetPasswordMustChange: document.getElementById("resetPasswordMustChange"),
+  resetPasswordError: document.getElementById("resetPasswordError"),
+  resetPasswordSubmitButton: document.getElementById("resetPasswordSubmitButton")
 };
 
 let currentPrompt = "";
@@ -402,6 +414,7 @@ let jobHistoryError = "";
 let latestMetricData = null;
 let selectedKpiRange = "today";
 let latestStaffUsers = [];
+let resetPasswordTargetUser = null;
 const staffUpdateInProgress = new Set();
 let supabaseClient = null;
 let currentSession = null;
@@ -1246,6 +1259,12 @@ function bindEvents() {
     if (event.target === els.createStaffModal) closeCreateStaffModal();
   });
   els.createStaffForm.addEventListener("submit", handleCreateStaffSubmit);
+  els.closeResetPasswordButton.addEventListener("click", closeResetPasswordModal);
+  els.cancelResetPasswordButton.addEventListener("click", closeResetPasswordModal);
+  els.resetPasswordModal.addEventListener("click", (event) => {
+    if (event.target === els.resetPasswordModal) closeResetPasswordModal();
+  });
+  els.resetPasswordForm.addEventListener("submit", handleResetPasswordSubmit);
   [els.staffSearch, els.staffRoleFilter, els.staffStatusFilter, els.staffPasswordFilter].forEach((filter) => {
     filter.addEventListener("input", renderStaffUsers);
     filter.addEventListener("change", renderStaffUsers);
@@ -2946,6 +2965,97 @@ function validateCreateStaffPayload(payload) {
   return "";
 }
 
+function openResetPasswordModal(user) {
+  if (!isAdmin() || !user) return;
+  resetPasswordTargetUser = user;
+  clearResetPasswordError();
+  els.resetPasswordUserLabel.value = `${user.full_name || "ยังไม่ได้ใส่ชื่อ"} · ${user.email || "-"}`;
+  els.resetPasswordStatusLabel.value = `${user.is_active ? "active" : "inactive"} · ${user.role || "staff"}`;
+  els.resetPasswordInactiveNote.hidden = user.is_active !== false;
+  els.resetPasswordMustChange.checked = true;
+  els.resetPasswordValue.value = "";
+  els.resetPasswordConfirmValue.value = "";
+  els.resetPasswordModal.hidden = false;
+  document.body.classList.add("modal-open");
+  setTimeout(() => els.resetPasswordValue.focus(), 0);
+}
+
+function closeResetPasswordModal() {
+  els.resetPasswordModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  setResetPasswordLoading(false);
+  clearResetPasswordError();
+  resetPasswordTargetUser = null;
+  els.resetPasswordValue.value = "";
+  els.resetPasswordConfirmValue.value = "";
+}
+
+function setResetPasswordLoading(isLoading) {
+  els.resetPasswordSubmitButton.disabled = isLoading;
+  els.closeResetPasswordButton.disabled = isLoading;
+  els.cancelResetPasswordButton.disabled = isLoading;
+  els.resetPasswordSubmitButton.textContent = isLoading ? "กำลังรีเซ็ต..." : "รีเซ็ตรหัสผ่าน";
+}
+
+function setResetPasswordError(message) {
+  els.resetPasswordError.hidden = !message;
+  els.resetPasswordError.textContent = message || "รีเซ็ตรหัสผ่านไม่สำเร็จ";
+}
+
+function clearResetPasswordError() {
+  setResetPasswordError("");
+}
+
+async function handleResetPasswordSubmit(event) {
+  event.preventDefault();
+  if (!isAdmin() || !resetPasswordTargetUser) return;
+
+  clearResetPasswordError();
+  setStaffSuccess("");
+
+  const temporaryPassword = els.resetPasswordValue.value;
+  const confirmPassword = els.resetPasswordConfirmValue.value;
+  const validationMessage = validateResetPasswordPayload(temporaryPassword, confirmPassword);
+  if (validationMessage) {
+    setResetPasswordError(validationMessage);
+    return;
+  }
+
+  if (currentProfile?.id === resetPasswordTargetUser.id && !window.confirm("คุณกำลังรีเซ็ตรหัสผ่านบัญชี admin ของตัวเอง ยืนยันดำเนินการต่อ?")) {
+    return;
+  }
+
+  try {
+    setResetPasswordLoading(true);
+    const response = await authFetch(`/api/admin/users/${encodeURIComponent(resetPasswordTargetUser.id)}/password`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ temporaryPassword })
+    });
+    const data = await readJsonResponse(response, "รีเซ็ตรหัสผ่านไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "รีเซ็ตรหัสผ่านไม่สำเร็จ");
+
+    els.resetPasswordValue.value = "";
+    els.resetPasswordConfirmValue.value = "";
+    closeResetPasswordModal();
+    setStaffSuccess("รีเซ็ตรหัสผ่านชั่วคราวสำเร็จ");
+    await refreshStaffUsers();
+  } catch (error) {
+    els.resetPasswordValue.value = "";
+    els.resetPasswordConfirmValue.value = "";
+    setResetPasswordError(`รีเซ็ตรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
+  } finally {
+    setResetPasswordLoading(false);
+  }
+}
+
+function validateResetPasswordPayload(password, confirmPassword) {
+  if (!password) return "กรุณาใส่ temporary password";
+  if (password.length < 8) return "Temporary password ต้องมีอย่างน้อย 8 ตัวอักษร";
+  if (password !== confirmPassword) return "Temporary password และ confirm password ไม่ตรงกัน";
+  return "";
+}
+
 function renderStaffUsers() {
   if (!els.staffAdminList) return;
 
@@ -3004,6 +3114,7 @@ function renderStaffUserCard(user) {
           <input type="text" data-staff-field="full_name" value="${escapeHtml(user.full_name || "")}" ${updating ? "disabled" : ""} />
         </label>
         <button class="ghost-button compact" type="button" data-staff-action="save-name" ${updating ? "disabled" : ""}>บันทึกชื่อ</button>
+        <button class="ghost-button compact" type="button" data-staff-action="reset-password" ${updating ? "disabled" : ""}>Reset Password</button>
         <label>
           Role
           <select data-staff-field="role" ${updating ? "disabled" : ""}>
@@ -3058,7 +3169,14 @@ async function handleStaffListClick(event) {
   const userId = card.dataset.userId;
   const nameInput = card.querySelector('[data-staff-field="full_name"]');
   const user = latestStaffUsers.find((item) => item.id === userId);
-  if (!user || !nameInput) return;
+  if (!user) return;
+
+  if (button.dataset.staffAction === "reset-password") {
+    openResetPasswordModal(user);
+    return;
+  }
+
+  if (!nameInput) return;
 
   const fullName = nameInput.value.trim();
   if (fullName === (user.full_name || "")) return;

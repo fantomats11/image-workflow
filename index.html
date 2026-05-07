@@ -644,6 +644,46 @@
       </section>
     </div>
 
+    <div class="modal-backdrop" id="resetPasswordModal" hidden>
+      <section class="modal-panel staff-create-modal" role="dialog" aria-modal="true" aria-labelledby="resetPasswordTitle">
+        <div class="settings-card-header">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h3 id="resetPasswordTitle">รีเซ็ตรหัสผ่านชั่วคราว</h3>
+          </div>
+          <button class="ghost-button compact" type="button" id="closeResetPasswordButton">ปิด</button>
+        </div>
+        <form id="resetPasswordForm" class="staff-create-form">
+          <label>
+            ผู้ใช้งาน
+            <input id="resetPasswordUserLabel" type="text" readonly />
+          </label>
+          <label>
+            สถานะบัญชี
+            <input id="resetPasswordStatusLabel" type="text" readonly />
+          </label>
+          <div class="kpi-state" id="resetPasswordInactiveNote" hidden>บัญชีนี้ inactive ต่อให้รีเซ็ตรหัสแล้วก็ยัง login ไม่ได้จนกว่า Admin จะเปิดใช้งาน</div>
+          <label>
+            New temporary password
+            <input id="resetPasswordValue" type="password" autocomplete="new-password" required minlength="8" />
+          </label>
+          <label>
+            Confirm temporary password
+            <input id="resetPasswordConfirmValue" type="password" autocomplete="new-password" required minlength="8" />
+          </label>
+          <label class="staff-toggle">
+            <input id="resetPasswordMustChange" type="checkbox" checked disabled />
+            <span>บังคับเปลี่ยนรหัสหลัง login</span>
+          </label>
+          <div class="kpi-state danger" id="resetPasswordError" hidden>รีเซ็ตรหัสผ่านไม่สำเร็จ</div>
+          <div class="settings-actions">
+            <button class="primary-button" type="submit" id="resetPasswordSubmitButton">รีเซ็ตรหัสผ่าน</button>
+            <button class="ghost-button" type="button" id="cancelResetPasswordButton">ยกเลิก</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <script src="/vendor/supabase/supabase.js"></script>
     <script src="./app.js"></script>
   </body>

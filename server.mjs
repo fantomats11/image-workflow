@@ -328,6 +328,107 @@ app.post("/api/admin/users", requireUser, requireAdminUser, async (req, res) => 
   }
 });
 
+app.patch("/api/admin/users/:id/password", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const userId = String(req.params.id || "").trim();
+    if (!isValidUuid(userId)) {
+      return res.status(400).json({
+        ok: false,
+        code: "invalid_user_id",
+        error: "รหัสผู้ใช้งานไม่ถูกต้อง"
+      });
+    }
+
+    const passwordResult = buildAdminPasswordResetPayload(req.body);
+    if (!passwordResult.ok) {
+      return res.status(400).json({
+        ok: false,
+        code: passwordResult.code,
+        error: passwordResult.error
+      });
+    }
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+    if (!profile) {
+      return res.status(404).json({
+        ok: false,
+        code: "user_not_found",
+        error: "ไม่พบ profile ของผู้ใช้งานนี้"
+      });
+    }
+
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: passwordResult.temporaryPassword
+    });
+    if (authError) {
+      console.error("Admin password reset auth update failed:", {
+        targetUserId: userId,
+        targetEmail: profile.email || "",
+        error: readableError(authError)
+      });
+      return res.status(400).json({
+        ok: false,
+        code: "auth_password_update_failed",
+        error: "รีเซ็ตรหัสผ่านใน Supabase Auth ไม่สำเร็จ"
+      });
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from("profiles")
+      .update({ must_change_password: true })
+      .eq("id", userId)
+      .select("id, email, full_name, role, is_active, must_change_password, created_at")
+      .single();
+
+    if (updateError) {
+      console.error("Profile must_change_password update failed after auth password reset:", {
+        targetUserId: userId,
+        targetEmail: profile.email || "",
+        error: readableError(updateError)
+      });
+      return res.status(500).json({
+        ok: false,
+        code: "profile_password_flag_update_failed",
+        error: "รีเซ็ตรหัสใน Auth แล้ว แต่ตั้งสถานะบังคับเปลี่ยนรหัสไม่สำเร็จ กรุณาตรวจสอบ profile ก่อนลองใหม่"
+      });
+    }
+
+    await recordAuditEvent({
+      actorId: req.user.id,
+      eventType: "user_password_reset",
+      eventJson: {
+        admin_user_id: req.user.id,
+        admin_email: req.profile?.email || req.user.email || "",
+        target_user_id: updatedProfile.id,
+        target_email: updatedProfile.email || ""
+      }
+    });
+
+    res.json({
+      ok: true,
+      user: {
+        id: updatedProfile.id,
+        email: updatedProfile.email || "",
+        must_change_password: updatedProfile.must_change_password === true,
+        is_active: updatedProfile.is_active !== false
+      }
+    });
+  } catch (error) {
+    console.error("Admin password reset failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "admin_password_reset_failed",
+      error: "รีเซ็ตรหัสผ่านไม่สำเร็จ"
+    });
+  }
+});
+
 app.patch("/api/admin/users/:id", requireUser, requireAdminUser, async (req, res) => {
   try {
     const userId = String(req.params.id || "").trim();
@@ -2950,6 +3051,21 @@ function buildAdminUserCreatePayload(body = {}) {
       is_active: isActive,
       must_change_password: mustChangePassword
     }
+  };
+}
+
+function buildAdminPasswordResetPayload(body = {}) {
+  const temporaryPassword = String(body.temporaryPassword ?? body.temporary_password ?? "").trim();
+  if (temporaryPassword.length < 8) {
+    return {
+      ok: false,
+      code: "weak_temporary_password",
+      error: "Temporary password ต้องมีอย่างน้อย 8 ตัวอักษร"
+    };
+  }
+  return {
+    ok: true,
+    temporaryPassword
   };
 }
 
