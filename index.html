@@ -112,100 +112,128 @@
               เลือกข้อมูลเท่าที่จำเป็น ระบบจะล็อก prompt structure, crop, layering และช็อตที่เหมาะกับสินค้าให้เอง
             </div>
 
-            <div class="form-grid">
-              <label>
-                ผู้ใช้งาน
-                <input id="operatorName" type="text" placeholder="เช่น แพรว / ทีมกราฟิก" />
-              </label>
+            <div class="control-stack">
+              <section class="control-section">
+                <div class="control-section-header">
+                  <span>01</span>
+                  <strong>Job Identity</strong>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    ผู้ใช้งาน
+                    <input id="operatorName" type="text" placeholder="เช่น แพรว / ทีมกราฟิก" />
+                  </label>
 
-              <label>
-                SKU / รหัสอ้างอิง
-                <input id="productSku" type="text" placeholder="ไม่บังคับ ใช้ตั้งชื่อไฟล์เท่านั้น" />
-              </label>
+                  <label>
+                    SKU / รหัสอ้างอิง
+                    <input id="productSku" type="text" placeholder="ไม่บังคับ ใช้ตั้งชื่อไฟล์เท่านั้น" />
+                  </label>
 
-              <label>
-                แบรนด์ปลายทาง / CI ภาพ
-                <select id="brandProfile"></select>
-              </label>
+                  <label>
+                    แบรนด์ปลายทาง / CI ภาพ
+                    <select id="brandProfile"></select>
+                  </label>
 
-              <label>
-                แบรนด์สินค้าบนตัวสินค้า
-                <input id="brandName" type="text" placeholder="เช่น The North Face / Moncler ถ้าไม่มีให้เว้นว่าง" />
-              </label>
+                  <label>
+                    แบรนด์สินค้าบนตัวสินค้า
+                    <input id="brandName" type="text" placeholder="เช่น The North Face / Moncler ถ้าไม่มีให้เว้นว่าง" />
+                  </label>
+                </div>
+              </section>
 
-              <label>
-                หมวดสินค้า
-                <select id="category"></select>
-              </label>
+              <section class="control-section">
+                <div class="control-section-header">
+                  <span>02</span>
+                  <strong>Product Direction</strong>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    หมวดสินค้า
+                    <select id="category"></select>
+                  </label>
 
-              <label>
-                ประเภทสินค้าย่อย
-                <select id="productSubtype"></select>
-              </label>
+                  <label>
+                    ประเภทสินค้าย่อย
+                    <select id="productSubtype"></select>
+                  </label>
 
-              <label>
-                รูปแบบภาพ
-                <select id="imageType"></select>
-              </label>
+                  <label>
+                    รูปแบบภาพ
+                    <select id="imageType"></select>
+                  </label>
 
-              <label>
-                สีสินค้า
-                <input id="color" type="text" placeholder="เช่น black / cream / navy" />
-              </label>
+                  <label>
+                    สีสินค้า
+                    <input id="color" type="text" placeholder="เช่น black / cream / navy" />
+                  </label>
 
-              <label>
-                จุดเด่นสินค้า
-                <input id="keyFeature" type="text" placeholder="เช่น บุขนด้านใน, waterproof upper" />
-              </label>
+                  <label>
+                    จุดเด่นสินค้า
+                    <input id="keyFeature" type="text" placeholder="เช่น บุขนด้านใน, waterproof upper" />
+                  </label>
 
-              <label>
-                กลุ่มโมเดล
-                <select id="modelProfile"></select>
-              </label>
+                  <label>
+                    กลุ่มโมเดล
+                    <select id="modelProfile"></select>
+                  </label>
 
-              <label>
-                มุม/ช็อตที่ต้องการ
-                <select id="shotType"></select>
-              </label>
+                  <label>
+                    มุม/ช็อตที่ต้องการ
+                    <select id="shotType"></select>
+                  </label>
 
-              <label>
-                ขนาดภาพ
-                <select id="imageSize"></select>
-              </label>
+                  <label>
+                    ขนาดภาพ
+                    <select id="imageSize"></select>
+                  </label>
 
-              <label>
-                Quality
-                <select id="quality"></select>
-              </label>
+                  <label>
+                    Quality
+                    <select id="quality"></select>
+                  </label>
+                </div>
+              </section>
+
+              <section class="control-section reference-dock">
+                <div class="control-section-header">
+                  <span>03</span>
+                  <strong>Reference Assets</strong>
+                </div>
+                <label class="full-width">
+                  ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
+                  <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
+                </label>
+
+                <div class="upload-grid">
+                  <label>
+                    ภาพสินค้าอ้างอิง
+                    <input id="productImages" type="file" accept="image/*" multiple />
+                    <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
+                    <div class="thumb-grid" id="productPreview"></div>
+                  </label>
+
+                  <label>
+                    ภาพโมเดลอ้างอิง
+                    <input id="modelImages" type="file" accept="image/*" multiple />
+                    <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
+                    <div class="thumb-grid" id="modelPreview"></div>
+                  </label>
+                </div>
+              </section>
+
+              <section class="control-section">
+                <div class="control-section-header">
+                  <span>04</span>
+                  <strong>Operator Notes</strong>
+                </div>
+                <label class="full-width">
+                  หมายเหตุเพิ่มเติม
+                  <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
+                </label>
+              </section>
             </div>
 
-            <label class="full-width">
-              ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
-              <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
-            </label>
-
-            <div class="upload-grid">
-              <label>
-                ภาพสินค้าอ้างอิง
-                <input id="productImages" type="file" accept="image/*" multiple />
-                <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
-                <div class="thumb-grid" id="productPreview"></div>
-              </label>
-
-              <label>
-                ภาพโมเดลอ้างอิง
-                <input id="modelImages" type="file" accept="image/*" multiple />
-                <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
-                <div class="thumb-grid" id="modelPreview"></div>
-              </label>
-            </div>
-
-            <label class="full-width">
-              หมายเหตุเพิ่มเติม
-              <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
-            </label>
-
-            <div class="actions">
+            <div class="actions action-bar">
               <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">Generate Hero</button>
               <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
             </div>
@@ -220,24 +248,26 @@
               <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
             </div>
 
-            <div class="result-card" id="resultCard" hidden>
-              <div class="result-toolbar">
-                <strong>Hero Image</strong>
-                <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">Approve + Save</button>
+            <div class="studio-canvas">
+              <div class="result-card" id="resultCard" hidden>
+                <div class="result-toolbar">
+                  <strong>Hero Image</strong>
+                  <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">Approve + Save</button>
+                </div>
+                <div class="generation-state" id="generationState" hidden>
+                  <div class="loader-ring" aria-hidden="true"></div>
+                  <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
+                  <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
+                  <div class="progress-track"><div class="progress-bar"></div></div>
+                </div>
+                <img id="resultImage" alt="Generated product result" />
+                <p id="resultStatus"></p>
               </div>
-              <div class="generation-state" id="generationState" hidden>
-                <div class="loader-ring" aria-hidden="true"></div>
-                <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
-                <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
-                <div class="progress-track"><div class="progress-bar"></div></div>
-              </div>
-              <img id="resultImage" alt="Generated product result" />
-              <p id="resultStatus"></p>
-            </div>
 
-            <div class="empty-hero" id="emptyHero">
-              <strong>ยังไม่มีภาพ Hero</strong>
-              <span>อัปโหลดภาพสินค้า แล้วกด Generate Hero เพื่อเริ่ม workflow</span>
+              <div class="empty-hero" id="emptyHero">
+                <strong>ยังไม่มีภาพ Hero</strong>
+                <span>อัปโหลดภาพสินค้า แล้วกด Generate Hero เพื่อเริ่ม workflow</span>
+              </div>
             </div>
 
             <details class="prompt-details" id="prompt">
