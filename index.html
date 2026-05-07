@@ -414,60 +414,88 @@
           <section class="panel page-panel" id="metrics">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Team KPI</p>
-                <h3>KPI Dashboard</h3>
+                <p class="eyebrow">Executive KPI</p>
+                <h3>Production Performance</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshMetricsButton">รีเฟรช</button>
             </div>
-            <div class="filter-grid">
-              <label>
-                วันที่
-                <input id="metricDate" type="date" />
-              </label>
-              <label>
-                ผู้ใช้งาน
-                <input id="metricOperatorFilter" type="search" placeholder="ค้นหาชื่อพนักงาน" />
-              </label>
-              <label>
-                หมวด / SKU / แบรนด์
-                <input id="metricFreeTextFilter" type="search" placeholder="เตรียมรองรับ database filter" />
-              </label>
+
+            <div class="kpi-range-tabs" id="kpiRangeControls" aria-label="เลือกช่วงเวลา KPI">
+              <button class="active" type="button" data-kpi-range="today">Today</button>
+              <button type="button" data-kpi-range="7d">Last 7 days</button>
+              <button type="button" data-kpi-range="30d">Last 30 days</button>
+              <button type="button" data-kpi-range="all">All time</button>
             </div>
-            <div class="metric-summary" id="metricsSummary">
-              <span>Generate 0 ภาพ</span>
-              <span>Approve 0 ภาพ</span>
-              <span>0 SKU</span>
+
+            <div class="kpi-state" id="kpiLoadingState" hidden>กำลังโหลด KPI Dashboard...</div>
+            <div class="kpi-state danger" id="kpiErrorState" hidden>โหลด KPI ไม่สำเร็จ</div>
+            <div class="kpi-state" id="kpiEmptyState" hidden>ยังไม่มีข้อมูลในช่วงเวลานี้</div>
+
+            <div class="executive-summary-card">
+              <div>
+                <span>Executive summary</span>
+                <p id="kpiExecutiveSummary">ยังไม่มีข้อมูลในช่วงเวลานี้</p>
+              </div>
+              <small id="kpiUpdatedAt">รอข้อมูลล่าสุด</small>
             </div>
-            <div class="kpi-grid">
-              <section class="kpi-card">
-                <strong>Approve Rate</strong>
-                <div class="kpi-number" id="approveRate">0%</div>
-                <div class="mini-bar"><span id="approveRateBar"></span></div>
+
+            <div class="warning-list" id="kpiWarnings"></div>
+
+            <div class="kpi-grid executive-kpi-grid" id="kpiCards"></div>
+
+            <div class="kpi-ops-grid">
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Trend</p>
+                    <h4>Production by day</h4>
+                  </div>
+                </div>
+                <div class="trend-chart" id="kpiTrendChart"></div>
               </section>
-              <section class="kpi-card">
-                <strong>Rerun / Support Signals</strong>
-                <div class="kpi-number" id="supportSignal">0</div>
-                <p>รอบ production จะนับ rerun, failed, cost และ pass rate ราย SKU</p>
+
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Funnel</p>
+                    <h4>Created → Exported</h4>
+                  </div>
+                </div>
+                <div class="workflow-funnel" id="kpiFunnel"></div>
               </section>
             </div>
-            <div class="table-wrap compact-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ผู้ใช้งาน</th>
-                    <th>Gen</th>
-                    <th>Approve</th>
-                    <th>SKU</th>
-                    <th>หมวด/ประเภท</th>
-                  </tr>
-                </thead>
-                <tbody id="metricsBody">
-                  <tr>
-                    <td colspan="5" class="empty-state">ยังไม่มี KPI วันนี้</td>
-                  </tr>
-                </tbody>
-              </table>
+
+            <div class="kpi-detail-grid">
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Status</p>
+                    <h4>Status breakdown</h4>
+                  </div>
+                </div>
+                <div id="kpiStatusBreakdown"></div>
+              </section>
+
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Staff</p>
+                    <h4>Staff performance</h4>
+                  </div>
+                </div>
+                <div id="kpiStaffPerformance"></div>
+              </section>
             </div>
+
+            <section class="kpi-section-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Activity</p>
+                  <h4>Recent activity</h4>
+                </div>
+              </div>
+              <div id="kpiRecentActivity"></div>
+            </section>
           </section>
         </section>
 

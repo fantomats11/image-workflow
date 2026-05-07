@@ -644,6 +644,30 @@ app.get("/api/metrics", requireUser, async (req, res) => {
   }
 });
 
+app.get("/api/kpi/summary", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const range = normalizeKpiRange(req.query.range);
+    const kpi = await buildKpiSummary(range);
+    res.json({ ok: true, ...kpi });
+  } catch (error) {
+    console.error("KPI summary failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "kpi_summary_failed",
+      error: "โหลด KPI Dashboard ไม่สำเร็จ"
+    });
+  }
+});
+
 app.get("/api/google/oauth/status", async (_req, res) => {
   try {
     const integrationToken = await readIntegrationToken("google_drive");
@@ -2119,6 +2143,516 @@ function serializeMetricBucket(bucket) {
     categories: Array.from(bucket.categories).sort(),
     subtypes: Array.from(bucket.subtypes).sort()
   };
+}
+
+function normalizeKpiRange(value) {
+  const range = String(value || "7d").trim().toLowerCase();
+  if (["today", "7d", "30d", "all"].includes(range)) return range;
+  return "7d";
+}
+
+function getKpiRangeMeta(range) {
+  const todayKey = localDateKey();
+  if (range === "all") {
+    return {
+      range,
+      label: "ทั้งหมด",
+      since: null,
+      todayKey
+    };
+  }
+
+  const days = range === "today" ? 1 : range === "30d" ? 30 : 7;
+  const todayStart = zonedDateStartUtc(todayKey);
+  const sinceDate = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  return {
+    range,
+    label: range === "today" ? "วันนี้" : range === "30d" ? "30 วันที่ผ่านมา" : "7 วันที่ผ่านมา",
+    since: sinceDate.toISOString(),
+    todayKey
+  };
+}
+
+function zonedDateStartUtc(dateKey) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+  const offset = getTimezoneOffsetMs(utcGuess, appTimezone);
+  const candidate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offset);
+  const correctedOffset = getTimezoneOffsetMs(candidate, appTimezone);
+  return correctedOffset === offset
+    ? candidate
+    : new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - correctedOffset);
+}
+
+function getTimezoneOffsetMs(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour === "24" ? "0" : values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return asUtc - date.getTime();
+}
+
+async function buildKpiSummary(range) {
+  const rangeMeta = getKpiRangeMeta(range);
+  const limit = range === "all" ? 5000 : 3000;
+  const warnings = [];
+
+  const [
+    jobsResult,
+    generationsResult,
+    approvalsResult,
+    assetsResult,
+    qcChecksResult,
+    auditEventsResult
+  ] = await Promise.all([
+    readKpiRows("jobs", "id, sku, product_name, brand, category, status, created_by, created_at", {
+      since: rangeMeta.since,
+      limit
+    }),
+    readKpiRows("generations", "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message", {
+      since: rangeMeta.since,
+      limit
+    }),
+    readKpiRows("approvals", "id, generation_id, approved_by, approved_at, export_path", {
+      since: rangeMeta.since,
+      dateColumn: "approved_at",
+      orderColumn: "approved_at",
+      limit
+    }),
+    readKpiRows("assets", "id, job_id, type, bucket, created_by, created_at", {
+      since: rangeMeta.since,
+      limit
+    }),
+    readKpiRows("qc_checks", "id, generation_id, passed, checked_by, checked_at", {
+      since: rangeMeta.since,
+      dateColumn: "checked_at",
+      orderColumn: "checked_at",
+      limit,
+      optional: true
+    }),
+    readKpiRows("audit_events", "id, actor_id, job_id, generation_id, event_type, created_at", {
+      since: rangeMeta.since,
+      limit: 20,
+      optional: true
+    })
+  ]);
+
+  if (qcChecksResult.error) warnings.push(createWarning("qc_unavailable", "ยังอ่านข้อมูล QC ไม่ได้ จึงยังคำนวณ QC pass rate ไม่ได้"));
+  if (auditEventsResult.error) warnings.push(createWarning("audit_unavailable", "ยังอ่าน recent activity จาก audit events ไม่ได้"));
+
+  const jobs = jobsResult.data;
+  const generations = generationsResult.data;
+  const approvals = approvalsResult.data;
+  const assets = assetsResult.data;
+  const qcChecks = qcChecksResult.data;
+  const auditEvents = auditEventsResult.data;
+
+  [jobsResult, generationsResult, approvalsResult, assetsResult, qcChecksResult].forEach((result) => {
+    if (result.limited) {
+      warnings.push(createWarning("data_limited", `ข้อมูล ${result.table} ถูกจำกัดที่ ${result.limit.toLocaleString("th-TH")} แถวเพื่อประสิทธิภาพ`));
+    }
+  });
+
+  const userIds = collectUserIds(jobs, generations, approvals, qcChecks, auditEvents, assets);
+  const profiles = await readKpiProfiles(userIds);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const generationById = new Map(generations.map((generation) => [generation.id, generation]));
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const approvedGenerationIds = new Set(approvals.map((approval) => approval.generation_id).filter(Boolean));
+  const generatedGenerations = generations.filter((generation) => isSuccessfulGenerationStatus(generation.status));
+  const generatedGenerationIds = new Set(generatedGenerations.map((generation) => generation.id));
+  const failedGenerationIds = new Set(
+    generations.filter((generation) => isFailedStatus(generation.status) || generation.error_message).map((generation) => generation.id)
+  );
+  const failedJobIds = new Set(jobs.filter((job) => isFailedStatus(job.status)).map((job) => job.id));
+  generations.forEach((generation) => {
+    if (failedGenerationIds.has(generation.id) && generation.job_id) failedJobIds.add(generation.job_id);
+  });
+
+  const exportedAssets = assets.filter((asset) => String(asset.type || "").toLowerCase() === "approved_export");
+  const exported = exportedAssets.length || approvals.filter((approval) => approval.export_path).length;
+  const qcGenerationIds = new Set(qcChecks.map((check) => check.generation_id).filter(Boolean));
+  const qcPassed = qcChecks.filter((check) => check.passed === true).length;
+  const pendingApproval = generatedGenerations.filter((generation) => !approvedGenerationIds.has(generation.id)).length;
+  const approved = approvals.length;
+  const generated = generatedGenerations.length;
+  const failed = failedJobIds.size || failedGenerationIds.size;
+  const activeStaffIds = collectActiveStaffIds(jobs, generations, approvals, qcChecks, auditEvents, assets);
+  const averageTurnaroundMinutes = calculateAverageTurnaroundMinutes(approvals, generationById, jobById);
+
+  const summary = {
+    totalJobs: jobs.length,
+    generated,
+    approved,
+    pendingApproval,
+    failed,
+    approvalRate: generated ? roundMetric((approved / generated) * 100) : null,
+    qcPassRate: qcChecks.length ? roundMetric((qcPassed / qcChecks.length) * 100) : null,
+    averageTurnaroundMinutes,
+    activeStaff: activeStaffIds.size
+  };
+
+  if (failed > 0) warnings.push(createWarning("failed_jobs", `มีงาน failed ${failed.toLocaleString("th-TH")} งานในช่วงนี้`));
+  if (pendingApproval > 0) warnings.push(createWarning("pending_approvals", `มีงานรอ approve ${pendingApproval.toLocaleString("th-TH")} งาน`));
+  if (!summary.totalJobs && !generated && !approved) warnings.push(createWarning("no_activity", "ยังไม่มี production activity ในช่วงเวลานี้"));
+  if (generated && failed / Math.max(generated + failed, 1) >= 0.2) {
+    warnings.push(createWarning("high_failure_rate", "อัตรา failure สูงกว่าปกติ ควรตรวจสอบ generation queue และ input ล่าสุด"));
+  }
+
+  const googleDriveStatus = await getSafeGoogleDriveStatus();
+  if (!googleDriveStatus.connected) warnings.push(createWarning("google_drive_disconnected", "Google Drive ยังไม่ connected หรือ token ใช้งานไม่ได้"));
+
+  return {
+    range,
+    rangeLabel: rangeMeta.label,
+    generatedAt: new Date().toISOString(),
+    summary,
+    executiveSummary: buildExecutiveSummary(rangeMeta.label, summary),
+    warnings: dedupeWarnings(warnings),
+    trends: buildKpiTrends({ jobs, generations, approvals, assets }),
+    funnel: buildKpiFunnel({ created: jobs.length, generated, qcChecked: qcGenerationIds.size, approved, exported }),
+    statusBreakdown: buildStatusBreakdown(jobs, generations),
+    staffPerformance: buildStaffPerformance({
+      jobs,
+      generations,
+      approvals,
+      qcChecks,
+      profileById,
+      generatedGenerationIds,
+      failedGenerationIds
+    }),
+    recentActivity: buildRecentActivity({
+      auditEvents,
+      jobs,
+      generations,
+      approvals,
+      profileById
+    }),
+    systemHealth: {
+      googleDrive: googleDriveStatus
+    }
+  };
+}
+
+async function readKpiRows(table, select, { since = null, dateColumn = "created_at", orderColumn = "created_at", limit = 3000, optional = false } = {}) {
+  try {
+    let query = supabaseAdmin.from(table).select(select);
+    if (since) query = query.gte(dateColumn, since);
+    const { data, error } = await query.order(orderColumn, { ascending: false }).limit(limit);
+    if (error) throw error;
+    const rows = data || [];
+    return { table, data: rows, error: null, limit, limited: rows.length >= limit };
+  } catch (error) {
+    if (optional) {
+      console.warn(`Optional KPI table ${table} unavailable:`, readableError(error));
+      return { table, data: [], error, limit, limited: false };
+    }
+    throw error;
+  }
+}
+
+async function readKpiProfiles(userIds) {
+  if (!userIds.size) return [];
+  const ids = Array.from(userIds).filter(Boolean).slice(0, 500);
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, full_name, role, is_active")
+    .in("id", ids);
+  if (error) {
+    console.warn("KPI profiles unavailable:", readableError(error));
+    return [];
+  }
+  return data || [];
+}
+
+async function getSafeGoogleDriveStatus() {
+  try {
+    const integrationToken = await readIntegrationToken("google_drive");
+    const fileTokenExists = await fileExists(googleDriveTokenPath);
+    const tokenExists = hasUsableGoogleOAuthToken(integrationToken?.token_json) || fileTokenExists;
+    return {
+      mode: getGoogleDriveAuthMode(),
+      configured: isGoogleOAuthConfigured(),
+      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenExists,
+      tokenExists,
+      updatedAt: integrationToken?.updated_at || null
+    };
+  } catch (error) {
+    console.warn("Google Drive KPI status unavailable:", readableError(error));
+    return {
+      mode: getGoogleDriveAuthMode(),
+      configured: isGoogleOAuthConfigured(),
+      connected: false,
+      tokenExists: false,
+      updatedAt: null
+    };
+  }
+}
+
+function collectUserIds(...groups) {
+  const ids = new Set();
+  groups.flat().forEach((item) => {
+    [item?.created_by, item?.approved_by, item?.checked_by, item?.actor_id].forEach((id) => {
+      if (id) ids.add(id);
+    });
+  });
+  return ids;
+}
+
+function collectActiveStaffIds(...groups) {
+  return collectUserIds(...groups);
+}
+
+function isSuccessfulGenerationStatus(status) {
+  return ["done", "completed", "complete", "success", "succeeded"].includes(String(status || "").trim().toLowerCase());
+}
+
+function isFailedStatus(status) {
+  return ["failed", "error", "errored", "cancelled", "canceled"].includes(String(status || "").trim().toLowerCase());
+}
+
+function roundMetric(value) {
+  if (!Number.isFinite(value)) return null;
+  return Math.round(value * 10) / 10;
+}
+
+function calculateAverageTurnaroundMinutes(approvals, generationById, jobById) {
+  const durations = approvals
+    .map((approval) => {
+      const generation = generationById.get(approval.generation_id);
+      const job = generation?.job_id ? jobById.get(generation.job_id) : null;
+      const start = job?.created_at || generation?.created_at;
+      if (!start || !approval.approved_at) return null;
+      const minutes = (new Date(approval.approved_at).getTime() - new Date(start).getTime()) / 60000;
+      return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
+    })
+    .filter((value) => value !== null);
+  if (!durations.length) return null;
+  return Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
+}
+
+function buildExecutiveSummary(label, summary) {
+  const pieces = [
+    `${label} มีงานทั้งหมด ${formatThaiNumber(summary.totalJobs)} งาน`,
+    `generate แล้ว ${formatThaiNumber(summary.generated)} งาน`,
+    `approve แล้ว ${formatThaiNumber(summary.approved)} งาน`,
+    `ยังรอ approve ${formatThaiNumber(summary.pendingApproval)} งาน`
+  ];
+  if (summary.failed > 0) pieces.push(`และมีงาน failed ${formatThaiNumber(summary.failed)} งาน`);
+  return pieces.join(", ");
+}
+
+function buildKpiTrends({ jobs, generations, approvals, assets }) {
+  const byDate = new Map();
+  const ensure = (timestamp) => {
+    const date = localDateKey(new Date(timestamp));
+    if (!byDate.has(date)) byDate.set(date, { date, jobs: 0, generated: 0, approved: 0, exported: 0, failed: 0 });
+    return byDate.get(date);
+  };
+
+  jobs.forEach((job) => {
+    if (job.created_at) ensure(job.created_at).jobs += 1;
+    if (isFailedStatus(job.status) && job.created_at) ensure(job.created_at).failed += 1;
+  });
+  generations.forEach((generation) => {
+    const timestamp = generation.completed_at || generation.created_at;
+    if (isSuccessfulGenerationStatus(generation.status) && timestamp) ensure(timestamp).generated += 1;
+    if ((isFailedStatus(generation.status) || generation.error_message) && timestamp) ensure(timestamp).failed += 1;
+  });
+  approvals.forEach((approval) => {
+    if (approval.approved_at) ensure(approval.approved_at).approved += 1;
+  });
+  assets
+    .filter((asset) => String(asset.type || "").toLowerCase() === "approved_export")
+    .forEach((asset) => {
+      if (asset.created_at) ensure(asset.created_at).exported += 1;
+    });
+
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildKpiFunnel({ created, generated, qcChecked, approved, exported }) {
+  const stages = [
+    { key: "created", label: "Created", value: created, calculable: true },
+    { key: "generated", label: "Generated", value: generated, calculable: true },
+    { key: "qc_checked", label: "QC Checked", value: qcChecked, calculable: qcChecked > 0 },
+    { key: "approved", label: "Approved", value: approved, calculable: true },
+    { key: "exported", label: "Exported", value: exported, calculable: true }
+  ];
+
+  return stages.map((stage, index) => {
+    const previous = index === 0 ? stage.value : stages[index - 1].value;
+    return {
+      ...stage,
+      percentOfCreated: created ? roundMetric((stage.value / created) * 100) : null,
+      percentOfPrevious: previous ? roundMetric((stage.value / previous) * 100) : null
+    };
+  });
+}
+
+function buildStatusBreakdown(jobs, generations) {
+  const byStatus = new Map();
+  const ensure = (status) => {
+    const normalized = String(status || "unknown").trim() || "unknown";
+    if (!byStatus.has(normalized)) byStatus.set(normalized, { status: normalized, jobs: 0, generations: 0, total: 0 });
+    return byStatus.get(normalized);
+  };
+  jobs.forEach((job) => {
+    const bucket = ensure(job.status);
+    bucket.jobs += 1;
+    bucket.total += 1;
+  });
+  generations.forEach((generation) => {
+    const bucket = ensure(generation.status);
+    bucket.generations += 1;
+    bucket.total += 1;
+  });
+  return Array.from(byStatus.values()).sort((a, b) => b.total - a.total || a.status.localeCompare(b.status));
+}
+
+function buildStaffPerformance({ jobs, generations, approvals, qcChecks, profileById, generatedGenerationIds, failedGenerationIds }) {
+  const byUser = new Map();
+  const ensure = (userId) => {
+    const id = userId || "unknown";
+    if (!byUser.has(id)) {
+      const profile = profileById.get(id);
+      byUser.set(id, {
+        userId: id === "unknown" ? null : id,
+        name: profile?.full_name || profile?.email || "ไม่ระบุผู้ใช้งาน",
+        email: profile?.email || "",
+        role: profile?.role || "",
+        jobsCreated: 0,
+        generationsCreated: 0,
+        approvalsCompleted: 0,
+        qcChecked: 0,
+        successCount: 0,
+        failCount: 0,
+        latestActivity: null
+      });
+    }
+    return byUser.get(id);
+  };
+  const touch = (userId, timestamp) => {
+    const bucket = ensure(userId);
+    if (timestamp && (!bucket.latestActivity || new Date(timestamp) > new Date(bucket.latestActivity))) {
+      bucket.latestActivity = timestamp;
+    }
+    return bucket;
+  };
+
+  jobs.forEach((job) => {
+    const bucket = touch(job.created_by, job.created_at);
+    bucket.jobsCreated += 1;
+  });
+  generations.forEach((generation) => {
+    const bucket = touch(generation.created_by, generation.completed_at || generation.created_at);
+    bucket.generationsCreated += 1;
+    if (generatedGenerationIds.has(generation.id)) bucket.successCount += 1;
+    if (failedGenerationIds.has(generation.id)) bucket.failCount += 1;
+  });
+  approvals.forEach((approval) => {
+    const bucket = touch(approval.approved_by, approval.approved_at);
+    bucket.approvalsCompleted += 1;
+  });
+  qcChecks.forEach((check) => {
+    const bucket = touch(check.checked_by, check.checked_at);
+    bucket.qcChecked += 1;
+  });
+
+  return Array.from(byUser.values())
+    .sort((a, b) => {
+      const latestDiff = new Date(b.latestActivity || 0) - new Date(a.latestActivity || 0);
+      return latestDiff || b.approvalsCompleted - a.approvalsCompleted || b.generationsCreated - a.generationsCreated;
+    })
+    .slice(0, 20);
+}
+
+function buildRecentActivity({ auditEvents, jobs, generations, approvals, profileById }) {
+  const source = auditEvents.length
+    ? auditEvents.map((event) => ({
+      timestamp: event.created_at,
+      user: formatProfileName(profileById.get(event.actor_id)),
+      action: event.event_type || "activity",
+      status: statusFromEventType(event.event_type),
+      jobId: event.job_id || null,
+      generationId: event.generation_id || null
+    }))
+    : [
+      ...jobs.map((job) => ({
+        timestamp: job.created_at,
+        user: formatProfileName(profileById.get(job.created_by)),
+        action: "job_created",
+        status: job.status || "created",
+        jobId: job.id,
+        generationId: null
+      })),
+      ...generations.map((generation) => ({
+        timestamp: generation.completed_at || generation.created_at,
+        user: formatProfileName(profileById.get(generation.created_by)),
+        action: "generation",
+        status: generation.status || "",
+        jobId: generation.job_id || null,
+        generationId: generation.id
+      })),
+      ...approvals.map((approval) => ({
+        timestamp: approval.approved_at,
+        user: formatProfileName(profileById.get(approval.approved_by)),
+        action: "approval_recorded",
+        status: approval.export_path ? "exported" : "approved",
+        jobId: null,
+        generationId: approval.generation_id || null
+      }))
+    ];
+
+  return source
+    .filter((item) => item.timestamp)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, 20);
+}
+
+function statusFromEventType(eventType) {
+  const type = String(eventType || "").toLowerCase();
+  if (type.includes("failed")) return "failed";
+  if (type.includes("approved") || type.includes("approval")) return "approved";
+  if (type.includes("export") || type.includes("drive")) return "exported";
+  if (type.includes("completed")) return "completed";
+  if (type.includes("started") || type.includes("created")) return "created";
+  return "";
+}
+
+function formatProfileName(profile) {
+  return profile?.full_name || profile?.email || "ไม่ระบุผู้ใช้งาน";
+}
+
+function createWarning(code, message) {
+  return { code, message };
+}
+
+function dedupeWarnings(warnings) {
+  const byCode = new Map();
+  warnings.forEach((warning) => {
+    if (!byCode.has(warning.code)) byCode.set(warning.code, warning);
+  });
+  return Array.from(byCode.values());
+}
+
+function formatThaiNumber(value) {
+  return Number(value || 0).toLocaleString("th-TH");
 }
 
 function readableError(error) {

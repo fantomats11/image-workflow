@@ -337,15 +337,20 @@ const els = {
   assetGallery: document.getElementById("assetGallery"),
   assetStatus: document.getElementById("assetStatus"),
   refreshMetricsButton: document.getElementById("refreshMetricsButton"),
-  metricDate: document.getElementById("metricDate"),
-  metricOperatorFilter: document.getElementById("metricOperatorFilter"),
-  metricFreeTextFilter: document.getElementById("metricFreeTextFilter"),
-  approveRate: document.getElementById("approveRate"),
-  approveRateBar: document.getElementById("approveRateBar"),
-  supportSignal: document.getElementById("supportSignal"),
+  kpiRangeControls: document.getElementById("kpiRangeControls"),
+  kpiLoadingState: document.getElementById("kpiLoadingState"),
+  kpiErrorState: document.getElementById("kpiErrorState"),
+  kpiEmptyState: document.getElementById("kpiEmptyState"),
+  kpiExecutiveSummary: document.getElementById("kpiExecutiveSummary"),
+  kpiUpdatedAt: document.getElementById("kpiUpdatedAt"),
+  kpiWarnings: document.getElementById("kpiWarnings"),
+  kpiCards: document.getElementById("kpiCards"),
+  kpiTrendChart: document.getElementById("kpiTrendChart"),
+  kpiFunnel: document.getElementById("kpiFunnel"),
+  kpiStatusBreakdown: document.getElementById("kpiStatusBreakdown"),
+  kpiStaffPerformance: document.getElementById("kpiStaffPerformance"),
+  kpiRecentActivity: document.getElementById("kpiRecentActivity"),
   historyBody: document.getElementById("historyBody"),
-  metricsSummary: document.getElementById("metricsSummary"),
-  metricsBody: document.getElementById("metricsBody"),
   qcList: document.getElementById("qcList"),
   qcScore: document.getElementById("qcScore"),
   brandSettingsPreview: document.getElementById("brandSettingsPreview"),
@@ -370,6 +375,7 @@ let dbJobHistory = [];
 let jobHistory = localJobHistory;
 let jobHistoryError = "";
 let latestMetricData = null;
+let selectedKpiRange = "today";
 let supabaseClient = null;
 let currentSession = null;
 let currentProfile = null;
@@ -431,7 +437,6 @@ async function init() {
   fillSelect(els.imageSize, imageSizeOptions);
   fillSelect(els.quality, qualityOptions);
   fillSelect(els.historyCategoryFilter, [{ label: "ทุกหมวด", value: "" }, ...Object.keys(categories).map((category) => ({ label: category, value: category }))]);
-  if (els.metricDate) els.metricDate.value = getTodayInputDate();
   renderQc();
   renderSupportShots();
   renderFilePreview(els.productImages, els.productPreview, 10);
@@ -1121,7 +1126,7 @@ function navigateToPage(page) {
     if (isAppReady()) refreshJobHistory();
   }
   if (targetPage === "assets") renderAssets();
-  if (targetPage === "kpi") renderMetricsFromCache();
+  if (targetPage === "kpi") refreshMetrics();
   if (targetPage === "settings") {
     renderSettingsPreview();
     refreshGoogleDriveStatus();
@@ -1195,9 +1200,15 @@ function bindEvents() {
   });
 
   els.refreshMetricsButton.addEventListener("click", refreshMetrics);
-  els.metricDate.addEventListener("change", refreshMetrics);
-  els.metricOperatorFilter.addEventListener("input", renderMetricsFromCache);
-  els.metricFreeTextFilter.addEventListener("input", renderMetricsFromCache);
+  els.kpiRangeControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-kpi-range]");
+    if (!button) return;
+    selectedKpiRange = button.dataset.kpiRange || "7d";
+    els.kpiRangeControls.querySelectorAll("[data-kpi-range]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    refreshMetrics();
+  });
   els.historySearch.addEventListener("input", renderHistory);
   els.historyStatusFilter.addEventListener("change", renderHistory);
   els.historyCategoryFilter.addEventListener("change", renderHistory);
@@ -2860,82 +2871,265 @@ function renderJobSummary(items) {
 }
 
 async function refreshMetrics() {
-  if (!els.metricsBody || !els.metricsSummary) return;
+  if (!els.kpiCards || !isAppReady()) return;
 
   try {
-    const date = els.metricDate.value || getTodayInputDate();
-    const response = await authFetch(`/api/metrics?date=${encodeURIComponent(date)}`);
+    setKpiLoading(true);
+    const response = await authFetch(`/api/kpi/summary?range=${encodeURIComponent(selectedKpiRange)}`);
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || "Cannot load metrics");
+    if (!response.ok || !data.ok) throw new Error(data.error || "Cannot load KPI Dashboard");
 
     latestMetricData = data;
     renderMetricsFromCache();
   } catch (error) {
-    els.metricsSummary.innerHTML = `<span>โหลด KPI ไม่สำเร็จ</span>`;
-    els.metricsBody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(error.message)}</td></tr>`;
+    renderKpiError(error);
+  } finally {
+    setKpiLoading(false);
   }
 }
 
 function renderMetricsFromCache() {
   if (!latestMetricData) return;
 
-  const operatorQuery = els.metricOperatorFilter.value.trim().toLowerCase();
-  const freeTextQuery = els.metricFreeTextFilter.value.trim().toLowerCase();
-  const users = (latestMetricData.users || []).filter((item) => {
-    const operatorMatch = !operatorQuery || String(item.operatorName || "").toLowerCase().includes(operatorQuery);
-    const freeTextMatch = !freeTextQuery || `${item.operatorName || ""} ${item.skus?.join(" ") || ""} ${item.categories?.join(" ") || ""}`.toLowerCase().includes(freeTextQuery);
-    return operatorMatch && freeTextMatch;
+  const summary = latestMetricData.summary || {};
+  const hasData = Boolean(summary.totalJobs || summary.generated || summary.approved || summary.failed);
+  els.kpiErrorState.hidden = true;
+  els.kpiEmptyState.hidden = hasData;
+  els.kpiExecutiveSummary.textContent = latestMetricData.executiveSummary || "ยังไม่มีข้อมูลในช่วงเวลานี้";
+  els.kpiUpdatedAt.textContent = latestMetricData.generatedAt
+    ? `อัปเดต ${formatDateTime(latestMetricData.generatedAt)}`
+    : "รอข้อมูลล่าสุด";
+
+  renderKpiWarnings(latestMetricData.warnings || []);
+  renderKpiCards(summary);
+  renderTrendChart(latestMetricData.trends || []);
+  renderWorkflowFunnel(latestMetricData.funnel || []);
+  renderStatusBreakdown(latestMetricData.statusBreakdown || []);
+  renderStaffPerformance(latestMetricData.staffPerformance || []);
+  renderRecentActivity(latestMetricData.recentActivity || []);
+}
+
+function setKpiLoading(isLoading) {
+  if (els.kpiLoadingState) els.kpiLoadingState.hidden = !isLoading;
+  if (els.refreshMetricsButton) els.refreshMetricsButton.disabled = isLoading;
+}
+
+function renderKpiError(error) {
+  latestMetricData = null;
+  els.kpiErrorState.hidden = false;
+  els.kpiErrorState.textContent = `โหลด KPI Dashboard ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
+  els.kpiEmptyState.hidden = true;
+  els.kpiExecutiveSummary.textContent = "ระบบยังโหลด KPI ไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
+  els.kpiUpdatedAt.textContent = "โหลดไม่สำเร็จ";
+  [els.kpiWarnings, els.kpiCards, els.kpiTrendChart, els.kpiFunnel, els.kpiStatusBreakdown, els.kpiStaffPerformance, els.kpiRecentActivity].forEach((target) => {
+    if (target) target.innerHTML = "";
   });
+}
 
-  const totals = summarizeMetricUsers(users);
-  els.metricsSummary.innerHTML = `
-    <span>Generate ${Number(totals.generatedImages || 0).toLocaleString("th-TH")} ภาพ</span>
-    <span>Approve ${Number(totals.approvedImages || 0).toLocaleString("th-TH")} ภาพ</span>
-    <span>${Number(totals.uniqueSkus || 0).toLocaleString("th-TH")} SKU</span>
-    <span>${Number(totals.uniqueBrands || 0).toLocaleString("th-TH")} แบรนด์</span>
-  `;
-
-  const approveRate = totals.generatedImages ? Math.round((totals.approvedImages / totals.generatedImages) * 100) : 0;
-  els.approveRate.textContent = `${approveRate}%`;
-  els.approveRateBar.style.width = `${Math.min(100, approveRate)}%`;
-  els.supportSignal.textContent = Number(totals.supportSignals || 0).toLocaleString("th-TH");
-
-  if (!users.length) {
-    els.metricsBody.innerHTML = '<tr><td colspan="5" class="empty-state">ยังไม่มี KPI ตาม filter นี้</td></tr>';
+function renderKpiWarnings(warnings) {
+  if (!warnings.length) {
+    els.kpiWarnings.innerHTML = '<div class="warning-item ok">ระบบไม่พบ warning สำคัญในช่วงเวลานี้</div>';
     return;
   }
-
-  els.metricsBody.innerHTML = users
-    .map(
-      (item) => `
-        <tr>
-          <td>${escapeHtml(item.operatorName)}<br><span class="table-muted">${escapeHtml(latestMetricData.date || "-")}</span></td>
-          <td>${Number(item.generatedImages || 0).toLocaleString("th-TH")}</td>
-          <td>${Number(item.approvedImages || 0).toLocaleString("th-TH")}</td>
-          <td>${Number(item.uniqueSkus || 0).toLocaleString("th-TH")}</td>
-          <td>${Number(item.uniqueCategories || 0).toLocaleString("th-TH")} หมวด<br><span class="table-muted">${Number(item.uniqueSubtypes || 0).toLocaleString("th-TH")} ประเภท</span></td>
-        </tr>
-      `
-    )
+  els.kpiWarnings.innerHTML = warnings
+    .map((warning) => `<div class="warning-item">${escapeHtml(warning.message || "มี warning ที่ต้องตรวจสอบ")}</div>`)
     .join("");
 }
 
-function summarizeMetricUsers(users) {
-  const skuSet = new Set();
-  const brandSet = new Set();
-  return users.reduce(
-    (total, item) => {
-      total.generatedImages += Number(item.generatedImages || 0);
-      total.approvedImages += Number(item.approvedImages || 0);
-      total.supportSignals += Number(item.generatedImages || 0) - Number(item.approvedImages || 0);
-      (item.skus || []).forEach((sku) => skuSet.add(sku));
-      (item.brands || []).forEach((brand) => brandSet.add(brand));
-      total.uniqueSkus = skuSet.size;
-      total.uniqueBrands = brandSet.size;
-      return total;
-    },
-    { generatedImages: 0, approvedImages: 0, uniqueSkus: 0, uniqueBrands: 0, supportSignals: 0 }
-  );
+function renderKpiCards(summary) {
+  const cards = [
+    ["Total jobs", summary.totalJobs, "จำนวนงานทั้งหมดในช่วงเวลาที่เลือก"],
+    ["Generated", summary.generated, "จำนวนงานที่สร้างภาพสำเร็จ"],
+    ["Approved", summary.approved, "จำนวนงานที่ผ่าน approve แล้ว"],
+    ["Pending approval", summary.pendingApproval, "งานที่ generate แล้วแต่ยังไม่ approve"],
+    ["Failed", summary.failed, "งานที่ status failed หรือ generation failed"],
+    ["Approval rate", formatPercent(summary.approvalRate), "approved / generated"],
+    ["QC pass rate", formatPercent(summary.qcPassRate), "passed QC / QC checked, if available"],
+    ["Avg turnaround", formatMinutes(summary.averageTurnaroundMinutes), "เวลาจากสร้างงานถึง approve/export, if calculable"],
+    ["Active staff", summary.activeStaff, "จำนวน staff ที่มี activity ในช่วงเวลานี้"]
+  ];
+
+  els.kpiCards.innerHTML = cards
+    .map(([label, value, helper]) => `
+      <section class="kpi-card">
+        <strong>${escapeHtml(label)}</strong>
+        <div class="kpi-number">${escapeHtml(formatKpiValue(value))}</div>
+        <p>${escapeHtml(helper)}</p>
+      </section>
+    `)
+    .join("");
+}
+
+function renderTrendChart(trends) {
+  if (!trends.length) {
+    els.kpiTrendChart.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลในช่วงเวลานี้</div>';
+    return;
+  }
+
+  const maxValue = Math.max(1, ...trends.flatMap((item) => [item.jobs, item.generated, item.approved, item.exported, item.failed].map(Number)));
+  els.kpiTrendChart.innerHTML = `
+    <div class="trend-legend">
+      <span class="jobs">Jobs</span>
+      <span class="generated">Generated</span>
+      <span class="approved">Approved</span>
+      <span class="failed">Failed</span>
+    </div>
+    <div class="trend-bars">
+      ${trends
+        .map((item) => {
+          const label = String(item.date || "").slice(5);
+          return `
+            <div class="trend-day">
+              <div class="trend-stack" title="${escapeHtml(item.date || "")}">
+                ${renderTrendBar("jobs", item.jobs, maxValue)}
+                ${renderTrendBar("generated", item.generated, maxValue)}
+                ${renderTrendBar("approved", item.approved + item.exported, maxValue)}
+                ${renderTrendBar("failed", item.failed, maxValue)}
+              </div>
+              <span>${escapeHtml(label)}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderTrendBar(className, value, maxValue) {
+  const height = Math.max(Number(value || 0) ? 8 : 0, Math.round((Number(value || 0) / maxValue) * 120));
+  return `<i class="${className}" style="height:${height}px"></i>`;
+}
+
+function renderWorkflowFunnel(funnel) {
+  if (!funnel.length) {
+    els.kpiFunnel.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลในช่วงเวลานี้</div>';
+    return;
+  }
+
+  const maxValue = Math.max(1, ...funnel.map((stage) => Number(stage.value || 0)));
+  els.kpiFunnel.innerHTML = funnel
+    .map((stage) => {
+      const percent = stage.percentOfCreated === null || stage.percentOfCreated === undefined ? "ยังไม่มีข้อมูลเพียงพอ" : `${stage.percentOfCreated}% of created`;
+      const width = Math.max(4, Math.round((Number(stage.value || 0) / maxValue) * 100));
+      return `
+        <div class="funnel-row">
+          <div>
+            <strong>${escapeHtml(stage.label)}</strong>
+            <span>${stage.calculable ? escapeHtml(percent) : "ยังไม่มีข้อมูลเพียงพอ"}</span>
+          </div>
+          <div class="funnel-meter"><span style="width:${width}%"></span></div>
+          <b>${formatThaiNumber(stage.value)}</b>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderStatusBreakdown(items) {
+  if (!items.length) {
+    els.kpiStatusBreakdown.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลในช่วงเวลานี้</div>';
+    return;
+  }
+
+  els.kpiStatusBreakdown.innerHTML = `
+    <div class="status-list">
+      ${items
+        .map((item) => `
+          <div class="status-row">
+            <strong>${escapeHtml(item.status)}</strong>
+            <span>${formatThaiNumber(item.total)} รวม</span>
+            <small>${formatThaiNumber(item.jobs)} jobs / ${formatThaiNumber(item.generations)} generations</small>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderStaffPerformance(items) {
+  if (!items.length) {
+    els.kpiStaffPerformance.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลเพียงพอ</div>';
+    return;
+  }
+
+  els.kpiStaffPerformance.innerHTML = `
+    <div class="staff-list">
+      ${items
+        .map((item) => `
+          <div class="staff-row">
+            <div>
+              <strong>${escapeHtml(item.name || item.email || "ไม่ระบุผู้ใช้งาน")}</strong>
+              <span>${escapeHtml(item.email || item.role || "")}</span>
+            </div>
+            <div class="staff-metrics">
+              <span>${formatThaiNumber(item.jobsCreated)} jobs</span>
+              <span>${formatThaiNumber(item.generationsCreated)} gen</span>
+              <span>${formatThaiNumber(item.approvalsCompleted)} approve</span>
+              <span>${formatThaiNumber(item.successCount)} success / ${formatThaiNumber(item.failCount)} fail</span>
+            </div>
+            <small>${item.latestActivity ? formatDateTime(item.latestActivity) : "ยังไม่มีข้อมูลล่าสุด"}</small>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderRecentActivity(items) {
+  if (!items.length) {
+    els.kpiRecentActivity.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลในช่วงเวลานี้</div>';
+    return;
+  }
+
+  els.kpiRecentActivity.innerHTML = `
+    <div class="activity-list">
+      ${items
+        .map((item) => `
+          <div class="activity-row">
+            <time>${formatDateTime(item.timestamp)}</time>
+            <strong>${escapeHtml(item.user || "ไม่ระบุผู้ใช้งาน")}</strong>
+            <span>${escapeHtml(item.action || "activity")}</span>
+            <small>${escapeHtml(item.status || "recorded")}${item.jobId ? ` · Job ${escapeHtml(shortId(item.jobId))}` : ""}${item.generationId ? ` · Gen ${escapeHtml(shortId(item.generationId))}` : ""}</small>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function formatKpiValue(value) {
+  if (value === null || value === undefined || value === "") return "ยังไม่มีข้อมูลเพียงพอ";
+  if (typeof value === "number") return formatThaiNumber(value);
+  return value;
+}
+
+function formatPercent(value) {
+  return value === null || value === undefined ? null : `${value}%`;
+}
+
+function formatMinutes(value) {
+  if (value === null || value === undefined) return null;
+  if (value < 60) return `${formatThaiNumber(value)} นาที`;
+  return `${formatThaiNumber(Math.round((value / 60) * 10) / 10)} ชม.`;
+}
+
+function formatThaiNumber(value) {
+  return Number(value || 0).toLocaleString("th-TH");
+}
+
+function formatDateTime(value) {
+  try {
+    return new Intl.DateTimeFormat("th-TH", {
+      dateStyle: "short",
+      timeStyle: "short"
+    }).format(new Date(value));
+  } catch {
+    return "-";
+  }
+}
+
+function shortId(value) {
+  return String(value || "").slice(0, 8);
 }
 
 function loadJobHistory() {
