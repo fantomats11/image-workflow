@@ -29,7 +29,7 @@
         <p class="eyebrow">Access</p>
         <h1>ไม่สามารถใช้งานได้</h1>
         <p class="auth-gate-copy" id="authBlockedMessage">บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ</p>
-        <button class="ghost-button" type="button" id="authBlockedLogoutButton">ออกจากระบบ</button>
+        <button class="ghost-button" type="button" id="authBlockedLogoutButton" data-action="logout">ออกจากระบบ</button>
       </div>
 
       <div class="auth-gate-card" id="authPasswordView" hidden>
@@ -91,7 +91,7 @@
                 <input id="loginPassword" type="password" autocomplete="current-password" placeholder="password" required />
                 <button class="primary-button compact" type="submit" id="loginButton">Login</button>
               </form>
-              <button class="ghost-button compact" type="button" id="logoutButton" hidden>Logout</button>
+              <button class="ghost-button compact" type="button" id="logoutButton" data-action="logout" hidden>Logout</button>
             </section>
             <div class="status-pill" id="systemStatus">Style locked</div>
           </div>
@@ -206,7 +206,7 @@
             </label>
 
             <div class="actions">
-              <button class="primary-button" type="button" id="generateButton">Generate Hero</button>
+              <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">Generate Hero</button>
               <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
             </div>
           </form>
@@ -223,7 +223,7 @@
             <div class="result-card" id="resultCard" hidden>
               <div class="result-toolbar">
                 <strong>Hero Image</strong>
-                <button class="primary-button compact" type="button" id="approveButton">Approve + Save</button>
+                <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">Approve + Save</button>
               </div>
               <div class="generation-state" id="generationState" hidden>
                 <div class="loader-ring" aria-hidden="true"></div>
@@ -468,7 +468,7 @@
                 </div>
                 <p id="googleDriveStatusText">กำลังตรวจสอบสถานะ Google Drive...</p>
                 <div class="settings-actions">
-                  <button class="primary-button compact" type="button" id="googleDriveConnectButton">เชื่อมต่อ Google Drive</button>
+                  <button class="primary-button compact" type="button" id="googleDriveConnectButton" data-action="google-drive-connect">เชื่อมต่อ Google Drive</button>
                 </div>
               </section>
               <section class="settings-card">

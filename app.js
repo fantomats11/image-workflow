@@ -376,7 +376,23 @@ let currentProfile = null;
 let passwordSetupRequired = false;
 let passwordChangeInProgress = false;
 let authFlowInProgress = false;
-const authGateStates = ["auth-loading", "logged-out", "blocked", "password-required", "app-ready"];
+let authResolutionPromise = null;
+let appActionsBound = false;
+let globalDiagnosticsBound = false;
+const appStates = ["boot", "auth-loading", "logged-out", "blocked", "password-required", "app-ready", "logging-out"];
+const validRoles = new Set(["admin", "staff"]);
+const appState = {
+  state: "boot",
+  session: null,
+  profile: null,
+  currentJobId: null,
+  currentGenerationId: null,
+  actions: {
+    generate: false,
+    approve: false,
+    logout: false
+  }
+};
 
 const pageMeta = {
   create: { eyebrow: "Prompt Tools", title: "สร้างภาพสินค้า" },
@@ -402,6 +418,8 @@ function renderProductSubtypeOptions() {
 }
 
 async function init() {
+  setupGlobalDiagnostics();
+  installGlobalEventHandlers();
   showAuthGate("auth-loading");
   els.operatorName.value = localStorage.getItem("winter-image-desk-operator") || "";
   fillSelect(els.brandProfile, Object.entries(brandProfiles).map(([value, profile]) => ({ value, label: profile.label })));
@@ -452,25 +470,34 @@ async function initializeAuth() {
       }
     });
 
-    const { data } = await supabaseClient.auth.getSession();
+    const { data } = await promiseWithTimeout(
+      supabaseClient.auth.getSession(),
+      8000,
+      "ตรวจสอบเซสชันไม่สำเร็จ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่"
+    );
     currentSession = data.session || null;
-    await resolveAuthGate();
+    appState.session = currentSession;
+    await runAuthResolution("init");
 
     supabaseClient.auth.onAuthStateChange(async (event, session) => {
       currentSession = session || null;
-      if (passwordChangeInProgress || authFlowInProgress) return;
+      appState.session = currentSession;
+      if (passwordChangeInProgress) return;
       if (event === "SIGNED_OUT") {
+        if (authFlowInProgress || appState.state === "logging-out") return;
         clearFrontendAuthState();
         window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
-        showAuthGate("logged-out");
+        showAuthGate("logged-out", "auth:event:signed_out");
         return;
       }
       if (event === "TOKEN_REFRESHED") {
+        appState.session = currentSession;
         updateAuthUi(currentSession);
         return;
       }
+      if (authFlowInProgress) return;
       if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
-        await resolveAuthGate();
+        await runAuthResolution(`auth:event:${event.toLowerCase()}`);
       }
     });
   } catch (error) {
@@ -483,14 +510,61 @@ function setPasswordSetupMessage(message, isSuccess = false) {
   els.passwordSetupMessage.classList.toggle("is-success", isSuccess);
 }
 
-async function resolveAuthGate() {
+function setupGlobalDiagnostics() {
+  if (globalDiagnosticsBound) return;
+  globalDiagnosticsBound = true;
+  window.addEventListener("error", (event) => {
+    console.error("[frontend:error]", {
+      message: getSafeAuthErrorMessage(event.error || event.message),
+      source: event.filename || "",
+      line: event.lineno || 0,
+      column: event.colno || 0
+    });
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[frontend:unhandledrejection]", {
+      message: getSafeAuthErrorMessage(event.reason)
+    });
+  });
+  window.__workflowDebugState = () => ({
+    state: appState.state,
+    sessionPresent: Boolean(appState.session?.user),
+    profile: appState.profile
+      ? {
+          id: appState.profile.id || "",
+          email: appState.profile.email || "",
+          role: appState.profile.role || "",
+          is_active: appState.profile.is_active === true,
+          must_change_password: appState.profile.must_change_password === true,
+          profile_exists: profileExists(appState.profile)
+        }
+      : null,
+    currentJobId: currentJobId || appState.currentJobId || "",
+    currentGenerationId: currentHeroGenerationId || appState.currentGenerationId || "",
+    actions: { ...appState.actions }
+  });
+}
+
+async function runAuthResolution(reason = "") {
+  if (authResolutionPromise) {
+    console.info("[auth] resolution already running", { reason });
+    return authResolutionPromise;
+  }
+  authResolutionPromise = resolveAuthGate(reason).finally(() => {
+    authResolutionPromise = null;
+  });
+  return authResolutionPromise;
+}
+
+async function resolveAuthGate(reason = "") {
+  console.info("[auth] resolve", { reason });
   if (currentSession?.user) {
     await refreshCurrentSession();
   }
 
   if (!currentSession?.user) {
     resetProfileState();
-    showAuthGate("logged-out");
+    showAuthGate("logged-out", "auth:no-session");
     return;
   }
 
@@ -502,7 +576,7 @@ async function resolveAuthGate() {
     return;
   }
 
-  if (!currentProfile?.profile_exists) {
+  if (!profileExists(currentProfile)) {
     resetProfileState();
     showBlocked("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
     return;
@@ -517,16 +591,23 @@ async function resolveAuthGate() {
   }
 
   passwordSetupRequired = currentProfile.must_change_password === true;
+  currentProfile.role = normalizeRole(currentProfile.role);
   applyRoleUi();
 
   if (passwordSetupRequired) {
     updateAuthUi(currentSession);
-    showAuthGate("password-required");
+    showAuthGate("password-required", "auth:must-change-password");
     return;
   }
 
-  showAuthGate("app-ready");
+  if (!validRoles.has(currentProfile.role)) {
+    showBlocked("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
+    return;
+  }
+
+  showAuthGate("app-ready", "auth:profile-ready");
   updateAuthUi(currentSession);
+  initAppActionsWhenReady();
   refreshJobHistory();
   refreshMetrics();
   updateWorkflowGate();
@@ -534,9 +615,14 @@ async function resolveAuthGate() {
 }
 
 async function refreshCurrentSession() {
-  const { data, error } = await supabaseClient.auth.getSession();
+  const { data, error } = await promiseWithTimeout(
+    supabaseClient.auth.getSession(),
+    8000,
+    "ตรวจสอบเซสชันไม่สำเร็จ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่"
+  );
   if (error) throw error;
   currentSession = data.session || null;
+  appState.session = currentSession;
   return currentSession;
 }
 
@@ -547,17 +633,24 @@ async function refreshSessionProfileAndAppState() {
   }
 
   currentProfile = await loadCurrentProfileWithToken(currentSession.access_token);
+  currentProfile.role = normalizeRole(currentProfile.role);
   passwordSetupRequired = currentProfile.must_change_password === true;
   applyRoleUi();
 
   if (passwordSetupRequired) {
     updateAuthUi(currentSession);
-    showAuthGate("password-required");
+    showAuthGate("password-required", "auth:refreshed-password-required");
     return currentProfile;
   }
 
-  showAuthGate("app-ready");
+  if (!validRoles.has(currentProfile.role)) {
+    showBlocked("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
+    return currentProfile;
+  }
+
+  showAuthGate("app-ready", "auth:refreshed-app-ready");
   updateAuthUi(currentSession);
+  initAppActionsWhenReady();
   updateWorkflowGate();
   navigateToPage(getPageFromHash());
   refreshJobHistory();
@@ -584,7 +677,7 @@ async function loadCurrentProfileWithToken(token) {
   if (!response.ok || !data.ok) {
     throw new Error(data.error || "โหลดข้อมูลสิทธิ์ผู้ใช้ไม่สำเร็จ");
   }
-  if (!data.profile_exists) {
+  if (!profileExists(data)) {
     throw new Error("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ");
   }
   if (!data.is_active) {
@@ -594,9 +687,14 @@ async function loadCurrentProfileWithToken(token) {
 }
 
 async function getLatestAccessToken() {
-  const { data, error } = await supabaseClient.auth.getSession();
+  const { data, error } = await promiseWithTimeout(
+    supabaseClient.auth.getSession(),
+    8000,
+    "ตรวจสอบเซสชันไม่สำเร็จ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่"
+  );
   if (error) throw error;
   currentSession = data.session || null;
+  appState.session = currentSession;
   const token = currentSession?.access_token;
   if (!token) throw new Error("Session หมดอายุ กรุณา login ใหม่");
   return token;
@@ -605,6 +703,7 @@ async function getLatestAccessToken() {
 function resetProfileState() {
   currentProfile = null;
   passwordSetupRequired = false;
+  appState.profile = null;
   dbJobHistory = [];
   jobHistoryError = "";
   jobHistory = mergeJobHistory();
@@ -618,6 +717,11 @@ function clearFrontendAuthState() {
   passwordSetupRequired = false;
   passwordChangeInProgress = false;
   authFlowInProgress = false;
+  appState.session = null;
+  appState.profile = null;
+  appState.actions.generate = false;
+  appState.actions.approve = false;
+  appState.actions.logout = false;
   dbJobHistory = [];
   jobHistoryError = "";
   latestMetricData = null;
@@ -655,25 +759,116 @@ function resetTransientWorkflowState() {
   renderSupportShots();
   renderSupportGallery();
   renderAssets();
+  appState.currentJobId = null;
+  appState.currentGenerationId = null;
 }
 
-function showAuthGate(state) {
-  authGateStates.forEach((gateState) => document.body.classList.remove(gateState));
-  document.body.classList.add(state);
-  els.authLoadingView.hidden = state !== "auth-loading";
-  els.authLoginView.hidden = state !== "logged-out";
-  els.authBlockedView.hidden = state !== "blocked";
-  els.authPasswordView.hidden = state !== "password-required";
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
 
-  if (state === "logged-out") {
+function profileExists(profile = currentProfile) {
+  return profile?.profile_exists === true || Boolean(profile?.id && profile?.role);
+}
+
+function hasValidReadyProfile(profile = currentProfile) {
+  const role = normalizeRole(profile?.role);
+  return Boolean(profileExists(profile) && profile?.is_active === true && profile?.must_change_password !== true && validRoles.has(role));
+}
+
+function clearActionLoadingStates() {
+  appState.actions.generate = false;
+  appState.actions.approve = false;
+  appState.actions.logout = false;
+  setHeroLoading(false);
+  els.generateButton.textContent = "Generate Hero";
+  els.approveButton.textContent = "Approve + Save";
+  els.logoutButton.textContent = "Logout";
+  els.authBlockedLogoutButton.textContent = "ออกจากระบบ";
+}
+
+function updateActionAvailability() {
+  const ready = isAppReady();
+  els.generateButton.disabled = !ready || appState.actions.generate;
+  els.approveButton.disabled = !ready || appState.actions.approve || !currentGeneratedImageUrl;
+  els.generateSupportButton.disabled = !ready || !canGenerateSupport();
+  els.approveSupportButton.disabled = !ready || !supportResults.some((item) => item.imageUrl && item.status === "done");
+  els.logoutButton.disabled = appState.actions.logout;
+  els.authBlockedLogoutButton.disabled = appState.actions.logout;
+}
+
+function setActionLoading(name, isLoading) {
+  if (Object.prototype.hasOwnProperty.call(appState.actions, name)) {
+    appState.actions[name] = isLoading;
+  }
+  if (name === "generate") {
+    els.generateButton.textContent = isLoading ? "Generating..." : "Generate Hero";
+  }
+  if (name === "approve") {
+    els.approveButton.textContent = isLoading ? "Saving..." : "Approve + Save";
+  }
+  if (name === "logout") {
+    els.logoutButton.textContent = isLoading ? "Logging out..." : "Logout";
+    els.authBlockedLogoutButton.textContent = isLoading ? "กำลังออกจากระบบ..." : "ออกจากระบบ";
+  }
+  updateActionAvailability();
+}
+
+function setAppState(nextState, reason = "", patch = {}) {
+  if (!appStates.includes(nextState)) {
+    console.warn("[state] invalid", nextState, reason);
+    return;
+  }
+
+  const previousState = appState.state;
+  if (Object.prototype.hasOwnProperty.call(patch, "session")) currentSession = patch.session;
+  if (Object.prototype.hasOwnProperty.call(patch, "profile")) {
+    currentProfile = patch.profile;
+    passwordSetupRequired = currentProfile?.must_change_password === true;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "currentJobId")) currentJobId = patch.currentJobId || "";
+  if (Object.prototype.hasOwnProperty.call(patch, "currentGenerationId")) currentHeroGenerationId = patch.currentGenerationId || "";
+
+  appState.state = nextState;
+  appState.session = currentSession;
+  appState.profile = currentProfile;
+  appState.currentJobId = currentJobId || null;
+  appState.currentGenerationId = currentHeroGenerationId || null;
+  console.info("[state]", previousState, "->", nextState, reason);
+
+  if (previousState === "app-ready" && nextState !== "app-ready") {
+    clearActionLoadingStates();
+  }
+
+  appStates.forEach((stateName) => document.body.classList.remove(stateName));
+  const gateState = nextState === "boot" || nextState === "logging-out" ? "auth-loading" : nextState;
+  document.body.classList.add(nextState);
+  if (gateState !== nextState) document.body.classList.add(gateState);
+  els.authLoadingView.hidden = gateState !== "auth-loading";
+  els.authLoginView.hidden = gateState !== "logged-out";
+  els.authBlockedView.hidden = gateState !== "blocked";
+  els.authPasswordView.hidden = gateState !== "password-required";
+
+  if (gateState === "auth-loading") {
+    const loadingTitle = els.authLoadingView.querySelector("h1");
+    if (loadingTitle) loadingTitle.textContent = nextState === "logging-out" ? "กำลังออกจากระบบ..." : "กำลังตรวจสอบสิทธิ์...";
+  }
+  if (gateState === "logged-out") {
     els.gateLoginMessage.textContent = "";
     els.gateLoginMessage.classList.remove("is-success");
     setTimeout(() => els.gateLoginEmail.focus(), 0);
   }
-  if (state === "password-required") {
+  if (gateState === "password-required") {
     setPasswordSetupMessage("");
     setTimeout(() => els.passwordSetupNew.focus(), 0);
   }
+  applyRoleUi();
+  updateAuthUi(currentSession);
+  updateActionAvailability();
+}
+
+function showAuthGate(state, reason = "auth-gate") {
+  setAppState(state, reason);
 }
 
 function showBlocked(message) {
@@ -683,11 +878,89 @@ function showBlocked(message) {
 }
 
 function isAppReady() {
-  return document.body.classList.contains("app-ready") && Boolean(currentSession?.access_token) && !passwordSetupRequired && currentProfile?.is_active;
+  return appState.state === "app-ready" && Boolean(currentSession?.access_token) && !passwordSetupRequired && hasValidReadyProfile(currentProfile);
 }
 
 function isAdmin() {
-  return currentProfile?.role === "admin";
+  return normalizeRole(currentProfile?.role) === "admin";
+}
+
+function getAppState() {
+  return appState.state || "unknown";
+}
+
+function logAction(name, message, details = {}) {
+  console.info(`[${name}] ${message}`, {
+    appState: getAppState(),
+    sessionPresent: Boolean(currentSession?.access_token),
+    profilePresent: profileExists(currentProfile),
+    role: currentProfile?.role || "",
+    mustChangePassword: currentProfile?.must_change_password === true,
+    ...details
+  });
+}
+
+function getActionErrorMessage(error, fallback = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง") {
+  const message = getSafeAuthErrorMessage(error);
+  if (/session|jwt|auth|login|เซสชัน|เข้าสู่ระบบ/i.test(message)) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
+  if (/permission|forbidden|403|สิทธิ์|active/i.test(message)) return "บัญชีนี้ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+  return message || fallback;
+}
+
+async function runAction(name, fn, { errorTarget = els.resultStatus, requireAppReady = name !== "logout" } = {}) {
+  if (appState.actions[name]) {
+    logAction(name, "ignored", { reason: "action already running" });
+    return;
+  }
+  if (requireAppReady && !isAppReady()) {
+    logAction(name, "early exit", { reason: "app not ready" });
+    if (errorTarget) errorTarget.textContent = "ระบบยังไม่พร้อม กรุณารอสักครู่แล้วลองใหม่";
+    return;
+  }
+
+  console.info("[action] start", name);
+  setActionLoading(name, true);
+  try {
+    await fn();
+    console.info("[action] finish", name);
+  } catch (error) {
+    const message = getActionErrorMessage(error);
+    console.error("[action] error", name, { message });
+    if (errorTarget) errorTarget.textContent = message;
+  } finally {
+    setActionLoading(name, false);
+  }
+}
+
+async function runProtectedUiAction(name, fn, options = {}) {
+  return runAction(name, fn, options);
+}
+
+function initAppActionsWhenReady() {
+  if (!isAppReady()) {
+    console.info("[actions] init skipped", {
+      appState: getAppState(),
+      sessionPresent: Boolean(currentSession?.access_token),
+      profilePresent: profileExists(currentProfile),
+      role: currentProfile?.role || "",
+      mustChangePassword: currentProfile?.must_change_password === true
+    });
+    return;
+  }
+
+  updateActionAvailability();
+  console.info("[actions] bound", {
+    appState: getAppState(),
+    role: currentProfile.role
+  });
+}
+
+function handleGenerateHero() {
+  return runAction("generate", generateImage, { errorTarget: els.resultStatus });
+}
+
+function handleApproveSave() {
+  return runAction("approve", approveImage, { errorTarget: els.resultStatus });
 }
 
 function applyRoleUi() {
@@ -712,6 +985,8 @@ function getSafeAuthErrorMessage(error) {
 }
 
 function updateAuthUi(session, message = "") {
+  appState.session = session || null;
+  appState.profile = currentProfile;
   const isLoggedIn = Boolean(session?.user);
   const canUseApp = isAppReady();
   const email = currentProfile?.email || session?.user?.email || "";
@@ -725,13 +1000,19 @@ function updateAuthUi(session, message = "") {
   els.authState.innerHTML = isLoggedIn
     ? `<strong>${passwordSetupRequired ? "ต้องตั้งรหัสผ่าน" : "เข้าสู่ระบบแล้ว"}</strong><span>${escapeHtml(message || `${email}${roleLabel}`)}</span>`
     : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "Login ก่อน Generate / KPI / Ops")}</span>`;
+  updateActionAvailability();
 }
 
 async function getAccessToken({ allowPasswordRequired = false } = {}) {
   if (!supabaseClient) throw new Error("Supabase client is not ready.");
-  const { data, error } = await supabaseClient.auth.getSession();
+  const { data, error } = await promiseWithTimeout(
+    supabaseClient.auth.getSession(),
+    8000,
+    "ตรวจสอบเซสชันไม่สำเร็จ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่"
+  );
   if (error) throw error;
   currentSession = data.session || null;
+  appState.session = currentSession;
   if (!currentSession?.access_token) {
     updateAuthUi(null, "Session หมดอายุ กรุณา login ใหม่");
     throw new Error("กรุณา login ก่อนใช้งาน");
@@ -744,11 +1025,19 @@ async function getAccessToken({ allowPasswordRequired = false } = {}) {
 }
 
 async function authFetch(url, options = {}) {
-  const { allowPasswordRequired = false, ...fetchOptions } = options;
-  const token = await getAccessToken({ allowPasswordRequired });
-  const headers = new Headers(fetchOptions.headers || {});
-  headers.set("Authorization", `Bearer ${token}`);
-  return fetch(url, { ...fetchOptions, headers });
+  const {
+    allowPasswordRequired = false,
+    timeoutMs = 45000,
+    timeoutMessage = "ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง",
+    ...fetchOptions
+  } = options;
+
+  return fetchWithTimeout(async (signal) => {
+    const token = await getAccessToken({ allowPasswordRequired });
+    const headers = new Headers(fetchOptions.headers || {});
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...fetchOptions, headers, signal: fetchOptions.signal || signal });
+  }, timeoutMs, timeoutMessage);
 }
 
 async function fetchWithTimeout(fetcher, timeoutMs, timeoutMessage) {
@@ -775,7 +1064,7 @@ function promiseWithTimeout(promise, timeoutMs, timeoutMessage) {
 }
 
 async function authFetchWithTimeout(url, options = {}, timeoutMs = 45000, timeoutMessage = "") {
-  return fetchWithTimeout((signal) => authFetch(url, { ...options, signal }), timeoutMs, timeoutMessage);
+  return authFetch(url, { ...options, timeoutMs, timeoutMessage });
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -839,13 +1128,50 @@ function navigateToPage(page) {
   }
 }
 
-function bindEvents() {
-  els.gateLoginForm.addEventListener("submit", handleLogin);
-  els.loginForm.addEventListener("submit", handleLogin);
-  els.logoutButton.addEventListener("click", handleLogout);
-  els.authBlockedLogoutButton.addEventListener("click", handleLogout);
-  els.passwordSetupForm.addEventListener("submit", handlePasswordSetup);
+function installGlobalEventHandlers() {
+  if (appActionsBound) return;
+  appActionsBound = true;
 
+  document.addEventListener("click", (event) => {
+    const actionButton = event.target.closest("[data-action]");
+    if (!actionButton) return;
+
+    const action = actionButton.dataset.action;
+    if (action === "generate-hero") {
+      event.preventDefault();
+      handleGenerateHero();
+      return;
+    }
+    if (action === "approve-save") {
+      event.preventDefault();
+      handleApproveSave();
+      return;
+    }
+    if (action === "logout") {
+      event.preventDefault();
+      handleLogout();
+      return;
+    }
+    if (action === "google-drive-connect") {
+      event.preventDefault();
+      connectGoogleDrive();
+    }
+  });
+
+  document.addEventListener("submit", (event) => {
+    if (event.target === els.gateLoginForm || event.target === els.loginForm) {
+      handleLogin(event);
+      return;
+    }
+    if (event.target === els.passwordSetupForm) {
+      handlePasswordSetup(event);
+    }
+  });
+
+  console.info("[actions] global handlers installed");
+}
+
+function bindEvents() {
   window.addEventListener("hashchange", () => navigateToPage(getPageFromHash()));
   els.pageNav.addEventListener("click", (event) => {
     const link = event.target.closest("[data-page-link]");
@@ -868,9 +1194,6 @@ function bindEvents() {
     setTimeout(() => (els.copyButton.textContent = "คัดลอก"), 1200);
   });
 
-  els.generateButton.addEventListener("click", generateImage);
-  els.approveButton.addEventListener("click", approveImage);
-  els.googleDriveConnectButton.addEventListener("click", connectGoogleDrive);
   els.refreshMetricsButton.addEventListener("click", refreshMetrics);
   els.metricDate.addEventListener("change", refreshMetrics);
   els.metricOperatorFilter.addEventListener("input", renderMetricsFromCache);
@@ -955,6 +1278,8 @@ function bindEvents() {
     approvedHeroImageUrl = "";
     currentJobId = "";
     currentHeroGenerationId = "";
+    appState.currentJobId = null;
+    appState.currentGenerationId = null;
     lastSubmittedQcKey = "";
     lastRecordedApprovalGenerationId = "";
     supportResults = [];
@@ -991,7 +1316,8 @@ async function handleLogin(event) {
     return;
   }
 
-  const isGateLogin = event.currentTarget === els.gateLoginForm;
+  const submittedForm = event.target;
+  const isGateLogin = submittedForm === els.gateLoginForm;
   const emailInput = isGateLogin ? els.gateLoginEmail : els.loginEmail;
   const passwordInput = isGateLogin ? els.gateLoginPassword : els.loginPassword;
   const button = isGateLogin ? els.gateLoginButton : els.loginButton;
@@ -1032,48 +1358,28 @@ async function handleLogin(event) {
 
 async function handleLogout() {
   if (!supabaseClient) return;
+  if (appState.actions.logout) return;
 
+  let logoutMessage = "ออกจากระบบแล้ว";
   try {
     authFlowInProgress = true;
+    setAppState("logging-out", "logout:start");
+    setActionLoading("logout", true);
     const { error } = await promiseWithTimeout(
       supabaseClient.auth.signOut(),
-      10000,
+      5000,
       "ออกจากระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง"
     );
     if (error) throw error;
-
+  } catch (error) {
+    logoutMessage = `ออกจากระบบจากเครื่องนี้แล้ว แต่ server ตอบกลับไม่สมบูรณ์: ${getSafeAuthErrorMessage(error)}`;
+    console.warn("[logout] signOut failed; clearing local state", { message: getSafeAuthErrorMessage(error) });
+  } finally {
     clearFrontendAuthState();
     window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
-    showAuthGate("logged-out");
-  } catch (error) {
-    const message = `ออกจากระบบไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
-    try {
-      const { data } = await supabaseClient.auth.getSession();
-      currentSession = data.session || null;
-      if (!currentSession) {
-        clearFrontendAuthState();
-        window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
-        showAuthGate("logged-out");
-        els.gateLoginMessage.textContent = "ออกจากระบบแล้ว";
-        els.gateLoginMessage.classList.add("is-success");
-        return;
-      }
-    } catch {
-      currentSession = null;
-    }
-
-    if (!currentSession) {
-      clearFrontendAuthState();
-      showBlocked(message);
-      return;
-    }
-
-    updateAuthUi(currentSession, message);
-    if (!document.body.classList.contains("app-ready")) {
-      showBlocked(message);
-    }
-  }
-  finally {
+    showAuthGate("logged-out", "logout:finished");
+    els.gateLoginMessage.textContent = logoutMessage;
+    els.gateLoginMessage.classList.add("is-success");
     authFlowInProgress = false;
   }
 }
@@ -1132,7 +1438,13 @@ async function handlePasswordSetup(event) {
 }
 
 async function generateImage() {
+  logAction("generate", "clicked");
+  logAction("generate", "appState");
+  logAction("generate", "session present", { sessionPresent: Boolean(currentSession?.access_token) });
+  logAction("generate", "profile present", { profilePresent: profileExists(currentProfile) });
+
   if (!isAppReady()) {
+    logAction("generate", "early exit", { reason: "not app-ready" });
     els.resultCard.hidden = false;
     els.emptyHero.hidden = false;
     els.resultStatus.textContent = "กรุณาเข้าสู่ระบบและตรวจสอบสิทธิ์ให้เรียบร้อยก่อน Generate";
@@ -1144,10 +1456,15 @@ async function generateImage() {
 
   const validationMessage = validateInputFiles();
   if (validationMessage) {
+    logAction("generate", "early exit", { reason: validationMessage });
     els.resultCard.hidden = false;
     els.resultStatus.textContent = validationMessage;
     return;
   }
+  logAction("generate", "validation passed", {
+    productFileCount: els.productImages.files?.length || 0,
+    modelFileCount: els.modelImages.files?.length || 0
+  });
 
   els.resultCard.hidden = false;
   els.emptyHero.hidden = true;
@@ -1161,6 +1478,11 @@ async function generateImage() {
 
   try {
     const formData = buildGenerateFormData(currentPrompt, [], { jobKind: "hero", shot: "Hero" });
+    logAction("generate", "before request", {
+      productFileCount: els.productImages.files?.length || 0,
+      currentJobId,
+      currentGenerationId: currentHeroGenerationId
+    });
     const data = await startGenerationJob(formData, (job) => {
       setHeroLoading(true, getJobTitle(job), job.message || "กำลังทำงาน");
       els.resultStatus.textContent = `${getJobTitle(job)} · ${job.message || ""}`;
@@ -1168,6 +1490,8 @@ async function generateImage() {
 
     currentJobId = data.jobId || currentJobId;
     currentHeroGenerationId = data.generationId || "";
+    appState.currentJobId = currentJobId || null;
+    appState.currentGenerationId = currentHeroGenerationId || null;
     currentGeneratedImageUrl = data.images[0].url;
     approvedHeroImageUrl = "";
     lastSubmittedQcKey = "";
@@ -1186,6 +1510,7 @@ async function generateImage() {
     refreshMetrics();
     refreshJobHistory();
   } catch (error) {
+    logAction("generate", "request failed", { reason: getSafeAuthErrorMessage(error) });
     setHeroLoading(false);
     els.emptyHero.hidden = false;
     els.resultStatus.textContent = `Generate ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "ส่งงาน generate ไม่สำเร็จ"}`;
@@ -1204,8 +1529,27 @@ function setHeroLoading(isLoading, title = "", hint = "") {
 }
 
 async function approveImage() {
+  logAction("approve", "clicked");
+  logAction("approve", "appState", { appState: getAppState() });
+  logAction("approve", "current jobId", { currentJobId });
+  logAction("approve", "current generationId", { currentHeroGenerationId });
+  logAction("approve", "before validation");
+
+  if (!isAppReady()) {
+    logAction("approve", "early exit", { reason: "not app-ready" });
+    els.resultStatus.textContent = "กรุณาเข้าสู่ระบบและตรวจสอบสิทธิ์ให้เรียบร้อยก่อนบันทึก";
+    updateAuthUi(currentSession);
+    return;
+  }
+
   if (!currentGeneratedImageUrl) {
+    logAction("approve", "early exit", { reason: "missing generated image" });
     els.resultStatus.textContent = "ยังไม่มีภาพ generated สำหรับ approve";
+    return;
+  }
+  if (!currentJobId || !currentHeroGenerationId) {
+    logAction("approve", "early exit", { reason: "missing job or generation id", currentJobId, currentHeroGenerationId });
+    els.resultStatus.textContent = "ยังไม่มีข้อมูลงานหรือ generation สำหรับบันทึก กรุณา Generate ใหม่อีกครั้ง";
     return;
   }
 
@@ -1213,6 +1557,8 @@ async function approveImage() {
   els.approveButton.textContent = "Saving...";
 
   try {
+    logAction("approve", "before request", { currentJobId, currentHeroGenerationId });
+    logAction("approve", "before authFetch", { currentJobId, currentHeroGenerationId });
     const response = await authFetchWithTimeout("/api/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1223,10 +1569,22 @@ async function approveImage() {
         ...getRequestMetadata({ jobKind: "hero", shot: "Hero", jobId: currentJobId })
       })
     }, 90000, "Approve + Save ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+    logAction("approve", "request sent", { httpStatus: response.status });
     const data = await readJsonResponse(response, "Approve + Save ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+    logAction("approve", "response status/body", {
+      httpStatus: response.status,
+      ok: data.ok === true,
+      code: data.code || "",
+      hasGoogleDriveFile: Boolean(data.googleDriveFile),
+      hasDrivePath: Boolean(data.drivePath || data.approvedPath)
+    });
 
     if (!response.ok || !data.ok) {
-      throw new Error(getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ"));
+      const message = getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ");
+      if (/google drive|drive|oauth|token|เชื่อมต่อ/i.test(message)) {
+        throw new Error("Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน");
+      }
+      throw new Error(message);
     }
 
     els.resultStatus.textContent = getApprovalMessage(data);
@@ -1242,8 +1600,10 @@ async function approveImage() {
       category: els.category.value,
       status: "Hero Approved"
     });
+    logAction("approve", "success", { currentJobId, currentHeroGenerationId });
     refreshMetrics();
   } catch (error) {
+    logAction("approve", "request failed", { reason: getSafeAuthErrorMessage(error) });
     els.resultStatus.textContent = `Approve ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
   } finally {
     els.approveButton.disabled = false;
@@ -1475,22 +1835,44 @@ function getRequestMetadata(overrides = {}) {
 }
 
 async function startGenerationJob(formData, onProgress = () => {}) {
+  logAction("generate", "before /api/generate/start");
   const response = await authFetchWithTimeout("/api/generate/start", {
     method: "POST",
     body: formData
   }, 90000, "ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+  logAction("generate", "request sent", { httpStatus: response.status });
   const startData = await readJsonResponse(response, "เริ่มงาน Generate ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+  logAction("generate", "response status/body", {
+    httpStatus: response.status,
+    ok: startData.ok === true,
+    jobId: startData.jobId || "",
+    databaseJobId: startData.databaseJobId || "",
+    generationId: startData.generationId || "",
+    jobStatus: startData.job?.status || ""
+  });
 
   if (!response.ok || !startData.ok) {
     throw new Error(getApiErrorMessage(response, startData, "ส่งงาน generate ไม่สำเร็จ"));
   }
 
+  const startJobId = startData.databaseJobId || startData.jobId;
+  const startGenerationId = startData.generationId || startData.job?.generationId || "";
+  if (!startJobId || !startGenerationId) {
+    throw new Error("เริ่มงาน generate ไม่สำเร็จ: ไม่พบ jobId หรือ generationId");
+  }
+
   onProgress(startData.job);
-  const data = await pollGenerationJob(startData.jobId, onProgress);
+  logAction("generate", "polling started", { jobId: startData.jobId || startJobId });
+  const data = await pollGenerationJob(startData.jobId || startJobId, onProgress);
+  logAction("generate", "completed", {
+    jobId: data.jobId || startJobId,
+    generationId: data.generationId || startGenerationId,
+    imageCount: data.images?.length || 0
+  });
   return {
     ...data,
-    jobId: startData.databaseJobId || startData.jobId,
-    generationId: startData.generationId || data.generationId || ""
+    jobId: startJobId,
+    generationId: startGenerationId || data.generationId || ""
   };
 }
 
@@ -1500,6 +1882,7 @@ async function pollGenerationJob(jobId, onProgress) {
   const maxWaitMs = 12 * 60 * 1000;
   for (;;) {
     if (Date.now() - startedAt > maxWaitMs) {
+      logAction("generate", "timeout", { jobId });
       throw new Error("ระบบใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
     }
     await delay(1800);
@@ -1525,6 +1908,7 @@ async function pollGenerationJob(jobId, onProgress) {
       }
 
       if (job.status === "error") {
+        logAction("generate", "failed", { jobId, reason: job.error || job.message || "Generation failed" });
         throw new Error(job.error || job.message || "Generation failed");
       }
 
@@ -1532,6 +1916,7 @@ async function pollGenerationJob(jobId, onProgress) {
     } catch (error) {
       failedPolls += 1;
       if (failedPolls >= 8) {
+        logAction("generate", "failed", { jobId, reason: getSafeAuthErrorMessage(error) });
         throw new Error(`ติดต่อ server ไม่ได้ระหว่างรอผล: ${error.message}`);
       }
       onProgress({
