@@ -522,7 +522,7 @@ const pageMeta = {
   assets: { eyebrow: "Asset Library", title: "คลังภาพ" },
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
   costs: { eyebrow: "Cost Control", title: "Cost / Usage Tracking" },
-  monitoring: { eyebrow: "Production Monitoring", title: "Error Center" },
+  monitoring: { eyebrow: "Production Monitoring", title: "System Health" },
   settings: { eyebrow: "Admin", title: "ตั้งค่าระบบภาพ" }
 };
 
@@ -4434,7 +4434,7 @@ function setMonitoringLoading(isLoading) {
 function renderMonitoringError(error) {
   latestMonitoringData = null;
   els.monitoringErrorState.hidden = false;
-  els.monitoringErrorState.textContent = `โหลด Monitoring / Error Center ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
+  els.monitoringErrorState.textContent = `โหลด Monitoring / System Health ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
   els.monitoringEmptyState.hidden = true;
   els.monitoringHealthSummary.textContent = "ระบบยังโหลด Monitoring ไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
   els.monitoringUpdatedAt.textContent = "โหลดไม่สำเร็จ";
