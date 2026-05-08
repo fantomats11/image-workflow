@@ -2,6 +2,8 @@
 
 เอกสารนี้สำหรับ owner/operator/admin ที่ดูแลระบบ image-workflow บน production ใช้สำหรับจัดการ user, Google Drive, Monitoring, Costs, Jobs, Asset Library และ recovery โดยไม่กระทบ workflow ที่ทีมใช้งานจริง
 
+เอกสารที่เกี่ยวข้อง: [Production Checklist](./PRODUCTION_CHECKLIST.md), [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
+
 ## สิทธิ์ของ admin
 
 Admin ทำได้ทุกอย่างที่ staff ทำได้ และเพิ่มสิทธิ์เหล่านี้:

@@ -2,6 +2,8 @@
 
 ใช้เอกสารนี้เมื่อระบบทำงานไม่ตรง expected behavior ใน production ให้เริ่มจากอาการที่ใกล้เคียงที่สุด แล้ว capture ข้อมูลก่อนแจ้ง admin/dev
 
+เอกสารที่เกี่ยวข้อง: [Staff SOP](./STAFF_SOP.md), [Admin Operating Manual](./ADMIN_OPERATING_MANUAL.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
+
 ## ข้อมูลที่ควร capture ก่อนแจ้ง dev/admin
 
 | ข้อมูล | จำเป็นเมื่อไหร่ | ตัวอย่าง |

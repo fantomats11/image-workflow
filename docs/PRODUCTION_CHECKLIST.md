@@ -2,6 +2,21 @@
 
 ใช้ checklist นี้ก่อน launch, หลัง deploy, และระหว่าง daily/weekly operation ของ production image-workflow
 
+เอกสาร sign-off หลัก: [FINAL_LAUNCH_REVIEW.md](./FINAL_LAUNCH_REVIEW.md)
+
+## Final launch checklist
+
+ใช้ section นี้ก่อนประกาศให้ทีมจริงเริ่มใช้งาน production URL
+
+| ตรวจ | สิ่งที่ต้องเห็น | ถ้าไม่เป็นแบบนี้ให้ทำอะไร |
+| --- | --- | --- |
+| Final Launch Review | owner/admin อ่าน [FINAL_LAUNCH_REVIEW.md](./FINAL_LAUNCH_REVIEW.md) แล้วเข้าใจ feature, test, limitation, rollback | ยังไม่ sign-off |
+| Staff SOP | staff pilot อ่าน [STAFF_SOP.md](./STAFF_SOP.md) และทำ flow จริงได้ | ปรับ SOP ก่อน rollout |
+| Admin Manual | admin อ่าน [ADMIN_OPERATING_MANUAL.md](./ADMIN_OPERATING_MANUAL.md) และทำ user/recovery routine ได้ | ซ้อม admin test เพิ่ม |
+| Troubleshooting | admin/staff รู้ว่าต้องส่ง screenshot, job id, generation id, email, เวลา | ย้ำใน training |
+| Production Test Checklist | admin/staff/mobile/API tests ใน Final Launch Review ผ่านครบ | แก้ blocker ก่อนเปิดทีมจริง |
+| Launch decision | ระบุ Ready / Ready with warnings / Not ready | ถ้า Not ready ห้าม rollout |
+
 ## Pre-launch checklist
 
 | ตรวจ | สิ่งที่ต้องเห็น | ถ้าไม่เป็นแบบนี้ให้ทำอะไร |

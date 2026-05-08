@@ -2,6 +2,8 @@
 
 เอกสารนี้สำหรับทีมงานทั่วไปที่ใช้ระบบ image-workflow ทุกวัน เช่น สร้างภาพสินค้า ตรวจภาพ Approve และเปิดภาพจากคลังภาพหรือ Google Drive
 
+เอกสารที่เกี่ยวข้อง: [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
+
 ## ระบบนี้ใช้ทำอะไร
 
 ระบบนี้ใช้สร้างภาพสินค้าแบบ workflow จริงบน production:
