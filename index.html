@@ -72,7 +72,7 @@
         </nav>
 
         <section class="sidebar-note">
-          <p>Production workflow สำหรับสร้างภาพสินค้า คุม QC ติดตามงาน และเตรียมต่อ login/database</p>
+          <p>ระบบสร้างภาพสินค้า คุม QC ติดตามงาน และส่งออก Google Drive สำหรับทีม Production</p>
         </section>
       </aside>
 
@@ -762,7 +762,7 @@
                 <p class="eyebrow">Settings</p>
                 <h3>ตั้งค่าระบบภาพ</h3>
               </div>
-              <span class="workflow-status ready">MVP</span>
+              <span class="workflow-status ready">Production</span>
             </div>
             <div class="settings-grid">
               <section class="settings-card">
@@ -772,7 +772,7 @@
               </section>
               <section class="settings-card">
                 <h4>Prompt Structure</h4>
-                <p>ตอนนี้ยังอยู่ในโค้ดเพื่อความนิ่ง ก่อนขึ้น production ควรย้าย category, subtype, model profile, support shots ไป database</p>
+                <p>Prompt rules ถูกล็อกไว้ในโค้ดเพื่อความนิ่งของ production และสามารถวางแผนย้าย category, subtype, model profile, support shots ไป database ในเฟสถัดไปได้</p>
                 <div id="promptSettingsPreview"></div>
               </section>
               <section class="settings-card" id="googleDriveIntegrationSection" hidden>
@@ -833,13 +833,15 @@
                 <div class="staff-admin-list" id="staffAdminList"></div>
               </section>
               <section class="settings-card">
-                <h4>Cloud Readiness</h4>
+                <h4>Production Readiness</h4>
                 <div class="readiness-list">
-                  <span>1. Login + role: admin / staff</span>
-                  <span>2. Database: jobs, assets, metrics, prompt settings</span>
-                  <span>3. Queue: pending / running / failed / retry</span>
-                  <span>4. Storage: Google Drive shared folder หรือ Shared Drive</span>
-                  <span>5. Billing: cost ต่อภาพ ต่อ SKU ต่อพนักงาน</span>
+                  <span>1. Auth / Role Gate: Ready</span>
+                  <span>2. Database / Jobs / Assets: Ready</span>
+                  <span>3. Google Drive Integration: Connected</span>
+                  <span>4. Monitoring / System Health: Ready</span>
+                  <span>5. Costs / Usage Tracking: Ready</span>
+                  <span>6. Retry / Recovery: Ready</span>
+                  <span>7. SOP / Launch Docs: Ready</span>
                 </div>
               </section>
             </div>
