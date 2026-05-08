@@ -21,6 +21,7 @@ Use this checklist before each production rollout for image-workflow.
 - Generation polling continues to work with an authenticated session.
 - Failed or stuck generation can be retried by admin.
 - Retry export still works when an approved/generated source is available.
+- Retry Export appears only when no valid export/Drive link exists and there is an approved/generated source to export.
 
 ## Google Drive
 
@@ -30,10 +31,20 @@ Use this checklist before each production rollout for image-workflow.
 - Token is persisted in `public.integration_tokens`.
 - No OAuth `token_json`, access token, refresh token, or client secret appears in API responses or logs.
 
+## Supabase Storage
+
+- Expected buckets exist: `product-references`, `model-references`, `generated-images`, `approved-images`.
+- Service role key is configured only on the server.
+- Upload uses deterministic `jobs/{jobId}/...` paths with `upsert: true`.
+- If Supabase Storage upload fails but Google Drive export succeeds, Monitoring shows a warning: `Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว`.
+- If both Supabase Storage and Google Drive/export are missing or failed, Monitoring treats it as a critical storage/export issue.
+- Asset Library uses generated remote image previews when Supabase preview is unavailable, and still shows Open Drive when Google Drive export exists.
+
 ## Monitoring and costs
 
 - KPI Dashboard loads for active users.
 - Monitoring loads for admin and shows stuck, failed, and recent system events.
+- Monitoring separates critical failures from storage warnings resolved by Google Drive.
 - Costs loads for admin and all values are clearly labelled as estimated.
 - Failed and retry generation cost impact appears in Costs.
 - Staff cannot open Monitoring or Costs by direct hash navigation.

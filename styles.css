@@ -1243,6 +1243,10 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+.production-asset-card .asset-warning {
+  color: var(--warning);
+}
+
 .asset-primary-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

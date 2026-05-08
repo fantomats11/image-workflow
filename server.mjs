@@ -44,6 +44,7 @@ const costTrackingConfig = {
   estimatedCostPerGeneration: normalizeCostNumber(process.env.AI_GENERATION_ESTIMATED_COST_PER_GENERATION, 0.04),
   unitType: "generation_request"
 };
+const supabaseStorageBuckets = ["product-references", "model-references", "generated-images", "approved-images"];
 let generationQueue = Promise.resolve();
 let activeGenerations = 0;
 let pendingGenerations = 0;
@@ -117,6 +118,10 @@ function safeRuntimeEnv() {
   return "development";
 }
 
+function isSupabaseStorageConfigured() {
+  return Boolean(supabaseUrl && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() && supabaseStorageBuckets.length);
+}
+
 function validateStartupConfig() {
   const missingCritical = [];
   const warnings = [];
@@ -134,6 +139,9 @@ function validateStartupConfig() {
     throw new Error(`Missing required server configuration: ${missingCritical.join(", ")}`);
   }
   warnings.forEach((warning) => console.warn(`[config] ${warning}`));
+  if (isSupabaseStorageConfigured()) {
+    console.info(`[config] Supabase Storage best-effort uploads enabled for ${supabaseStorageBuckets.length} expected buckets.`);
+  }
 }
 
 async function attachUserIfPresent(req, _res, next) {
@@ -254,7 +262,8 @@ app.get("/api/health", async (_req, res) => {
       supabaseConfigured: Boolean(supabaseUrl && supabaseAnonKey),
       googleDriveConfigured: isGoogleDriveApiConfigured() || isGoogleOAuthConfigured(),
       googleDriveConnected: googleDriveStatus.connected === true,
-      falConfigured: Boolean(process.env.FAL_KEY)
+      falConfigured: Boolean(process.env.FAL_KEY),
+      storageConfigured: isSupabaseStorageConfigured()
     },
     falConfigured: Boolean(process.env.FAL_KEY),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
@@ -2666,7 +2675,7 @@ async function buildLocalStorageAssetPayload({ bucket, localPath, storageKey, co
       jobId,
       generationId,
       eventType: "storage_upload_failed",
-      eventJson: { bucket, storageKey, errorMessage: readableError(error) }
+      eventJson: buildStorageFailureEventJson({ bucket, storageKey, error, fallbackPayload })
     });
     return fallbackPayload;
   }
@@ -2701,10 +2710,36 @@ async function buildRemoteStorageAssetPayload({ bucket, imageUrl, storageKey, fa
       jobId,
       generationId,
       eventType: "storage_upload_failed",
-      eventJson: { bucket, storageKey, errorMessage: readableError(error) }
+      eventJson: buildStorageFailureEventJson({ bucket, storageKey, error, fallbackPayload })
     });
     return fallbackPayload;
   }
+}
+
+function buildStorageFailureEventJson({ bucket, storageKey, error, fallbackPayload = {} }) {
+  const fallbackBucket = String(fallbackPayload.bucket || "");
+  const resolvedByDrive = fallbackBucket === "google_drive" && Boolean(fallbackPayload.public_url || fallbackPayload.storage_key);
+  return {
+    bucket,
+    storageKey,
+    errorMessage: readableError(error),
+    storage_error_kind: classifyStorageError(error),
+    fallback_bucket: fallbackBucket || null,
+    fallback_type: fallbackPayload.type || null,
+    fallback_has_public_url: Boolean(fallbackPayload.public_url),
+    fallback_has_storage_key: Boolean(fallbackPayload.storage_key),
+    resolved_by_drive: resolvedByDrive,
+    severity: resolvedByDrive ? "warning" : "critical"
+  };
+}
+
+function classifyStorageError(error) {
+  const message = readableError(error).toLowerCase();
+  if (/bucket.*not.*found|not found.*bucket|storage bucket/i.test(message)) return "bucket_missing";
+  if (/row-level security|rls|policy|permission|forbidden|unauthorized|not authorized/i.test(message)) return "permission_or_policy";
+  if (/mime|content.?type/i.test(message)) return "content_type";
+  if (/network|fetch|timeout|econn|socket/i.test(message)) return "network";
+  return "unknown";
 }
 
 async function uploadLocalFileToSupabaseStorage({ bucket, localPath, storageKey, contentType }) {
@@ -3647,8 +3682,14 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
   const failedGenerations = generations.filter((generation) => isFailedStatus(generation.status) || generation.error_message);
   const exportFailureEvents = auditEvents.filter((event) => isExportFailureEvent(event.event_type));
   const storageFailureEvents = auditEvents.filter((event) => isStorageFailureEvent(event.event_type));
+  const resolvedStorageFailureEvents = storageFailureEvents.filter((event) => isStorageFailureResolvedByDrive(event, assets));
+  const criticalStorageFailureEvents = storageFailureEvents.filter((event) => !isStorageFailureResolvedByDrive(event, assets));
   const approvalFailureEvents = auditEvents.filter((event) => isApprovalFailureEvent(event.event_type));
-  const systemFailureEvents = auditEvents.filter((event) => isMonitoringFailureEvent(event.event_type));
+  const systemFailureEvents = auditEvents.filter((event) => {
+    if (!isMonitoringFailureEvent(event.event_type)) return false;
+    if (isStorageFailureEvent(event.event_type) && isStorageFailureResolvedByDrive(event, assets)) return false;
+    return true;
+  });
   const pendingApprovals = generations.filter(
     (generation) => isSuccessfulGenerationStatus(generation.status) && !approvedGenerationIds.has(generation.id)
   );
@@ -3679,7 +3720,8 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
       failedJobs,
       failedGenerations,
       exportFailureEvents,
-      storageFailureEvents,
+      storageFailureEvents: criticalStorageFailureEvents,
+      resolvedStorageFailureEvents,
       approvalFailureEvents,
       stuckJobs,
       pendingApprovals,
@@ -3714,12 +3756,13 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
     },
     pagination,
     summary: {
-      totalErrors: failedJobs.length + failedGenerations.length + exportFailureEvents.length + storageFailureEvents.length + approvalFailureEvents.length,
+      totalErrors: failedJobs.length + failedGenerations.length + exportFailureEvents.length + criticalStorageFailureEvents.length + approvalFailureEvents.length,
       failedJobs: failedJobs.length,
       failedGenerations: failedGenerations.length,
       failedExports: exportFailureEvents.length,
       stuckJobs: stuckJobs.length,
-      storageFailures: storageFailureEvents.length,
+      storageFailures: criticalStorageFailureEvents.length,
+      storageWarnings: resolvedStorageFailureEvents.length,
       approvalFailures: approvalFailureEvents.length,
       pendingApprovals: pendingApprovals.length,
       warningsCount: dedupedWarnings.length,
@@ -4445,6 +4488,9 @@ function serializeProductionAsset({ asset, job, generations, generationId, appro
     publicUrl,
     storagePath
   });
+  const previewWarning = !previewUrl && googleDriveLink
+    ? "Supabase preview unavailable; Google Drive export is available"
+    : "";
   return {
     id: asset.id,
     shortId: shortServerId(asset.id),
@@ -4462,6 +4508,7 @@ function serializeProductionAsset({ asset, job, generations, generationId, appro
     fileSize: Number.isFinite(asset.file_size) ? asset.file_size : null,
     previewUrl,
     imageUrl: previewUrl,
+    previewWarning,
     storagePath,
     googleDriveLink,
     createdAt: asset.created_at || null,
@@ -4527,6 +4574,7 @@ function mergeCanonicalProductionAsset(current, asset, mergeSource) {
     next.previewUrl = incomingPreview;
     next.imageUrl = incomingPreview;
   }
+  if (!next.previewWarning && asset.previewWarning) next.previewWarning = asset.previewWarning;
 
   if (!["hero", "support"].includes(next.typeGroup) && ["hero", "support"].includes(asset.typeGroup)) {
     next.typeGroup = asset.typeGroup;
@@ -4808,6 +4856,7 @@ function buildMonitoringWarnings({
   failedGenerations,
   exportFailureEvents,
   storageFailureEvents,
+  resolvedStorageFailureEvents = [],
   approvalFailureEvents,
   stuckJobs,
   pendingApprovals,
@@ -4824,6 +4873,7 @@ function buildMonitoringWarnings({
   if (failedGenerations.length) warnings.push(createWarning("failed_generations", `มี generation failed ${formatThaiNumber(failedGenerations.length)} รายการในช่วงนี้`));
   if (exportFailureEvents.length) warnings.push(createWarning("failed_exports", `มี export/Google Drive failure ${formatThaiNumber(exportFailureEvents.length)} รายการ`));
   if (storageFailureEvents.length) warnings.push(createWarning("storage_failures", `มี Supabase Storage failure ${formatThaiNumber(storageFailureEvents.length)} รายการ`));
+  if (resolvedStorageFailureEvents.length) warnings.push(createWarning("storage_resolved_by_drive", `Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว ${formatThaiNumber(resolvedStorageFailureEvents.length)} รายการ`));
   if (approvalFailureEvents.length) warnings.push(createWarning("approval_failures", `มี approve/save failure ${formatThaiNumber(approvalFailureEvents.length)} รายการ`));
   if (stuckJobs.length) warnings.push(createWarning("stuck_jobs", `พบงานที่อาจค้างเกิน 30 นาที ${formatThaiNumber(stuckJobs.length)} รายการ`));
   if (pendingApprovals.length) warnings.push(createWarning("pending_approvals", `มีงาน generate สำเร็จแต่ยังไม่ approve ${formatThaiNumber(pendingApprovals.length)} รายการ`));
@@ -4940,7 +4990,7 @@ function buildMonitoringFailedItems({ failedJobs, failedGenerations, failureEven
         recommendedAction: recommendedMonitoringAction(event.event_type, job),
         retryable: monitoringFailureType(event.event_type) === "generate",
         canMarkFailed: false,
-        canRetryExport: monitoringFailureType(event.event_type) === "export"
+        canRetryExport: ["export", "storage"].includes(monitoringFailureType(event.event_type))
       };
     })
   ];
@@ -4975,7 +5025,7 @@ function buildMonitoringRecentEvents({ auditEvents, jobById, generationById, pro
         id: event.id,
         time: event.created_at || null,
         eventType: event.event_type || "activity",
-        status: statusFromEventType(event.event_type) || "recorded",
+        status: monitoringEventStatus(event),
         user: formatProfileName(profileById.get(event.actor_id)),
         jobId: event.job_id || generation?.job_id || null,
         generationId: event.generation_id || null,
@@ -4984,6 +5034,14 @@ function buildMonitoringRecentEvents({ auditEvents, jobById, generationById, pro
     })
     .filter((item) => item.time)
     .sort((a, b) => new Date(b.time) - new Date(a.time));
+}
+
+function monitoringEventStatus(event) {
+  const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+  if (isStorageFailureEvent(event.event_type) && (eventJson.resolved_by_drive === true || eventJson.severity === "warning")) {
+    return "resolved_by_drive";
+  }
+  return statusFromEventType(event.event_type) || "recorded";
 }
 
 function minutesSince(value, now = Date.now()) {
@@ -5007,6 +5065,22 @@ function isStorageFailureEvent(eventType) {
   return type.includes("storage") && isMonitoringFailureEvent(type);
 }
 
+function isStorageFailureResolvedByDrive(event, assets = []) {
+  const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+  if (eventJson.resolved_by_drive === true || eventJson.severity === "warning") return true;
+  const jobId = event.job_id || eventJson.jobId || eventJson.job_id || null;
+  if (!jobId) return false;
+  const eventTime = new Date(event.created_at || 0).getTime() || 0;
+  return assets.some((asset) => {
+    if (asset.job_id !== jobId) return false;
+    if (String(asset.type || "").toLowerCase() !== "approved_export") return false;
+    if (String(asset.bucket || "").toLowerCase() !== "google_drive") return false;
+    if (!safeUrl(asset.public_url || asset.storage_key || "")) return false;
+    const assetTime = new Date(asset.created_at || 0).getTime() || 0;
+    return !eventTime || !assetTime || assetTime >= eventTime - 5 * 60 * 1000;
+  });
+}
+
 function isApprovalFailureEvent(eventType) {
   const type = String(eventType || "").toLowerCase();
   return (type.includes("approval") || type.includes("approve")) && isMonitoringFailureEvent(type);
@@ -5024,7 +5098,7 @@ function monitoringFailureType(eventType) {
 function recommendedMonitoringAction(eventType, job = null) {
   const type = String(eventType || "").toLowerCase();
   if (type.includes("drive") || type.includes("export")) return "ตรวจสอบ Google Drive connection/folder permission แล้ว approve/export ใหม่";
-  if (type.includes("storage")) return "ตรวจสอบ Supabase Storage bucket/permission และดูว่า asset fallback ถูกบันทึกไว้หรือไม่";
+  if (type.includes("storage")) return "ตรวจสอบ Supabase Storage bucket/policy แต่ถ้ามี Google Drive export แล้วถือเป็น warning ไม่ใช่งาน fail";
   if (type.includes("approval") || type.includes("approve")) return "ตรวจสอบ approval record และ export path จากนั้น approve/save ใหม่ถ้าจำเป็น";
   if (type.includes("generation")) return "ตรวจสอบ FAL error และ reference image ก่อน retry generation";
   return job?.id ? "เปิดงานที่เกี่ยวข้องแล้วตรวจสอบ log ล่าสุด" : "ตรวจสอบ system log และ audit event ล่าสุด";
@@ -5032,6 +5106,9 @@ function recommendedMonitoringAction(eventType, job = null) {
 
 function safeMonitoringEventDetail(event) {
   const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+  if (isStorageFailureEvent(event.event_type) && (eventJson.resolved_by_drive === true || eventJson.severity === "warning")) {
+    return "Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว";
+  }
   const candidates = [
     eventJson.errorMessage,
     eventJson.error,

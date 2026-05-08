@@ -3652,6 +3652,7 @@ function renderProductionAssetCard(asset) {
         <span>${escapeHtml(asset.sku || asset.productName || "-")} · Job ${escapeHtml(jobShort || "-")}</span>
         <span>${escapeHtml(formatJobTime(asset.createdAt))}</span>
         <span>${escapeHtml(asset.createdBy?.email || asset.createdBy?.name || "ไม่ระบุผู้ใช้งาน")}</span>
+        ${asset.previewWarning ? `<small class="asset-warning">${escapeHtml(asset.previewWarning)}</small>` : ""}
         ${asset.storagePath ? `<small>${escapeHtml(asset.bucket || "storage")} · ${escapeHtml(asset.storagePath)}</small>` : ""}
       </div>
       <div class="asset-primary-actions">
@@ -4471,6 +4472,9 @@ function buildMonitoringHealthSummary(data) {
   if (summary.totalErrors || summary.stuckJobs) {
     return `พบปัญหาที่ต้องตรวจสอบ ${formatThaiNumber(summary.totalErrors || 0)} รายการ และงานค้าง ${formatThaiNumber(summary.stuckJobs || 0)} รายการ`;
   }
+  if (summary.storageWarnings) {
+    return `มี Supabase Storage warning ${formatThaiNumber(summary.storageWarnings)} รายการ แต่ Google Drive export สำเร็จแล้ว`;
+  }
   if (!driveConnected) return "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
   if (summary.pendingApprovals) return `ระบบทำงานได้ แต่มีงานรอ approve ${formatThaiNumber(summary.pendingApprovals)} รายการ`;
   return "ยังไม่พบปัญหาในช่วงเวลานี้";
@@ -4489,6 +4493,7 @@ function renderMonitoringWarnings(warnings) {
 
 function monitoringWarningClass(code) {
   const value = String(code || "");
+  if (value.includes("storage_resolved")) return "warning";
   if (value.includes("failed") || value.includes("failure") || value.includes("storage") || value.includes("stuck")) return "danger";
   return "";
 }
@@ -4501,6 +4506,7 @@ function renderMonitoringSummaryCards(data) {
     ["Failed jobs", summary.failedJobs, "jobs ที่ status failed", summary.failedJobs ? "danger" : "ok"],
     ["Failed generations", summary.failedGenerations, "generation ที่ failed หรือมี error_message", summary.failedGenerations ? "danger" : "ok"],
     ["Failed exports", summary.failedExports, "Google Drive/export failure จาก audit events", summary.failedExports ? "danger" : "ok"],
+    ["Storage warnings", summary.storageWarnings, "Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว", summary.storageWarnings ? "warning" : "ok"],
     ["Stuck jobs", summary.stuckJobs, "queued/running/generating เกิน 30 นาที", summary.stuckJobs ? "warning" : "ok"],
     ["Pending approvals", summary.pendingApprovals, "generate สำเร็จแต่ยังไม่ approve", summary.pendingApprovals ? "warning" : "ok"],
     ["Google Drive", drive.connected ? "Connected" : "Disconnected", drive.updatedAt ? `อัปเดตล่าสุด ${formatDateTime(drive.updatedAt)}` : "ยังไม่มีเวลาอัปเดตล่าสุด", drive.connected ? "ok" : "warning"],
@@ -4598,8 +4604,9 @@ function renderMonitoringRecentEvents(items) {
 }
 
 function renderMonitoringEventRow(item) {
+  const rowClass = item.status === "failed" ? "danger" : item.status === "resolved_by_drive" ? "warning" : "neutral";
   return `
-    <article class="monitoring-row ${item.status === "failed" ? "danger" : "neutral"}">
+    <article class="monitoring-row ${rowClass}">
       <div class="monitoring-row-main">
         <time>${escapeHtml(formatDateTime(item.time))}</time>
         <strong>${escapeHtml(item.eventType || "activity")}</strong>
