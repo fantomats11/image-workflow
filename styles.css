@@ -1542,6 +1542,14 @@ tbody tr:hover {
   background: var(--danger);
 }
 
+.trend-legend .retry::before {
+  background: var(--warning);
+}
+
+.trend-legend .cost::before {
+  background: var(--accent);
+}
+
 .trend-bars {
   display: grid;
   grid-auto-flow: column;
@@ -1587,6 +1595,14 @@ tbody tr:hover {
 
 .trend-stack .failed {
   background: var(--danger);
+}
+
+.trend-stack .retry {
+  background: var(--warning);
+}
+
+.trend-stack .cost {
+  background: var(--accent);
 }
 
 .trend-day span {
@@ -1718,6 +1734,67 @@ tbody tr:hover {
 .monitoring-health-card {
   border-color: #d5d2c8;
   background: #fbfaf7;
+}
+
+.cost-summary-card {
+  border-color: #d8dbce;
+  background: #fafbf4;
+}
+
+.cost-kpi-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.cost-job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cost-job-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr) auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 11px 12px;
+}
+
+.cost-job-card strong,
+.cost-job-total strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.cost-job-card span,
+.cost-job-card small,
+.cost-job-total span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.cost-job-total {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.status-row.danger-row {
+  border-left: 4px solid var(--danger);
+  background: #fff8f7;
+}
+
+.status-row.warning-row {
+  border-left: 4px solid var(--warning);
+  background: #fffaf0;
 }
 
 .monitoring-pagination-toolbar {
@@ -2535,6 +2612,8 @@ tbody tr:hover {
   .kpi-ops-grid,
   .kpi-detail-grid,
   .monitoring-layout,
+  .cost-kpi-grid,
+  .cost-job-card,
   .settings-grid,
   .staff-admin-toolbar,
   .staff-admin-controls {
@@ -2682,6 +2761,8 @@ tbody tr:hover {
   .kpi-ops-grid,
   .kpi-detail-grid,
   .monitoring-layout,
+  .cost-kpi-grid,
+  .cost-job-card,
   .asset-grid,
   .settings-grid,
   .staff-admin-toolbar,
@@ -2764,6 +2845,7 @@ tbody tr:hover {
   .activity-row,
   .monitoring-row-main,
   .monitoring-row-detail,
+  .cost-job-card,
   .staff-admin-main {
     grid-template-columns: 1fr;
   }
@@ -2818,6 +2900,11 @@ tbody tr:hover {
 
   .staff-metrics {
     justify-content: flex-start;
+  }
+
+  .cost-job-total {
+    justify-items: start;
+    text-align: left;
   }
 
   .staff-admin-main {

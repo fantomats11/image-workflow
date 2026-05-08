@@ -66,6 +66,7 @@
           <a href="#jobs" data-page-link="jobs">งานทั้งหมด</a>
           <a href="#assets" data-page-link="assets">คลังภาพ</a>
           <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
+          <a href="#costs" data-page-link="costs">Costs</a>
           <a href="#monitoring" data-page-link="monitoring">Monitoring</a>
           <a href="#settings" data-page-link="settings">ตั้งค่า</a>
         </nav>
@@ -552,6 +553,112 @@
                 </div>
               </div>
               <div id="kpiRecentActivity"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="page-view" id="page-costs" data-page="costs">
+          <section class="panel page-panel" id="costs">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Cost / Usage Tracking</p>
+                <h3>AI Generation Cost</h3>
+              </div>
+              <button class="ghost-button compact" type="button" id="refreshCostsButton">รีเฟรช</button>
+            </div>
+
+            <div class="section-note">ตัวเลขทั้งหมดเป็น estimated cost จากจำนวน generation และราคาที่ตั้งค่าไว้ในระบบ ไม่ใช่ invoice จริง</div>
+
+            <div class="kpi-range-tabs" id="costRangeControls" aria-label="เลือกช่วงเวลา Costs">
+              <button class="active" type="button" data-cost-range="today">Today</button>
+              <button type="button" data-cost-range="7d">Last 7 days</button>
+              <button type="button" data-cost-range="30d">Last 30 days</button>
+              <button type="button" data-cost-range="all">All time</button>
+            </div>
+
+            <div class="monitoring-pagination-toolbar" aria-label="Costs pagination">
+              <label>
+                รายการต่อหน้า
+                <select id="costPageSize">
+                  <option value="10">10</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+              <div class="monitoring-pagination-controls">
+                <button class="ghost-button compact" type="button" id="costPrevPage">Previous</button>
+                <span id="costPageInfo">หน้า 1 / 1 · 0 รายการ</span>
+                <button class="ghost-button compact" type="button" id="costNextPage">Next</button>
+              </div>
+            </div>
+
+            <div class="kpi-state" id="costLoadingState" hidden>กำลังโหลด Cost / Usage Tracking...</div>
+            <div class="kpi-state danger" id="costErrorState" hidden>โหลด Cost / Usage Tracking ไม่สำเร็จ</div>
+            <div class="kpi-state" id="costEmptyState" hidden>ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>
+
+            <div class="executive-summary-card cost-summary-card">
+              <div>
+                <span>Executive cost summary</span>
+                <p id="costExecutiveSummary">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</p>
+              </div>
+              <small id="costUpdatedAt">รอข้อมูลล่าสุด</small>
+            </div>
+
+            <div class="warning-list" id="costNotes"></div>
+            <div class="kpi-grid executive-kpi-grid cost-kpi-grid" id="costKpiCards"></div>
+
+            <div class="kpi-ops-grid cost-layout">
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Trend</p>
+                    <h4>Usage cost by day</h4>
+                  </div>
+                </div>
+                <div class="trend-chart" id="costTrendChart"></div>
+              </section>
+
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Waste</p>
+                    <h4>Failed / retry impact</h4>
+                  </div>
+                </div>
+                <div id="costWasteSummary"></div>
+              </section>
+            </div>
+
+            <div class="kpi-detail-grid">
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Staff</p>
+                    <h4>Cost by staff</h4>
+                  </div>
+                </div>
+                <div id="costStaffUsage"></div>
+              </section>
+
+              <section class="kpi-section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Job / SKU</p>
+                    <h4>Highest cost jobs</h4>
+                  </div>
+                </div>
+                <div id="costJobList"></div>
+              </section>
+            </div>
+
+            <section class="kpi-section-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Usage Events</p>
+                  <h4>Recent cost events</h4>
+                </div>
+              </div>
+              <div id="costRecentEvents"></div>
             </section>
           </section>
         </section>

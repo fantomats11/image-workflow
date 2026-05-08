@@ -386,6 +386,24 @@ const els = {
   monitoringStuckJobs: document.getElementById("monitoringStuckJobs"),
   monitoringFailedItems: document.getElementById("monitoringFailedItems"),
   monitoringRecentEvents: document.getElementById("monitoringRecentEvents"),
+  refreshCostsButton: document.getElementById("refreshCostsButton"),
+  costRangeControls: document.getElementById("costRangeControls"),
+  costPageSize: document.getElementById("costPageSize"),
+  costPrevPage: document.getElementById("costPrevPage"),
+  costNextPage: document.getElementById("costNextPage"),
+  costPageInfo: document.getElementById("costPageInfo"),
+  costLoadingState: document.getElementById("costLoadingState"),
+  costErrorState: document.getElementById("costErrorState"),
+  costEmptyState: document.getElementById("costEmptyState"),
+  costExecutiveSummary: document.getElementById("costExecutiveSummary"),
+  costUpdatedAt: document.getElementById("costUpdatedAt"),
+  costNotes: document.getElementById("costNotes"),
+  costKpiCards: document.getElementById("costKpiCards"),
+  costTrendChart: document.getElementById("costTrendChart"),
+  costWasteSummary: document.getElementById("costWasteSummary"),
+  costStaffUsage: document.getElementById("costStaffUsage"),
+  costJobList: document.getElementById("costJobList"),
+  costRecentEvents: document.getElementById("costRecentEvents"),
   historyBody: document.getElementById("historyBody"),
   qcList: document.getElementById("qcList"),
   qcScore: document.getElementById("qcScore"),
@@ -464,6 +482,10 @@ let latestMonitoringData = null;
 let selectedMonitoringRange = "today";
 let selectedMonitoringPage = 1;
 let selectedMonitoringPageSize = 10;
+let latestCostData = null;
+let selectedCostRange = "today";
+let selectedCostPage = 1;
+let selectedCostPageSize = 10;
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
 const staffUpdateInProgress = new Set();
@@ -497,6 +519,7 @@ const pageMeta = {
   jobs: { eyebrow: "Production Control", title: "งานทั้งหมด" },
   assets: { eyebrow: "Asset Library", title: "คลังภาพ" },
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
+  costs: { eyebrow: "Cost Control", title: "Cost / Usage Tracking" },
   monitoring: { eyebrow: "Production Monitoring", title: "Error Center" },
   settings: { eyebrow: "Admin", title: "ตั้งค่าระบบภาพ" }
 };
@@ -1070,8 +1093,10 @@ function handleApproveSave() {
 function applyRoleUi() {
   const settingsLink = els.pageNav.querySelector('[data-page-link="settings"]');
   const monitoringLink = els.pageNav.querySelector('[data-page-link="monitoring"]');
+  const costsLink = els.pageNav.querySelector('[data-page-link="costs"]');
   if (settingsLink) settingsLink.hidden = !isAdmin();
   if (monitoringLink) monitoringLink.hidden = !isAdmin();
+  if (costsLink) costsLink.hidden = !isAdmin();
   if (els.googleDriveIntegrationSection) els.googleDriveIntegrationSection.hidden = !isAdmin();
   if (els.staffManagementSection) els.staffManagementSection.hidden = !isAdmin();
 }
@@ -1210,7 +1235,7 @@ function getPageFromHash() {
 
 function navigateToPage(page) {
   let targetPage = pageMeta[page] ? page : "create";
-  if ((targetPage === "settings" || targetPage === "monitoring") && !isAdmin()) {
+  if ((targetPage === "settings" || targetPage === "monitoring" || targetPage === "costs") && !isAdmin()) {
     targetPage = "create";
     if (window.location.hash !== "#create") window.location.hash = "create";
   }
@@ -1232,6 +1257,7 @@ function navigateToPage(page) {
     if (isAppReady()) refreshAssetLibrary();
   }
   if (targetPage === "kpi") refreshMetrics();
+  if (targetPage === "costs" && isAdmin()) refreshCosts();
   if (targetPage === "monitoring" && isAdmin()) refreshMonitoring();
   if (targetPage === "settings") {
     renderSettingsPreview();
@@ -1340,6 +1366,31 @@ function bindEvents() {
     const totalPages = latestMonitoringData?.pagination?.totalPages || selectedMonitoringPage + 1;
     selectedMonitoringPage = Math.min(totalPages, selectedMonitoringPage + 1);
     refreshMonitoring();
+  });
+  els.refreshCostsButton.addEventListener("click", refreshCosts);
+  els.costRangeControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-cost-range]");
+    if (!button) return;
+    selectedCostRange = button.dataset.costRange || "7d";
+    selectedCostPage = 1;
+    els.costRangeControls.querySelectorAll("[data-cost-range]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    refreshCosts();
+  });
+  els.costPageSize.addEventListener("change", () => {
+    selectedCostPageSize = normalizeProductionPageSize(els.costPageSize.value);
+    selectedCostPage = 1;
+    refreshCosts();
+  });
+  els.costPrevPage.addEventListener("click", () => {
+    selectedCostPage = Math.max(1, selectedCostPage - 1);
+    refreshCosts();
+  });
+  els.costNextPage.addEventListener("click", () => {
+    const totalPages = latestCostData?.pagination?.totalPages || selectedCostPage + 1;
+    selectedCostPage = Math.min(totalPages, selectedCostPage + 1);
+    refreshCosts();
   });
   els.refreshStaffButton.addEventListener("click", refreshStaffUsers);
   els.openCreateStaffButton.addEventListener("click", openCreateStaffModal);
@@ -4016,6 +4067,280 @@ function renderRecentActivity(items) {
   `;
 }
 
+async function refreshCosts() {
+  if (!isAppReady() || !isAdmin() || !els.costKpiCards) return;
+  setCostLoading(true);
+  try {
+    const params = new URLSearchParams({
+      range: selectedCostRange,
+      page: String(selectedCostPage),
+      pageSize: String(selectedCostPageSize)
+    });
+    const response = await authFetch(`/api/admin/costs?${params.toString()}`);
+    const data = await readCostApiJson(response);
+    if (!response.ok || !data.ok) {
+      throw new Error(getApiErrorMessage(response, data, "โหลด Cost / Usage Tracking ไม่สำเร็จ"));
+    }
+    latestCostData = data;
+    selectedCostPage = data.pagination?.page || selectedCostPage;
+    selectedCostPageSize = data.pagination?.pageSize || selectedCostPageSize;
+    renderCostsFromCache();
+  } catch (error) {
+    renderCostError(error);
+  } finally {
+    setCostLoading(false);
+  }
+}
+
+async function readCostApiJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    await response.text().catch(() => "");
+    throw new Error("Cost API ไม่ได้ส่ง JSON กลับมา กรุณาตรวจสอบ endpoint /api/admin/costs");
+  }
+  return response.json();
+}
+
+function renderCostsFromCache() {
+  if (!latestCostData) return;
+  const summary = latestCostData.summary || {};
+  const hasData = Boolean(summary.totalGenerations || summary.estimatedTotalCost);
+
+  els.costErrorState.hidden = true;
+  els.costEmptyState.hidden = hasData;
+  els.costExecutiveSummary.textContent = latestCostData.executiveSummary || "ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้";
+  els.costUpdatedAt.textContent = latestCostData.generatedAt
+    ? `อัปเดต ${formatDateTime(latestCostData.generatedAt)}`
+    : "รอข้อมูลล่าสุด";
+
+  renderCostNotes(latestCostData.notes || []);
+  renderCostKpiCards(summary);
+  renderCostTrendChart(latestCostData.trends || [], summary.currency || latestCostData.costModel?.currency || "USD");
+  renderCostWasteSummary(summary);
+  renderCostStaffUsage(latestCostData.staffUsage || [], summary.currency || "USD");
+  renderCostJobList(latestCostData.jobCosts || [], summary.currency || "USD");
+  renderCostRecentEvents(latestCostData.recentCostEvents || []);
+  renderCostPagination(latestCostData.pagination);
+}
+
+function setCostLoading(isLoading) {
+  if (els.costLoadingState) els.costLoadingState.hidden = !isLoading;
+  if (els.refreshCostsButton) els.refreshCostsButton.disabled = isLoading;
+  if (els.costPageSize) els.costPageSize.disabled = isLoading;
+  if (els.costPrevPage) els.costPrevPage.disabled = isLoading || !(latestCostData?.pagination?.hasPrev);
+  if (els.costNextPage) els.costNextPage.disabled = isLoading || !(latestCostData?.pagination?.hasNext);
+}
+
+function renderCostError(error) {
+  latestCostData = null;
+  els.costErrorState.hidden = false;
+  els.costErrorState.textContent = `โหลด Cost / Usage Tracking ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
+  els.costEmptyState.hidden = true;
+  els.costExecutiveSummary.textContent = "ระบบยังโหลด Cost / Usage ไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
+  els.costUpdatedAt.textContent = "โหลดไม่สำเร็จ";
+  [els.costNotes, els.costKpiCards, els.costTrendChart, els.costWasteSummary, els.costStaffUsage, els.costJobList, els.costRecentEvents].forEach((target) => {
+    if (target) target.innerHTML = "";
+  });
+  renderCostPagination(null);
+}
+
+function renderCostPagination(pagination) {
+  const page = pagination?.page || selectedCostPage || 1;
+  const pageSize = pagination?.pageSize || selectedCostPageSize || 10;
+  const totalItems = pagination?.totalItems || 0;
+  const totalPages = pagination?.totalPages || 1;
+  selectedCostPage = page;
+  selectedCostPageSize = pageSize;
+  if (els.costPageSize) els.costPageSize.value = String(pageSize);
+  if (els.costPageInfo) {
+    els.costPageInfo.textContent = `หน้า ${formatThaiNumber(page)} / ${formatThaiNumber(totalPages)} · ${formatThaiNumber(totalItems)} รายการ`;
+  }
+  if (els.costPrevPage) els.costPrevPage.disabled = !pagination?.hasPrev;
+  if (els.costNextPage) els.costNextPage.disabled = !pagination?.hasNext;
+}
+
+function renderCostNotes(notes) {
+  const safeNotes = notes.length ? notes : ["ตัวเลขนี้เป็น estimated cost จากจำนวน generation และราคาที่ตั้งค่าไว้ในระบบ ไม่ใช่ invoice จริง"];
+  els.costNotes.innerHTML = safeNotes
+    .slice(0, 4)
+    .map((note, index) => `<div class="warning-item ${index === 0 ? "ok" : ""}">${escapeHtml(note)}</div>`)
+    .join("");
+}
+
+function renderCostKpiCards(summary) {
+  const currency = summary.currency || "USD";
+  const cards = [
+    ["Estimated total cost", formatEstimatedCost(summary.estimatedTotalCost, currency), "ต้นทุนโดยประมาณทั้งหมด ไม่ใช่ invoice จริง"],
+    ["Total generations", summary.totalGenerations, "จำนวน generation request ในช่วงเวลานี้"],
+    ["Successful generations", summary.successfulGenerations, "generation ที่สำเร็จ"],
+    ["Failed generations", summary.failedGenerations, "generation ที่ failed หรือมี error"],
+    ["Retry generations", summary.retryGenerations, "generation ที่มาจาก retry/recovery"],
+    ["Estimated retry cost", formatEstimatedCost(summary.estimatedRetryCost, currency), "ต้นทุนโดยประมาณจาก retry"],
+    ["Estimated failed cost", formatEstimatedCost(summary.estimatedFailedCost, currency), "wasted cost จาก failed generation โดยประมาณ"],
+    ["Approved outputs", summary.approvedOutputs, "ภาพที่ approve/export แล้ว"],
+    ["Avg cost / approved output", summary.averageCostPerApprovedOutput === null ? null : formatEstimatedCost(summary.averageCostPerApprovedOutput, currency), "estimated cost ต่อ approved output"],
+    ["Avg cost / job", summary.averageCostPerJob === null ? null : formatEstimatedCost(summary.averageCostPerJob, currency), "estimated cost ต่อ job ที่มี generation"]
+  ];
+
+  els.costKpiCards.innerHTML = cards
+    .map(([label, value, helper]) => `
+      <section class="kpi-card">
+        <strong>${escapeHtml(label)}</strong>
+        <div class="kpi-number">${escapeHtml(formatKpiValue(value))}</div>
+        <p>${escapeHtml(helper)}</p>
+      </section>
+    `)
+    .join("");
+}
+
+function renderCostTrendChart(trends, currency) {
+  if (!trends.length) {
+    els.costTrendChart.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>';
+    return;
+  }
+
+  const maxValue = Math.max(1, ...trends.flatMap((item) => [item.generations, item.failed, item.retry, item.estimatedCost].map(Number)));
+  els.costTrendChart.innerHTML = `
+    <div class="trend-legend cost-trend-legend">
+      <span class="generated">Generations</span>
+      <span class="failed">Failed</span>
+      <span class="retry">Retry</span>
+      <span class="cost">Estimated cost</span>
+    </div>
+    <div class="trend-bars">
+      ${trends
+        .map((item) => `
+          <div class="trend-day">
+            <div class="trend-stack" title="${escapeHtml(`${item.date} · ${formatEstimatedCost(item.estimatedCost, currency)}`)}">
+              ${renderTrendBar("generated", item.generations, maxValue)}
+              ${renderTrendBar("failed", item.failed, maxValue)}
+              ${renderTrendBar("retry", item.retry, maxValue)}
+              ${renderTrendBar("cost", item.estimatedCost, maxValue)}
+            </div>
+            <span>${escapeHtml(String(item.date || "").slice(5))}</span>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderCostWasteSummary(summary) {
+  const currency = summary.currency || "USD";
+  const retryShare = summary.estimatedTotalCost ? Math.round((Number(summary.estimatedRetryCost || 0) / summary.estimatedTotalCost) * 1000) / 10 : null;
+  const failedShare = summary.estimatedTotalCost ? Math.round((Number(summary.estimatedFailedCost || 0) / summary.estimatedTotalCost) * 1000) / 10 : null;
+  els.costWasteSummary.innerHTML = `
+    <div class="status-list">
+      <div class="status-row danger-row">
+        <strong>Estimated failed cost</strong>
+        <span>${escapeHtml(formatEstimatedCost(summary.estimatedFailedCost, currency))}</span>
+        <small>${failedShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณต้นทุนจริง" : `${failedShare}% ของ estimated total cost`}</small>
+      </div>
+      <div class="status-row warning-row">
+        <strong>Estimated retry cost</strong>
+        <span>${escapeHtml(formatEstimatedCost(summary.estimatedRetryCost, currency))}</span>
+        <small>${retryShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณ retry impact" : `${retryShare}% ของ estimated total cost`}</small>
+      </div>
+      <div class="status-row">
+        <strong>Average cost / approved output</strong>
+        <span>${summary.averageCostPerApprovedOutput === null ? "ยังไม่มีข้อมูลเพียงพอ" : escapeHtml(formatEstimatedCost(summary.averageCostPerApprovedOutput, currency))}</span>
+        <small>ต้นทุนโดยประมาณต่อภาพที่ approved แล้ว</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderCostStaffUsage(items, currency) {
+  if (!items.length) {
+    els.costStaffUsage.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>';
+    return;
+  }
+  els.costStaffUsage.innerHTML = `
+    <div class="staff-list">
+      ${items
+        .map((item) => `
+          <div class="staff-row">
+            <div>
+              <strong>${escapeHtml(item.name || item.email || "ไม่ระบุผู้ใช้งาน")}</strong>
+              <span>${escapeHtml(item.email || "")}</span>
+            </div>
+            <div class="staff-metrics">
+              <span>${formatThaiNumber(item.generations)} gen</span>
+              <span>${formatThaiNumber(item.successful)} success</span>
+              <span>${formatThaiNumber(item.failed)} fail</span>
+              <span>${formatThaiNumber(item.retryCount)} retry</span>
+              <span>${formatThaiNumber(item.approvedOutputs)} approved</span>
+              <span>${escapeHtml(formatEstimatedCost(item.estimatedCost, currency))}</span>
+            </div>
+            <small>${item.latestActivity ? formatDateTime(item.latestActivity) : "ยังไม่มีข้อมูลล่าสุด"}</small>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderCostJobList(items, currency) {
+  if (!items.length) {
+    els.costJobList.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>';
+    return;
+  }
+  els.costJobList.innerHTML = `
+    <div class="cost-job-list">
+      ${items
+        .map((job) => `
+          <article class="cost-job-card">
+            <div>
+              <strong>${escapeHtml(job.sku || job.productName || "Untitled product")}</strong>
+              <span>Job ${escapeHtml(job.jobShortId || "-")} · ${escapeHtml(job.status || "unknown")}</span>
+              <small>${escapeHtml(job.createdBy?.name || job.createdBy?.email || "ไม่ระบุผู้ใช้งาน")}</small>
+            </div>
+            <div class="staff-metrics">
+              <span>${formatThaiNumber(job.generationCount)} gen</span>
+              <span>${formatThaiNumber(job.retryCount)} retry</span>
+              <span>${formatThaiNumber(job.failed)} fail</span>
+              <span>${formatThaiNumber(job.approvedOutputs)} output</span>
+              <span>${escapeHtml(job.exportStatus || "not_exported")}</span>
+            </div>
+            <div class="cost-job-total">
+              <strong>${escapeHtml(formatEstimatedCost(job.estimatedCost, currency))}</strong>
+              <span>${job.averageCostPerOutput === null ? "avg/output: ยังไม่มีข้อมูล" : `avg/output: ${escapeHtml(formatEstimatedCost(job.averageCostPerOutput, currency))}`}</span>
+            </div>
+          </article>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderCostRecentEvents(items) {
+  if (!items.length) {
+    els.costRecentEvents.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>';
+    return;
+  }
+  els.costRecentEvents.innerHTML = `
+    <div class="monitoring-list compact">
+      ${items
+        .map((item) => `
+          <article class="monitoring-row ${item.failure ? "danger" : item.retry ? "warning" : "neutral"}">
+            <div class="monitoring-row-main">
+              <time>${escapeHtml(formatDateTime(item.time))}</time>
+              <strong>${escapeHtml(item.eventType || "usage")} · ${escapeHtml(item.status || "recorded")}</strong>
+              <span>${escapeHtml(item.user || item.email || "ไม่ระบุผู้ใช้งาน")}</span>
+            </div>
+            <div class="monitoring-row-detail">
+              <span>${item.jobId ? `Job ${escapeHtml(item.jobShortId || shortId(item.jobId))}` : "Job -"}</span>
+              <span>${item.generationId ? `Gen ${escapeHtml(item.generationShortId || shortId(item.generationId))}` : "Gen -"}</span>
+              <span>${escapeHtml(formatEstimatedCost(item.estimatedCost, item.currency || "USD"))}</span>
+              <span>${escapeHtml(item.provider || "-")} / ${escapeHtml(item.model || "-")}</span>
+            </div>
+          </article>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
 async function refreshMonitoring() {
   if (!isAppReady() || !isAdmin()) return;
   setMonitoringLoading(true);
@@ -4302,6 +4627,16 @@ function formatKpiValue(value) {
   if (value === null || value === undefined || value === "") return "ยังไม่มีข้อมูลเพียงพอ";
   if (typeof value === "number") return formatThaiNumber(value);
   return value;
+}
+
+function formatEstimatedCost(value, currency = "USD") {
+  if (value === null || value === undefined || value === "") return "ยังไม่มีข้อมูลเพียงพอ";
+  const amount = Number(value || 0);
+  const formatted = amount.toLocaleString("en-US", {
+    minimumFractionDigits: amount && Math.abs(amount) < 1 ? 4 : 2,
+    maximumFractionDigits: 4
+  });
+  return `${formatted} ${currency || "USD"} estimated`;
 }
 
 function formatPercent(value) {

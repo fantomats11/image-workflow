@@ -37,6 +37,13 @@ const googleOAuthRedirectUri =
 const googleDriveTokenPath = resolveProjectPath(process.env.GOOGLE_DRIVE_TOKEN_PATH || ".oauth/google-token.json");
 const shouldCreateMissingSkuFolder = process.env.GOOGLE_DRIVE_CREATE_SKU_FOLDER === "true";
 const keepLocalApproved = process.env.KEEP_LOCAL_APPROVED !== "false";
+const costTrackingConfig = {
+  provider: "fal",
+  model: "openai/gpt-image-2/edit",
+  currency: (process.env.AI_GENERATION_COST_CURRENCY || "USD").trim().toUpperCase() || "USD",
+  estimatedCostPerGeneration: normalizeCostNumber(process.env.AI_GENERATION_ESTIMATED_COST_PER_GENERATION, 0.04),
+  unitType: "generation_request"
+};
 let generationQueue = Promise.resolve();
 let activeGenerations = 0;
 let pendingGenerations = 0;
@@ -168,6 +175,22 @@ app.get("/api/admin/monitoring", logMonitoringRequest, requireUser, requireMonit
       ok: false,
       code: "monitoring_error",
       error: "โหลด Monitoring / Error Center ไม่สำเร็จ"
+    });
+  }
+});
+
+app.get("/api/admin/costs", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const range = normalizeKpiRange(req.query.range);
+    const pagination = normalizeProductionPagination(req.query);
+    const costs = await buildCostUsageDashboard(range, pagination);
+    res.json({ ok: true, ...costs });
+  } catch (error) {
+    console.error("[costs] failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "cost_usage_failed",
+      error: "โหลด Cost / Usage Tracking ไม่สำเร็จ"
     });
   }
 });
@@ -1483,6 +1506,7 @@ async function runGeneration(request, onProgress = () => {}) {
       productFileCount: productFiles.length,
       modelFileCount: modelFiles.length
     });
+    request.providerCallStarted = true;
     return fal.subscribe("openai/gpt-image-2/edit", {
       input,
       logs: true
@@ -1611,7 +1635,11 @@ async function retryGenerationForJob({ jobId = "", generationId = "", adminUserI
     throw publicError(400, "retry_prompt_missing", "Retry ไม่ได้ เพราะไม่พบ prompt เดิมของ generation");
   }
   await markStuckActiveGenerationsBeforeRetry(target.job.id, adminUserId);
-  const newGeneration = await createGenerationRow(target.job.id, retryBody, target.job.created_by);
+  const newGeneration = await createGenerationRow(target.job.id, retryBody, target.job.created_by, {
+    retry: true,
+    retryRequestedBy: adminUserId,
+    previousGenerationId: target.generation?.id || null
+  });
   await supabaseAdmin
     .from("jobs")
     .update({ status: "queued", form_json: normalizeJsonObject(target.job.form_json) })
@@ -1627,7 +1655,17 @@ async function retryGenerationForJob({ jobId = "", generationId = "", adminUserI
     eventType: target.generation?.id ? "generation_retry_requested" : "job_retry_requested",
     eventJson: {
       previous_generation_id: target.generation?.id || null,
-      reference_count: referenceUrls.length
+      reference_count: referenceUrls.length,
+      provider: costTrackingConfig.provider,
+      model: costTrackingConfig.model,
+      units: 1,
+      unit_type: costTrackingConfig.unitType,
+      estimated_cost: estimateGenerationCost(),
+      currency: costTrackingConfig.currency,
+      status: "queued",
+      retry: true,
+      failure: false,
+      cost_basis: "configured_estimate"
     }
   });
 
@@ -1865,7 +1903,7 @@ function createRuntimeGenerationJob(jobId, generationId, message) {
   };
 }
 
-async function createGenerationRow(jobId, body = {}, userId) {
+async function createGenerationRow(jobId, body = {}, userId, options = {}) {
   const generation = {
     job_id: jobId,
     kind: cleanJobValue(body.jobKind || body.kind, "hero"),
@@ -1893,7 +1931,17 @@ async function createGenerationRow(jobId, body = {}, userId) {
       generation_id: data.id,
       kind: data.kind || null,
       status: data.status || null,
-      model: data.model || null
+      provider: costTrackingConfig.provider,
+      model: data.model || costTrackingConfig.model,
+      units: 1,
+      unit_type: costTrackingConfig.unitType,
+      estimated_cost: estimateGenerationCost(),
+      currency: costTrackingConfig.currency,
+      cost_basis: "configured_estimate",
+      retry: options.retry === true,
+      failure: false,
+      previous_generation_id: options.previousGenerationId || null,
+      retry_requested_by: options.retryRequestedBy || null
     }
   });
   return data;
@@ -1964,7 +2012,15 @@ async function markGenerationDone(request, data) {
     jobId: request.dbJobId,
     generationId: request.generationId,
     eventType: "generation_completed",
-    eventJson: { requestId: data.requestId || null }
+    eventJson: buildGenerationUsageEventJson({
+      status: "done",
+      requestId: data.requestId || null,
+      retry: request.retryAudit?.requestedBy ? true : false,
+      failure: false,
+      usage: data.usage || null,
+      imageCount: data.images?.length || null,
+      previousGenerationId: request.retryAudit?.previousGenerationId || null
+    })
   });
 }
 
@@ -1994,7 +2050,15 @@ async function markGenerationFailed(request, error) {
     jobId: request.dbJobId,
     generationId: request.generationId,
     eventType: "generation_failed",
-    eventJson: { errorMessage }
+    eventJson: buildGenerationUsageEventJson({
+      status: "failed",
+      requestId: null,
+      retry: request.retryAudit?.requestedBy ? true : false,
+      failure: true,
+      errorMessage,
+      providerCallStarted: request.providerCallStarted === true,
+      previousGenerationId: request.retryAudit?.previousGenerationId || null
+    })
   });
 }
 
@@ -2295,6 +2359,65 @@ async function recordAuditEvent({ actorId, jobId = null, generationId = null, ev
   } catch (error) {
     console.warn(readableError(error));
   }
+}
+
+function buildGenerationUsageEventJson({
+  status,
+  requestId = null,
+  retry = false,
+  failure = false,
+  usage = null,
+  imageCount = null,
+  errorMessage = "",
+  providerCallStarted = true,
+  previousGenerationId = null
+} = {}) {
+  const costApplies = failure ? providerCallStarted === true : true;
+  return {
+    provider: costTrackingConfig.provider,
+    model: costTrackingConfig.model,
+    units: 1,
+    unit_type: costTrackingConfig.unitType,
+    estimated_cost: costApplies ? estimateGenerationCost() : null,
+    currency: costTrackingConfig.currency,
+    status: status || null,
+    retry: retry === true,
+    failure: failure === true,
+    provider_call_started: providerCallStarted === true,
+    cost_basis: costApplies ? "configured_estimate" : "unknown_before_provider_call",
+    request_id: requestId || null,
+    image_count: Number.isFinite(imageCount) ? imageCount : null,
+    previous_generation_id: previousGenerationId || null,
+    usage: sanitizeProviderUsage(usage),
+    errorMessage: errorMessage ? safeMonitoringText(errorMessage, 220) : null
+  };
+}
+
+function sanitizeProviderUsage(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const safe = {};
+  Object.entries(usage).slice(0, 20).forEach(([key, value]) => {
+    const safeKey = safeMonitoringText(key, 60);
+    if (!safeKey || /token|secret|key|prompt|payload/i.test(safeKey)) return;
+    if (typeof value === "number" || typeof value === "string" || typeof value === "boolean" || value === null) {
+      safe[safeKey] = typeof value === "string" ? safeMonitoringText(value, 120) : value;
+    }
+  });
+  return Object.keys(safe).length ? safe : null;
+}
+
+function normalizeCostNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function estimateGenerationCost() {
+  return roundCost(costTrackingConfig.estimatedCostPerGeneration);
+}
+
+function roundCost(value) {
+  if (!Number.isFinite(Number(value))) return null;
+  return Math.round(Number(value) * 1000000) / 1000000;
 }
 
 async function recordUploadedReferenceAssets({ jobId, userId, productFiles = [], modelFiles = [] }) {
@@ -3484,6 +3607,388 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
     recentErrors,
     recentSystemEvents: paginateMonitoringItems(recentSystemEvents, pagination)
   };
+}
+
+async function buildCostUsageDashboard(range, paginationInput = normalizeProductionPagination()) {
+  const rangeMeta = getKpiRangeMeta(range);
+  const readLimit = range === "all" ? 7000 : 3500;
+  const warnings = [];
+
+  const [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult] = await Promise.all([
+    readMonitoringRows("jobs", [
+      "id, sku, product_name, brand, category, status, created_by, created_at, updated_at, form_json",
+      "id, sku, product_name, status, created_by, created_at, updated_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("generations", [
+      "id, job_id, kind, request_id, status, model, created_by, created_at, updated_at, completed_at, error_message",
+      "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit
+    }),
+    readMonitoringRows("approvals", [
+      "id, generation_id, approved_by, approved_at, export_path",
+      "id, generation_id, approved_by, approved_at"
+    ], {
+      since: rangeMeta.since,
+      dateColumn: "approved_at",
+      orderColumn: "approved_at",
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("assets", [
+      "id, job_id, type, bucket, created_by, created_at",
+      "id, job_id, type, created_by, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    }),
+    readMonitoringRows("audit_events", [
+      "id, actor_id, job_id, generation_id, event_type, event_json, created_at",
+      "id, actor_id, job_id, generation_id, event_type, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: readLimit,
+      optional: true
+    })
+  ]);
+
+  [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult].forEach((result) => {
+    if (result.error) {
+      warnings.push(createWarning(`${result.table}_unavailable`, `ยังอ่านข้อมูล ${result.table} ไม่ได้ จึงคำนวณบางส่วนจากข้อมูลที่มี`));
+    }
+    if (result.limited) {
+      warnings.push(createWarning(`${result.table}_limited`, `ข้อมูล ${result.table} ถูกจำกัดที่ ${result.limit.toLocaleString("th-TH")} แถวเพื่อประสิทธิภาพ`));
+    }
+  });
+
+  const jobs = jobsResult.data;
+  const generations = generationsResult.data;
+  const approvals = approvalsResult.data;
+  const assets = assetsResult.data;
+  const auditEvents = auditEventsResult.data;
+  const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
+  const profiles = await readKpiProfiles(userIds);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const generationById = new Map(generations.map((generation) => [generation.id, generation]));
+  const auditEventsByGenerationId = groupAuditEventsByGenerationId(auditEvents);
+  const retryGenerationIds = collectRetryGenerationIds(auditEvents);
+  const approvedGenerationIds = new Set(approvals.map((approval) => approval.generation_id).filter(Boolean));
+  const approvedAssetsByJobId = groupBy(
+    assets.filter((asset) => String(asset.type || "").toLowerCase() === "approved_export"),
+    "job_id"
+  );
+  const approvalsByJobId = new Map();
+  approvals.forEach((approval) => {
+    const generation = generationById.get(approval.generation_id);
+    if (!generation?.job_id) return;
+    if (!approvalsByJobId.has(generation.job_id)) approvalsByJobId.set(generation.job_id, []);
+    approvalsByJobId.get(generation.job_id).push(approval);
+  });
+
+  const generationCosts = generations.map((generation) => {
+    const cost = getEstimatedGenerationCost(generation, auditEventsByGenerationId.get(generation.id) || []);
+    return {
+      generation,
+      estimatedCost: cost,
+      isRetry: retryGenerationIds.has(generation.id),
+      isFailed: isFailedStatus(generation.status) || Boolean(generation.error_message),
+      isSuccessful: isSuccessfulGenerationStatus(generation.status)
+    };
+  });
+
+  const totalGenerations = generationCosts.length;
+  const successfulGenerations = generationCosts.filter((item) => item.isSuccessful).length;
+  const failedGenerations = generationCosts.filter((item) => item.isFailed).length;
+  const retryGenerations = generationCosts.filter((item) => item.isRetry).length;
+  const approvedOutputs = approvals.length || assets.filter((asset) => String(asset.type || "").toLowerCase() === "approved_export").length;
+  const estimatedTotalCost = sumCosts(generationCosts.map((item) => item.estimatedCost));
+  const estimatedFailedCost = sumCosts(generationCosts.filter((item) => item.isFailed).map((item) => item.estimatedCost));
+  const estimatedRetryCost = sumCosts(generationCosts.filter((item) => item.isRetry).map((item) => item.estimatedCost));
+  const jobIdsWithGenerations = new Set(generations.map((generation) => generation.job_id).filter(Boolean));
+
+  const summary = {
+    totalGenerations,
+    successfulGenerations,
+    failedGenerations,
+    retryGenerations,
+    approvedOutputs,
+    estimatedTotalCost,
+    estimatedFailedCost,
+    estimatedRetryCost,
+    averageCostPerApprovedOutput: approvedOutputs ? roundCost(estimatedTotalCost / approvedOutputs) : null,
+    averageCostPerJob: jobIdsWithGenerations.size ? roundCost(estimatedTotalCost / jobIdsWithGenerations.size) : null,
+    currency: costTrackingConfig.currency
+  };
+
+  if (!totalGenerations) warnings.push(createWarning("no_usage", "ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้"));
+  if (!approvedOutputs && totalGenerations) warnings.push(createWarning("no_approved_outputs", "ยังไม่มี approved output ในช่วงนี้ จึงยังคำนวณต้นทุนต่อ approved output ไม่ได้"));
+
+  const jobCostRows = buildJobCostRows({
+    generationCosts,
+    jobById,
+    profileById,
+    approvalsByJobId,
+    approvedAssetsByJobId
+  });
+  const recentCostEvents = buildRecentCostEvents({
+    auditEvents,
+    jobById,
+    generationById,
+    profileById
+  });
+  const pagination = buildCostPaginationMeta(paginationInput, {
+    jobCosts: jobCostRows.length,
+    recentCostEvents: recentCostEvents.length
+  });
+
+  return {
+    range,
+    rangeLabel: rangeMeta.label,
+    generatedAt: new Date().toISOString(),
+    costModel: {
+      provider: costTrackingConfig.provider,
+      model: costTrackingConfig.model,
+      currency: costTrackingConfig.currency,
+      estimatedCostPerGeneration: estimateGenerationCost(),
+      unitType: costTrackingConfig.unitType,
+      label: "estimated"
+    },
+    summary,
+    executiveSummary: buildCostExecutiveSummary(rangeMeta.label, summary),
+    trends: buildCostTrends(generationCosts),
+    staffUsage: buildCostStaffUsage({ generationCosts, approvals, generationById, profileById }),
+    jobCosts: paginateProductionItems(jobCostRows, pagination),
+    recentCostEvents: paginateProductionItems(recentCostEvents, pagination),
+    pagination,
+    notes: [
+      "ตัวเลขนี้เป็น estimated cost จากจำนวน generation และราคาที่ตั้งค่าไว้ในระบบ ไม่ใช่ invoice จริง",
+      "ไม่รวมค่าใช้จ่าย Google Drive, Supabase Storage, network หรือ invoice จาก provider ที่อยู่นอก event generation",
+      ...dedupeWarnings(warnings).map((warning) => warning.message)
+    ],
+    warnings: dedupeWarnings(warnings)
+  };
+}
+
+function groupAuditEventsByGenerationId(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    if (!event.generation_id) return;
+    if (!groups.has(event.generation_id)) groups.set(event.generation_id, []);
+    groups.get(event.generation_id).push(event);
+  });
+  return groups;
+}
+
+function collectRetryGenerationIds(events = []) {
+  const ids = new Set();
+  events.forEach((event) => {
+    const type = String(event.event_type || "").toLowerCase();
+    const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+    if ((type.includes("retry") || eventJson.retry === true) && event.generation_id) {
+      ids.add(event.generation_id);
+    }
+  });
+  return ids;
+}
+
+function getEstimatedGenerationCost(generation, events = []) {
+  const costEvent = events
+    .map((event) => event?.event_json && typeof event.event_json === "object" ? event.event_json : {})
+    .find((eventJson) => Number.isFinite(Number(eventJson.estimated_cost)));
+  if (costEvent) return roundCost(Number(costEvent.estimated_cost));
+  if (isActiveWorkStatus(generation.status)) return 0;
+  return estimateGenerationCost();
+}
+
+function sumCosts(values = []) {
+  return roundCost(values.reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Number(value) : 0), 0)) || 0;
+}
+
+function buildCostExecutiveSummary(label, summary) {
+  if (!summary.totalGenerations) return `${label} ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้`;
+  const avgOutput = summary.averageCostPerApprovedOutput === null || summary.averageCostPerApprovedOutput === undefined
+    ? "ยังไม่มีข้อมูลเพียงพอ"
+    : `${formatCost(summary.averageCostPerApprovedOutput)} ${summary.currency}`;
+  return `${label} มีการ generate ${formatThaiNumber(summary.totalGenerations)} ครั้ง, retry ${formatThaiNumber(summary.retryGenerations)} ครั้ง, estimated cost รวม ${formatCost(summary.estimatedTotalCost)} ${summary.currency}, approved output ${formatThaiNumber(summary.approvedOutputs)} ภาพ, ต้นทุนเฉลี่ยต่อ approved output เท่ากับ ${avgOutput}`;
+}
+
+function buildCostTrends(generationCosts = []) {
+  const byDate = new Map();
+  const ensure = (timestamp) => {
+    const date = localDateKey(new Date(timestamp || Date.now()));
+    if (!byDate.has(date)) {
+      byDate.set(date, { date, generations: 0, successful: 0, failed: 0, retry: 0, estimatedCost: 0 });
+    }
+    return byDate.get(date);
+  };
+
+  generationCosts.forEach((item) => {
+    const bucket = ensure(item.generation.completed_at || item.generation.created_at);
+    bucket.generations += 1;
+    if (item.isSuccessful) bucket.successful += 1;
+    if (item.isFailed) bucket.failed += 1;
+    if (item.isRetry) bucket.retry += 1;
+    bucket.estimatedCost = roundCost(bucket.estimatedCost + Number(item.estimatedCost || 0));
+  });
+
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildCostStaffUsage({ generationCosts, approvals, generationById, profileById }) {
+  const byUser = new Map();
+  const ensure = (userId) => {
+    const id = userId || "unknown";
+    if (!byUser.has(id)) {
+      const profile = profileById.get(id);
+      byUser.set(id, {
+        userId: id === "unknown" ? null : id,
+        name: profile?.full_name || profile?.email || "ไม่ระบุผู้ใช้งาน",
+        email: profile?.email || "",
+        generations: 0,
+        successful: 0,
+        failed: 0,
+        retryCount: 0,
+        approvedOutputs: 0,
+        estimatedCost: 0,
+        latestActivity: null
+      });
+    }
+    return byUser.get(id);
+  };
+
+  generationCosts.forEach((item) => {
+    const bucket = ensure(item.generation.created_by);
+    bucket.generations += 1;
+    if (item.isSuccessful) bucket.successful += 1;
+    if (item.isFailed) bucket.failed += 1;
+    if (item.isRetry) bucket.retryCount += 1;
+    bucket.estimatedCost = roundCost(bucket.estimatedCost + Number(item.estimatedCost || 0));
+    bucket.latestActivity = latestTimestamp([bucket.latestActivity, item.generation.completed_at, item.generation.created_at]);
+  });
+  approvals.forEach((approval) => {
+    const generation = generationById.get(approval.generation_id);
+    const bucket = ensure(generation?.created_by || approval.approved_by);
+    bucket.approvedOutputs += 1;
+    bucket.latestActivity = latestTimestamp([bucket.latestActivity, approval.approved_at]);
+  });
+
+  return Array.from(byUser.values())
+    .sort((a, b) => b.estimatedCost - a.estimatedCost || b.generations - a.generations)
+    .slice(0, 30);
+}
+
+function buildJobCostRows({ generationCosts, jobById, profileById, approvalsByJobId, approvedAssetsByJobId }) {
+  const byJob = new Map();
+  generationCosts.forEach((item) => {
+    const jobId = item.generation.job_id || "unknown";
+    const job = jobById.get(jobId);
+    if (!byJob.has(jobId)) {
+      byJob.set(jobId, {
+        jobId: jobId === "unknown" ? null : jobId,
+        jobShortId: shortServerId(jobId),
+        sku: safeProductionText(job?.sku || job?.form_json?.sku || ""),
+        productName: safeProductionText(job?.product_name || job?.form_json?.productName || "Untitled product"),
+        status: job?.status || "unknown",
+        createdBy: serializeProductionUser(profileById.get(job?.created_by), job?.created_by),
+        generationCount: 0,
+        retryCount: 0,
+        successful: 0,
+        failed: 0,
+        approvedOutputs: 0,
+        exportStatus: "not_exported",
+        estimatedCost: 0,
+        averageCostPerOutput: null,
+        latestActivity: null
+      });
+    }
+    const bucket = byJob.get(jobId);
+    bucket.generationCount += 1;
+    if (item.isRetry) bucket.retryCount += 1;
+    if (item.isSuccessful) bucket.successful += 1;
+    if (item.isFailed) bucket.failed += 1;
+    bucket.estimatedCost = roundCost(bucket.estimatedCost + Number(item.estimatedCost || 0));
+    bucket.latestActivity = latestTimestamp([bucket.latestActivity, item.generation.completed_at, item.generation.created_at]);
+  });
+
+  byJob.forEach((bucket) => {
+    const approvals = bucket.jobId ? approvalsByJobId.get(bucket.jobId) || [] : [];
+    const approvedAssets = bucket.jobId ? approvedAssetsByJobId.get(bucket.jobId) || [] : [];
+    bucket.approvedOutputs = approvals.length || approvedAssets.length;
+    bucket.exportStatus = approvedAssets.some((asset) => asset.bucket === "google_drive") ? "google_drive" : approvedAssets.length ? "exported" : bucket.approvedOutputs ? "approved" : "not_exported";
+    bucket.averageCostPerOutput = bucket.approvedOutputs ? roundCost(bucket.estimatedCost / bucket.approvedOutputs) : null;
+  });
+
+  return Array.from(byJob.values()).sort((a, b) => b.estimatedCost - a.estimatedCost || b.generationCount - a.generationCount);
+}
+
+function buildRecentCostEvents({ auditEvents, jobById, generationById, profileById }) {
+  const costTypes = new Set([
+    "generation_started",
+    "generation_completed",
+    "generation_failed",
+    "generation_retry_requested",
+    "job_retry_requested",
+    "retry_completed",
+    "retry_failed"
+  ]);
+
+  return auditEvents
+    .filter((event) => costTypes.has(String(event.event_type || "")) || String(event.event_type || "").includes("retry"))
+    .map((event) => {
+      const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+      const generation = event.generation_id ? generationById.get(event.generation_id) : null;
+      const jobId = event.job_id || generation?.job_id || null;
+      const job = jobId ? jobById.get(jobId) : null;
+      const profile = profileById.get(event.actor_id || generation?.created_by);
+      return {
+        id: event.id,
+        time: event.created_at || null,
+        user: formatProfileName(profile),
+        email: profile?.email || "",
+        jobId,
+        jobShortId: shortServerId(jobId),
+        generationId: event.generation_id || null,
+        generationShortId: shortServerId(event.generation_id),
+        eventType: event.event_type || "usage",
+        status: eventJson.status || statusFromEventType(event.event_type) || generation?.status || "recorded",
+        estimatedCost: Number.isFinite(Number(eventJson.estimated_cost)) ? roundCost(Number(eventJson.estimated_cost)) : getEstimatedGenerationCost(generation || {}, [event]),
+        currency: eventJson.currency || costTrackingConfig.currency,
+        provider: eventJson.provider || costTrackingConfig.provider,
+        model: safeProductionText(eventJson.model || generation?.model || costTrackingConfig.model, 120),
+        retry: eventJson.retry === true || String(event.event_type || "").toLowerCase().includes("retry"),
+        failure: eventJson.failure === true || isFailedStatus(eventJson.status || generation?.status) || String(event.event_type || "").toLowerCase().includes("failed"),
+        sku: safeProductionText(job?.sku || "")
+      };
+    })
+    .filter((item) => item.time)
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+}
+
+function buildCostPaginationMeta(input, totalsByList) {
+  const totalItems = Math.max(0, ...Object.values(totalsByList).map((value) => Number(value || 0)));
+  const base = buildProductionPaginationMeta(input, totalItems);
+  return {
+    ...base,
+    totals: {
+      jobCosts: Number(totalsByList.jobCosts || 0),
+      recentCostEvents: Number(totalsByList.recentCostEvents || 0)
+    }
+  };
+}
+
+function formatCost(value) {
+  const cost = Number(value || 0);
+  return cost.toLocaleString("en-US", {
+    minimumFractionDigits: cost && Math.abs(cost) < 1 ? 4 : 2,
+    maximumFractionDigits: 4
+  });
 }
 
 async function buildProductionJobsView(query = {}) {
