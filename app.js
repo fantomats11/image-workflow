@@ -488,6 +488,8 @@ let selectedCostPage = 1;
 let selectedCostPageSize = 10;
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
+let createStaffInProgress = false;
+let resetPasswordInProgress = false;
 const staffUpdateInProgress = new Set();
 let supabaseClient = null;
 let currentSession = null;
@@ -2196,7 +2198,10 @@ async function pollGenerationJob(jobId, onProgress) {
     }
     await delay(1800);
     try {
-      const response = await fetch(`/api/generate/jobs/${encodeURIComponent(jobId)}`);
+      const response = await authFetch(`/api/generate/jobs/${encodeURIComponent(jobId)}`, {
+        timeoutMs: 12000,
+        timeoutMessage: "อ่านสถานะ generation ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+      });
       const data = await response.json();
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Cannot read generation job");
@@ -2982,8 +2987,8 @@ async function refreshGoogleDriveStatus() {
   els.googleDriveConnectButton.disabled = true;
 
   try {
-    const response = await fetch("/api/google/oauth/status");
-    const data = await response.json();
+    const response = await authFetch("/api/google/oauth/status");
+    const data = await readJsonResponse(response, "โหลดสถานะ Google Drive ไม่สำเร็จ");
     if (!response.ok || !data.ok) throw new Error(data.error || "โหลดสถานะ Google Drive ไม่สำเร็จ");
 
     if (!data.configured) {
@@ -3119,7 +3124,7 @@ function clearCreateStaffError() {
 
 async function handleCreateStaffSubmit(event) {
   event.preventDefault();
-  if (!isAdmin()) return;
+  if (!isAdmin() || createStaffInProgress) return;
 
   clearCreateStaffError();
   setStaffSuccess("");
@@ -3145,6 +3150,7 @@ async function handleCreateStaffSubmit(event) {
   }
 
   try {
+    createStaffInProgress = true;
     setCreateStaffLoading(true);
     const response = await authFetch("/api/admin/users", {
       method: "POST",
@@ -3163,6 +3169,7 @@ async function handleCreateStaffSubmit(event) {
     els.createStaffConfirmPassword.value = "";
     setCreateStaffError(`สร้างผู้ใช้งานไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
   } finally {
+    createStaffInProgress = false;
     setCreateStaffLoading(false);
   }
 }
@@ -3218,7 +3225,7 @@ function clearResetPasswordError() {
 
 async function handleResetPasswordSubmit(event) {
   event.preventDefault();
-  if (!isAdmin() || !resetPasswordTargetUser) return;
+  if (!isAdmin() || !resetPasswordTargetUser || resetPasswordInProgress) return;
 
   clearResetPasswordError();
   setStaffSuccess("");
@@ -3236,6 +3243,7 @@ async function handleResetPasswordSubmit(event) {
   }
 
   try {
+    resetPasswordInProgress = true;
     setResetPasswordLoading(true);
     const response = await authFetch(`/api/admin/users/${encodeURIComponent(resetPasswordTargetUser.id)}/password`, {
       method: "PATCH",
@@ -3255,6 +3263,7 @@ async function handleResetPasswordSubmit(event) {
     els.resetPasswordConfirmValue.value = "";
     setResetPasswordError(`รีเซ็ตรหัสผ่านไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`);
   } finally {
+    resetPasswordInProgress = false;
     setResetPasswordLoading(false);
   }
 }

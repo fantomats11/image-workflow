@@ -71,6 +71,16 @@ const upload = multer({
 
 app.use(express.json({ limit: "2mb" }));
 
+app.use((error, req, res, next) => {
+  if (!error) return next();
+  if (req.path?.startsWith("/api/")) {
+    return sendApiError(res, 400, "invalid_json", "Request JSON ไม่ถูกต้อง");
+  }
+  return next(error);
+});
+
+validateStartupConfig();
+
 async function requireUser(req, res, next) {
   try {
     const authHeader = String(req.headers.authorization || "");
@@ -90,6 +100,40 @@ async function requireUser(req, res, next) {
     console.error("Auth failed:", readableError(error));
     res.status(401).json({ ok: false, code: "invalid_session", error: "Invalid or expired session." });
   }
+}
+
+function sendApiError(res, status, code, error) {
+  return res.status(status).json({
+    ok: false,
+    code,
+    error
+  });
+}
+
+function safeRuntimeEnv() {
+  if (process.env.RENDER) return "render";
+  if (process.env.NODE_ENV === "production") return "production";
+  if (process.env.NODE_ENV === "test") return "test";
+  return "development";
+}
+
+function validateStartupConfig() {
+  const missingCritical = [];
+  const warnings = [];
+  if (!supabaseUrl) missingCritical.push("SUPABASE_URL");
+  if (!supabaseAnonKey) missingCritical.push("SUPABASE_ANON_KEY");
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) missingCritical.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (!process.env.FAL_KEY?.trim()) warnings.push("FAL_KEY is missing; generation requests will return a safe configuration error.");
+
+  if (getGoogleDriveAuthMode() === "oauth" || googleDriveRootFolderId) {
+    if (!googleDriveRootFolderId) warnings.push("GOOGLE_DRIVE_ROOT_FOLDER_ID is missing; Google Drive export will be disabled.");
+    if (!googleOAuthClientId || !googleOAuthClientSecret) warnings.push("Google OAuth client config is incomplete; admin Google Drive connection will be unavailable.");
+  }
+
+  if (missingCritical.length) {
+    throw new Error(`Missing required server configuration: ${missingCritical.join(", ")}`);
+  }
+  warnings.forEach((warning) => console.warn(`[config] ${warning}`));
 }
 
 async function attachUserIfPresent(req, _res, next) {
@@ -199,9 +243,19 @@ app.use("/vendor/supabase", express.static(path.join(__dirname, "node_modules/@s
 app.use(express.static(__dirname));
 app.use("/approved", express.static(approvedDir));
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (_req, res) => {
+  const googleDriveStatus = await getSafeGoogleDriveStatus();
   res.json({
     ok: true,
+    service: "image-workflow",
+    time: new Date().toISOString(),
+    env: safeRuntimeEnv(),
+    checks: {
+      supabaseConfigured: Boolean(supabaseUrl && supabaseAnonKey),
+      googleDriveConfigured: isGoogleDriveApiConfigured() || isGoogleOAuthConfigured(),
+      googleDriveConnected: googleDriveStatus.connected === true,
+      falConfigured: Boolean(process.env.FAL_KEY)
+    },
     falConfigured: Boolean(process.env.FAL_KEY),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
     driveOutputConfigured: Boolean(driveOutputDir),
@@ -232,8 +286,8 @@ app.get("/api/me", requireUser, async (req, res) => {
       ...(profile || buildMissingProfileStatus(req.user))
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Profile load failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "profile_load_failed", error: "โหลดข้อมูลผู้ใช้งานไม่สำเร็จ" });
   }
 });
 
@@ -265,8 +319,8 @@ app.post("/api/me/password-changed", requireUser, async (req, res) => {
 
     res.json({ ok: true, ...normalizeProfile(profile, req.user) });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Password changed flag failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "password_changed_failed", error: "บันทึกสถานะรหัสผ่านใหม่ไม่สำเร็จ" });
   }
 });
 
@@ -656,8 +710,8 @@ app.post("/api/jobs", requireUser, async (req, res) => {
     });
     res.status(201).json({ ok: true, job });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Job create failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "job_create_failed", error: "สร้างงานไม่สำเร็จ" });
   }
 });
 
@@ -672,7 +726,7 @@ app.get("/api/jobs/:id", requireUser, async (req, res) => {
       .single();
 
     if (error) {
-      if (isNoRowsError(error)) return res.status(404).json({ error: "Job not found." });
+      if (isNoRowsError(error)) return sendApiError(res, 404, "job_not_found", "Job not found.");
       throw error;
     }
 
@@ -727,20 +781,27 @@ app.get("/api/jobs/:id", requireUser, async (req, res) => {
       }
     }
 
-    res.json({ ok: true, job, generations, assets, qc_checks: qcChecks, approvals });
+    res.json({
+      ok: true,
+      job: sanitizeWorkflowJobDetail(job),
+      generations: generations.map(sanitizeWorkflowGenerationDetail),
+      assets,
+      qc_checks: qcChecks,
+      approvals
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Job detail failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "job_detail_failed", error: "โหลดรายละเอียดงานไม่สำเร็จ" });
   }
 });
 
 app.post("/api/qc-checks", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
-  if (!generationId) return res.status(400).json({ error: "Missing generation_id." });
+  if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
 
   try {
     const generation = await getOwnedGeneration(generationId, req.user.id);
-    if (!generation) return res.status(404).json({ error: "Generation not found." });
+    if (!generation) return sendApiError(res, 404, "generation_not_found", "Generation not found.");
 
     const score = Number(req.body.score);
     const payload = {
@@ -784,11 +845,11 @@ app.post("/api/qc-checks", requireUser, async (req, res) => {
 
 app.post("/api/approvals", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
-  if (!generationId) return res.status(400).json({ error: "Missing generation_id." });
+  if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
 
   try {
     const generation = await getOwnedGeneration(generationId, req.user.id);
-    if (!generation) return res.status(404).json({ error: "Generation not found." });
+    if (!generation) return sendApiError(res, 404, "generation_not_found", "Generation not found.");
 
     const exportPath = cleanOptionalString(req.body.export_path || req.body.exportPath);
     const note = cleanOptionalString(req.body.note);
@@ -869,7 +930,7 @@ app.patch("/api/jobs/:id", requireUser, async (req, res) => {
     const jobId = String(req.params.id || "").trim();
     const patch = buildJobPatch(req.body);
     if (!Object.keys(patch).length) {
-      return res.status(400).json({ error: "Nothing to update." });
+      return sendApiError(res, 400, "nothing_to_update", "Nothing to update.");
     }
 
     const { data: job, error } = await supabaseAdmin
@@ -881,14 +942,14 @@ app.patch("/api/jobs/:id", requireUser, async (req, res) => {
       .single();
 
     if (error) {
-      if (isNoRowsError(error)) return res.status(404).json({ error: "Job not found." });
+      if (isNoRowsError(error)) return sendApiError(res, 404, "job_not_found", "Job not found.");
       throw error;
     }
 
     res.json({ ok: true, job });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Job update failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "job_update_failed", error: "อัปเดตงานไม่สำเร็จ" });
   }
 });
 
@@ -1042,11 +1103,12 @@ app.post(
         updatedAt: new Date().toISOString(),
         requestId: null,
         images: [],
-        error: null
+        error: null,
+        userId: req.user.id
       };
       generationJobs.set(jobId, job);
 
-      res.json({ ok: true, jobId, databaseJobId: dbJob.id, generationId: generation?.id || null, job });
+      res.json({ ok: true, jobId, databaseJobId: dbJob.id, generationId: generation?.id || null, job: serializeRuntimeGenerationJob(job) });
 
       runGenerationJob(jobId, {
         userId: req.user.id,
@@ -1070,10 +1132,14 @@ app.post(
   }
 );
 
-app.get("/api/generate/jobs/:jobId", (req, res) => {
+app.get("/api/generate/jobs/:jobId", requireUser, async (req, res) => {
   const job = generationJobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: "Generation job not found." });
-  res.json({ ok: true, job });
+  if (!job) return sendApiError(res, 404, "generation_job_not_found", "Generation job not found.");
+  const profile = await getProfileForUser(req.user).catch(() => null);
+  if (job.userId && job.userId !== req.user.id && profile?.role !== "admin") {
+    return sendApiError(res, 403, "generation_job_forbidden", "ไม่มีสิทธิ์ดูสถานะ generation นี้");
+  }
+  res.json({ ok: true, job: serializeRuntimeGenerationJob(job) });
 });
 
 app.post(
@@ -1086,7 +1152,7 @@ app.post(
   async (req, res) => {
   try {
     const validation = validateGenerateRequest(req);
-    if (validation) return res.status(validation.status).json({ error: validation.error });
+    if (validation) return res.status(validation.status).json({ ok: false, code: validation.code || "invalid_request", error: validation.error });
     const data = await runGeneration({
       body: req.body,
       files: {
@@ -1103,8 +1169,8 @@ app.post(
     });
     res.json(data);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Legacy generate failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "generate_failed", error: "Generate ไม่สำเร็จ" });
   }
   }
 );
@@ -1133,8 +1199,8 @@ app.get("/api/metrics/today", requireUser, async (_req, res) => {
       ...(await summarizeMetrics(date))
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Metrics today failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "metrics_failed", error: "โหลด metrics ไม่สำเร็จ" });
   }
 });
 
@@ -1147,8 +1213,8 @@ app.get("/api/metrics", requireUser, async (req, res) => {
       ...(await summarizeMetrics(date))
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Metrics failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "metrics_failed", error: "โหลด metrics ไม่สำเร็จ" });
   }
 });
 
@@ -1176,7 +1242,7 @@ app.get("/api/kpi/summary", requireUser, async (req, res) => {
   }
 });
 
-app.get("/api/google/oauth/status", async (_req, res) => {
+app.get("/api/google/oauth/status", requireUser, requireAdminUser, async (_req, res) => {
   try {
     const integrationToken = await readIntegrationToken("google_drive");
     const fileTokenExists = await fileExists(googleDriveTokenPath);
@@ -1193,7 +1259,7 @@ app.get("/api/google/oauth/status", async (_req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    res.status(500).json({ ok: false, code: "google_oauth_status_failed", error: "ตรวจสอบสถานะ Google Drive ไม่สำเร็จ" });
   }
 });
 
@@ -1211,8 +1277,8 @@ app.get("/api/google/oauth/start", requireUser, requireAdminUser, (req, res) => 
     });
     res.json({ ok: true, authUrl });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: readableError(error) });
+    console.error("Google OAuth start failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "google_oauth_start_failed", error: "เปิดลิงก์เชื่อมต่อ Google Drive ไม่สำเร็จ" });
   }
 });
 
@@ -1223,7 +1289,14 @@ app.get("/api/google/oauth/callback", async (req, res) => {
     const state = String(req.query.state || "").trim();
     const statePayload = state ? googleOAuthStateById.get(state) : null;
     if (state) googleOAuthStateById.delete(state);
-    const updatedBy = statePayload && Date.now() - statePayload.createdAt <= 10 * 60 * 1000 ? statePayload.userId : null;
+    if (!statePayload || Date.now() - statePayload.createdAt > 10 * 60 * 1000) {
+      return res.status(401).json({
+        ok: false,
+        code: "invalid_oauth_state",
+        error: "Google OAuth state ไม่ถูกต้องหรือหมดอายุ กรุณาเริ่มเชื่อมต่อใหม่จากหน้า Settings"
+      });
+    }
+    const updatedBy = statePayload.userId;
 
     const oauth2Client = createGoogleOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
@@ -1256,16 +1329,16 @@ app.get("/api/google/oauth/callback", async (req, res) => {
     `);
   } catch (error) {
     console.error(error);
-    res.status(500).send(readableError(error));
+    res.status(500).json({ ok: false, code: "google_oauth_callback_failed", error: "เชื่อมต่อ Google Drive ไม่สำเร็จ" });
   }
 });
 
-app.post("/api/approve", attachUserIfPresent, async (req, res) => {
+app.post("/api/approve", requireUser, async (req, res) => {
   try {
     const imageUrl = String(req.body.imageUrl || "").trim();
     const jobName = sanitizeFileName(String(req.body.jobName || "approved-image"));
     const sku = sanitizeSku(String(req.body.sku || ""));
-    if (!imageUrl) return res.status(400).json({ error: "Missing imageUrl." });
+    if (!imageUrl) return sendApiError(res, 400, "image_url_required", "Missing imageUrl.");
 
     const extension = extensionFromUrl(imageUrl) || "png";
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1330,7 +1403,7 @@ app.post("/api/approve", attachUserIfPresent, async (req, res) => {
       browserUrl: localDeleted ? null : `/approved/${fileName}`
     });
   } catch (error) {
-    console.error(error);
+    console.error("Approve/export failed:", readableError(error));
     if (googleDriveRootFolderId) {
       await recordAuditEvent({
         actorId: req.user?.id || null,
@@ -1338,7 +1411,7 @@ app.post("/api/approve", attachUserIfPresent, async (req, res) => {
         eventJson: { error: readableError(error), jobId: String(req.body.jobId || req.body.job_id || "").trim() || null }
       });
     }
-    res.status(500).json({ error: readableError(error) });
+    res.status(500).json({ ok: false, code: "approve_failed", error: readableError(error) });
   }
 });
 
@@ -1535,6 +1608,12 @@ function updateGenerationJob(jobId, patch) {
   Object.assign(job, patch, { updatedAt: new Date().toISOString() });
 }
 
+function serializeRuntimeGenerationJob(job = {}) {
+  const safe = { ...job };
+  delete safe.userId;
+  return safe;
+}
+
 function pruneGenerationJobs() {
   const cutoff = Date.now() - 6 * 60 * 60 * 1000;
   for (const [jobId, job] of generationJobs) {
@@ -1645,7 +1724,7 @@ async function retryGenerationForJob({ jobId = "", generationId = "", adminUserI
     .update({ status: "queued", form_json: normalizeJsonObject(target.job.form_json) })
     .eq("id", target.job.id);
 
-  const runtimeJob = createRuntimeGenerationJob(target.job.id, newGeneration.id, "Retry queued by admin");
+  const runtimeJob = createRuntimeGenerationJob(target.job.id, newGeneration.id, "Retry queued by admin", target.job.created_by);
   generationJobs.set(target.job.id, runtimeJob);
 
   await recordAuditEvent({
@@ -1887,7 +1966,7 @@ function buildRetryGenerateBody({ job, generation }, referenceUrls) {
   };
 }
 
-function createRuntimeGenerationJob(jobId, generationId, message) {
+function createRuntimeGenerationJob(jobId, generationId, message, userId = null) {
   return {
     id: jobId,
     jobId,
@@ -1899,7 +1978,8 @@ function createRuntimeGenerationJob(jobId, generationId, message) {
     updatedAt: new Date().toISOString(),
     requestId: null,
     images: [],
-    error: null
+    error: null,
+    userId
   };
 }
 
@@ -2275,6 +2355,23 @@ function normalizeProfile(profile, user) {
     is_active: profile.is_active !== false,
     must_change_password: profile.must_change_password === true
   };
+}
+
+function sanitizeWorkflowJobDetail(job = {}) {
+  const formJson = normalizeJsonObject(job.form_json);
+  const safeFormJson = { ...formJson };
+  delete safeFormJson.prompt;
+  delete safeFormJson.extraImageUrls;
+  return {
+    ...job,
+    form_json: safeFormJson
+  };
+}
+
+function sanitizeWorkflowGenerationDetail(generation = {}) {
+  const safe = { ...generation };
+  delete safe.prompt;
+  return safe;
 }
 
 async function getWorkflowProfileForUser(userId) {
@@ -3050,7 +3147,34 @@ function hasUsableGoogleOAuthToken(tokens) {
 }
 
 function logGenerateDiagnostic(message, details = {}) {
-  console.info("[generate/start]", message, details);
+  console.info("[generate/start]", message, sanitizeLogObject(details));
+}
+
+function sanitizeLogObject(value, depth = 0) {
+  if (depth > 3) return "[truncated]";
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return redactSensitiveText(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeLogObject(item, depth + 1));
+  if (typeof value === "object") {
+    const safe = {};
+    Object.entries(value).slice(0, 40).forEach(([key, item]) => {
+      if (/password|token|secret|service_role|fal_key|openai_api_key|token_json|prompt|payload/i.test(key)) {
+        safe[key] = "[hidden]";
+        return;
+      }
+      safe[key] = sanitizeLogObject(item, depth + 1);
+    });
+    return safe;
+  }
+  return "[unsupported]";
+}
+
+function redactSensitiveText(value) {
+  return String(value || "")
+    .replace(/(access_token|refresh_token|provider_token|provider_refresh_token|service_role|password|token_json|fal_key|openai_api_key)[=:]\s*([^&\s,}]+)/gi, "$1=[hidden]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[hidden-token]")
+    .slice(0, 1000);
 }
 
 async function fileExists(filePath) {
@@ -5501,8 +5625,21 @@ function readableError(error) {
   if (/Service Accounts do not have storage quota/i.test(message)) {
     return "Google Drive upload failed because service accounts do not have My Drive storage quota. Set GOOGLE_DRIVE_AUTH_MODE=oauth, connect Google Drive at /api/google/oauth/start, then approve again.";
   }
-  return message;
+  return redactSensitiveText(message);
 }
+
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    ok: false,
+    code: "api_not_found",
+    error: "ไม่พบ API endpoint นี้"
+  });
+});
+
+app.get(/^(?!\/api(?:\/|$)).*/, (req, res, next) => {
+  if (!req.accepts("html")) return next();
+  res.sendFile(path.join(__dirname, "index.html"));
+});
 
 app.listen(PORT, () => {
   console.log(`Winter Image Desk running on http://127.0.0.1:${PORT}`);
