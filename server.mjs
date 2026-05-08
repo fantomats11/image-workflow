@@ -869,6 +869,80 @@ app.patch("/api/jobs/:id", requireUser, async (req, res) => {
   }
 });
 
+app.post("/api/admin/jobs/:jobId/retry", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const result = await retryGenerationForJob({
+      jobId: String(req.params.jobId || "").trim(),
+      generationId: String(req.body?.generationId || req.body?.generation_id || "").trim() || null,
+      adminUserId: req.user.id
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error("Job retry failed:", readableError(error));
+    res.status(status).json({
+      ok: false,
+      code: error.code || "job_retry_failed",
+      error: error.publicMessage || "Retry งานไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/admin/generations/:generationId/retry", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const result = await retryGenerationForJob({
+      generationId: String(req.params.generationId || "").trim(),
+      adminUserId: req.user.id
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error("Generation retry failed:", readableError(error));
+    res.status(status).json({
+      ok: false,
+      code: error.code || "generation_retry_failed",
+      error: error.publicMessage || "Retry generation ไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/admin/jobs/:jobId/retry-export", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const result = await retryJobExport({
+      jobId: String(req.params.jobId || "").trim(),
+      adminUserId: req.user.id
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error("Export retry failed:", readableError(error));
+    res.status(status).json({
+      ok: false,
+      code: error.code || "export_retry_failed",
+      error: error.publicMessage || "Retry export ไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/admin/jobs/:jobId/mark-failed", requireUser, requireAdminUser, async (req, res) => {
+  try {
+    const result = await markStuckJobFailed({
+      jobId: String(req.params.jobId || "").trim(),
+      adminUserId: req.user.id,
+      reason: cleanOptionalString(req.body?.reason) || "Marked failed by admin from recovery UI"
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error("Mark stuck job failed:", readableError(error));
+    res.status(status).json({
+      ok: false,
+      code: error.code || "mark_failed_failed",
+      error: error.publicMessage || "Mark as failed ไม่สำเร็จ"
+    });
+  }
+});
+
 app.post(
   "/api/generate/start",
   requireUser,
@@ -1328,6 +1402,18 @@ async function runGenerationJob(jobId, request) {
       requestId: data.requestId,
       jobId
     });
+    if (request.retryAudit?.requestedBy) {
+      await recordAuditEvent({
+        actorId: request.retryAudit.requestedBy,
+        jobId: request.dbJobId,
+        generationId: request.generationId,
+        eventType: "retry_completed",
+        eventJson: {
+          previous_generation_id: request.retryAudit.previousGenerationId || null,
+          request_id: data.requestId || null
+        }
+      });
+    }
   } catch (error) {
     console.error(error);
     logGenerateDiagnostic("error", {
@@ -1346,6 +1432,18 @@ async function runGenerationJob(jobId, request) {
       message: "Generate ไม่สำเร็จ",
       error: readableError(error)
     });
+    if (request.retryAudit?.requestedBy) {
+      await recordAuditEvent({
+        actorId: request.retryAudit.requestedBy,
+        jobId: request.dbJobId,
+        generationId: request.generationId,
+        eventType: "retry_failed",
+        eventJson: {
+          previous_generation_id: request.retryAudit.previousGenerationId || null,
+          error: readableError(error)
+        }
+      });
+    }
   }
 }
 
@@ -1491,6 +1589,282 @@ async function prepareGenerationJob(body = {}, userId) {
   return job;
 }
 
+async function retryGenerationForJob({ jobId = "", generationId = "", adminUserId }) {
+  const target = await resolveRetryTarget({ jobId, generationId });
+  const retryCheck = await validateGenerationRetryable(target);
+  if (!retryCheck.ok) throw publicError(409, retryCheck.code, retryCheck.error);
+
+  const referenceUrls = await collectRetryReferenceUrls(target.job.id, target.job.form_json);
+  if (!referenceUrls.length) {
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId: target.job.id,
+      generationId: target.generation?.id || null,
+      eventType: "retry_failed",
+      eventJson: { reason: "no_reference_urls" }
+    });
+    throw publicError(400, "retry_reference_missing", "Retry ไม่ได้ เพราะไม่พบ reference image URL ที่ใช้สร้างงานเดิม");
+  }
+
+  const retryBody = buildRetryGenerateBody(target, referenceUrls);
+  if (!String(retryBody.prompt || "").trim()) {
+    throw publicError(400, "retry_prompt_missing", "Retry ไม่ได้ เพราะไม่พบ prompt เดิมของ generation");
+  }
+  await markStuckActiveGenerationsBeforeRetry(target.job.id, adminUserId);
+  const newGeneration = await createGenerationRow(target.job.id, retryBody, target.job.created_by);
+  await supabaseAdmin
+    .from("jobs")
+    .update({ status: "queued", form_json: normalizeJsonObject(target.job.form_json) })
+    .eq("id", target.job.id);
+
+  const runtimeJob = createRuntimeGenerationJob(target.job.id, newGeneration.id, "Retry queued by admin");
+  generationJobs.set(target.job.id, runtimeJob);
+
+  await recordAuditEvent({
+    actorId: adminUserId,
+    jobId: target.job.id,
+    generationId: newGeneration.id,
+    eventType: target.generation?.id ? "generation_retry_requested" : "job_retry_requested",
+    eventJson: {
+      previous_generation_id: target.generation?.id || null,
+      reference_count: referenceUrls.length
+    }
+  });
+
+  runGenerationJob(target.job.id, {
+    userId: target.job.created_by,
+    dbJobId: target.job.id,
+    generationId: newGeneration.id,
+    body: retryBody,
+    files: {
+      productImages: [],
+      modelImages: []
+    },
+    retryAudit: {
+      requestedBy: adminUserId,
+      previousGenerationId: target.generation?.id || null
+    }
+  });
+
+  return {
+    jobId: target.job.id,
+    generationId: newGeneration.id,
+    status: "queued",
+    message: "ส่ง retry เข้าคิวแล้ว"
+  };
+}
+
+async function resolveRetryTarget({ jobId = "", generationId = "" }) {
+  let generation = null;
+  if (generationId) {
+    const { data, error } = await supabaseAdmin
+      .from("generations")
+      .select("*")
+      .eq("id", generationId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw publicError(404, "generation_not_found", "ไม่พบ generation ที่ต้องการ retry");
+    generation = data;
+    jobId = generation.job_id;
+  }
+  if (!jobId) throw publicError(400, "job_required", "ไม่พบ job id สำหรับ retry");
+
+  const { data: job, error: jobError } = await supabaseAdmin
+    .from("jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (jobError) throw jobError;
+  if (!job) throw publicError(404, "job_not_found", "ไม่พบงานที่ต้องการ retry");
+
+  if (!generation) {
+    const { data, error } = await supabaseAdmin
+      .from("generations")
+      .select("*")
+      .eq("job_id", job.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    generation = data?.[0] || null;
+  }
+
+  return { job, generation };
+}
+
+async function validateGenerationRetryable({ job, generation }) {
+  const active = await readActiveGenerationForJob(job.id);
+  if (active && !isStuckGeneration(active)) {
+    return { ok: false, code: "retry_active_generation_exists", error: "งานนี้มี generation ที่กำลังทำงานอยู่แล้ว" };
+  }
+  if (generation && isRetryableGeneration(generation)) return { ok: true };
+  if (generation && isStuckGeneration(generation)) return { ok: true };
+  if (isFailedStatus(job.status)) return { ok: true };
+  if (isStuckJobStatus(job.status, job.updated_at || job.created_at)) return { ok: true };
+  return { ok: false, code: "retry_not_allowed", error: "สถานะงานนี้ยังไม่เข้าเงื่อนไข retry" };
+}
+
+async function readActiveGenerationForJob(jobId) {
+  const { data, error } = await supabaseAdmin
+    .from("generations")
+    .select("id, status, created_at, updated_at")
+    .eq("job_id", jobId)
+    .in("status", ["queued", "running", "generating", "processing", "uploading", "pending", "in_progress"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    console.warn("Active generation check failed:", readableError(error));
+    return null;
+  }
+  return data?.[0] || null;
+}
+
+async function markStuckActiveGenerationsBeforeRetry(jobId, adminUserId) {
+  const { data, error } = await supabaseAdmin
+    .from("generations")
+    .select("id, status, created_at, updated_at")
+    .eq("job_id", jobId)
+    .in("status", ["queued", "running", "generating", "processing", "uploading", "pending", "in_progress"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) {
+    console.warn("Stuck generation cleanup failed:", readableError(error));
+    return [];
+  }
+  const stuckIds = (data || []).filter(isStuckGeneration).map((generation) => generation.id);
+  if (!stuckIds.length) return [];
+  await supabaseAdmin
+    .from("generations")
+    .update({ status: "failed", error_message: "Marked failed before admin retry because generation was stuck" })
+    .in("id", stuckIds);
+  await recordAuditEvent({
+    actorId: adminUserId,
+    jobId,
+    eventType: "stuck_job_marked_failed",
+    eventJson: {
+      reason: "Marked stuck active generations failed before retry",
+      generation_ids: stuckIds
+    }
+  });
+  return stuckIds;
+}
+
+async function recoverAbandonedGenerationQueue() {
+  const { data, error } = await supabaseAdmin
+    .from("generations")
+    .select("id, job_id, status, created_at, updated_at")
+    .in("status", ["queued", "running", "generating", "processing", "uploading", "pending", "in_progress"])
+    .order("created_at", { ascending: true })
+    .limit(100);
+  if (error) {
+    console.warn("[queue-recovery] scan failed:", readableError(error));
+    return;
+  }
+
+  const abandoned = (data || []).filter(isStuckGeneration);
+  if (!abandoned.length) return;
+
+  const generationIds = abandoned.map((generation) => generation.id).filter(Boolean);
+  const jobIds = Array.from(new Set(abandoned.map((generation) => generation.job_id).filter(Boolean)));
+  const reason = "Marked failed by server startup recovery because the active generation was abandoned";
+
+  const generationResult = await supabaseAdmin
+    .from("generations")
+    .update({ status: "failed", error_message: reason })
+    .in("id", generationIds);
+  if (generationResult.error) {
+    console.warn("[queue-recovery] generation update failed:", readableError(generationResult.error));
+    return;
+  }
+
+  if (jobIds.length) {
+    const jobResult = await supabaseAdmin
+      .from("jobs")
+      .update({ status: "failed" })
+      .in("id", jobIds);
+    if (jobResult.error) {
+      console.warn("[queue-recovery] job update failed:", readableError(jobResult.error));
+    }
+  }
+
+  for (const jobId of jobIds) {
+    const jobGenerationIds = abandoned
+      .filter((generation) => generation.job_id === jobId)
+      .map((generation) => generation.id);
+    await recordAuditEvent({
+      actorId: null,
+      jobId,
+      eventType: "stuck_job_marked_failed",
+      eventJson: {
+        reason,
+        generation_ids: jobGenerationIds,
+        source: "server_startup_recovery"
+      }
+    });
+  }
+
+  console.info("[queue-recovery] abandoned generations marked failed", {
+    generations: generationIds.length,
+    jobs: jobIds.length
+  });
+}
+
+async function collectRetryReferenceUrls(jobId, formJson = {}) {
+  const urls = new Set(parseExtraImageUrls(normalizeJsonObject(formJson).extraImageUrls));
+  const { data, error } = await supabaseAdmin
+    .from("assets")
+    .select("type, public_url, storage_key")
+    .eq("job_id", jobId)
+    .in("type", ["product_reference", "model_reference", "hero_generated", "support_generated"])
+    .order("created_at", { ascending: true })
+    .limit(20);
+  if (error) {
+    console.warn("Retry references unavailable:", readableError(error));
+  }
+  (data || []).forEach((asset) => {
+    [asset.public_url, asset.storage_key].forEach((value) => {
+      const url = safeRetryUrl(value);
+      if (url) urls.add(url);
+    });
+  });
+  return Array.from(urls).slice(0, 6);
+}
+
+function buildRetryGenerateBody({ job, generation }, referenceUrls) {
+  const formJson = normalizeJsonObject(job.form_json);
+  return {
+    ...formJson,
+    prompt: generation?.prompt || formJson.prompt || "",
+    jobKind: generation?.kind || formJson.jobKind || "hero",
+    kind: generation?.kind || formJson.jobKind || "hero",
+    jobId: job.id,
+    sku: job.sku || formJson.sku || "",
+    productName: job.product_name || formJson.productName || "",
+    brand: job.brand || formJson.brand || "",
+    category: job.category || formJson.category || "",
+    imageSize: formJson.imageSize || "square_hd",
+    quality: formJson.quality || "high",
+    numImages: formJson.numImages || 1,
+    outputFormat: formJson.outputFormat || "png",
+    extraImageUrls: JSON.stringify(referenceUrls)
+  };
+}
+
+function createRuntimeGenerationJob(jobId, generationId, message) {
+  return {
+    id: jobId,
+    jobId,
+    databaseJobId: jobId,
+    generationId,
+    status: "queued",
+    message,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    requestId: null,
+    images: [],
+    error: null
+  };
+}
+
 async function createGenerationRow(jobId, body = {}, userId) {
   const generation = {
     job_id: jobId,
@@ -1515,7 +1889,12 @@ async function createGenerationRow(jobId, body = {}, userId) {
     jobId,
     generationId: data.id,
     eventType: "generation_started",
-    eventJson: { generation: data }
+    eventJson: {
+      generation_id: data.id,
+      kind: data.kind || null,
+      status: data.status || null,
+      model: data.model || null
+    }
   });
   return data;
 }
@@ -1617,6 +1996,183 @@ async function markGenerationFailed(request, error) {
     eventType: "generation_failed",
     eventJson: { errorMessage }
   });
+}
+
+async function markStuckJobFailed({ jobId, adminUserId, reason }) {
+  if (!jobId) throw publicError(400, "job_required", "ไม่พบ job id");
+  const { data: job, error } = await supabaseAdmin
+    .from("jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!job) throw publicError(404, "job_not_found", "ไม่พบงานที่ต้องการ mark failed");
+  if (!isStuckJobStatus(job.status, job.updated_at || job.created_at)) {
+    throw publicError(409, "job_not_stuck", "งานนี้ยังไม่เข้าเงื่อนไข stuck ที่ mark failed ได้");
+  }
+
+  const { data: generations, error: generationsError } = await supabaseAdmin
+    .from("generations")
+    .select("id, status, created_at, updated_at")
+    .eq("job_id", jobId)
+    .in("status", ["queued", "running", "generating", "processing", "uploading", "pending", "in_progress"]);
+  if (generationsError) throw generationsError;
+
+  await supabaseAdmin
+    .from("jobs")
+    .update({ status: "failed" })
+    .eq("id", jobId);
+
+  const generationIds = (generations || []).map((generation) => generation.id).filter(Boolean);
+  if (generationIds.length) {
+    await supabaseAdmin
+      .from("generations")
+      .update({ status: "failed", error_message: reason })
+      .in("id", generationIds);
+  }
+
+  await recordAuditEvent({
+    actorId: adminUserId,
+    jobId,
+    eventType: "stuck_job_marked_failed",
+    eventJson: {
+      reason,
+      generation_ids: generationIds
+    }
+  });
+
+  return {
+    jobId,
+    generationId: generationIds[0] || null,
+    status: "failed",
+    message: "Mark as failed สำเร็จ"
+  };
+}
+
+async function retryJobExport({ jobId, adminUserId }) {
+  if (!jobId) throw publicError(400, "job_required", "ไม่พบ job id");
+  const { data: job, error } = await supabaseAdmin
+    .from("jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!job) throw publicError(404, "job_not_found", "ไม่พบงานที่ต้องการ retry export");
+
+  const source = await findRetryExportSource(jobId);
+  if (!source?.imageUrl) {
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId,
+      eventType: "retry_failed",
+      eventJson: { reason: "export_source_missing" }
+    });
+    throw publicError(400, "export_source_missing", "Retry export ไม่ได้ เพราะไม่พบ approved/generated image URL ที่ใช้ส่งออกซ้ำ");
+  }
+
+  const extension = extensionFromUrl(source.imageUrl) || "png";
+  const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}_${sanitizeFileName(job.sku || job.product_name || "retry-export")}.${extension}`;
+  const approvedPath = path.join(approvedDir, fileName);
+
+  try {
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId,
+      generationId: source.generationId || null,
+      eventType: "export_retry_requested",
+      eventJson: { source_asset_id: source.assetId || null }
+    });
+
+    await downloadFile(source.imageUrl, approvedPath);
+    const approvedFileStat = await fs.stat(approvedPath);
+    let googleDriveFile = null;
+    if (googleDriveRootFolderId) {
+      googleDriveFile = await uploadApprovedFileToGoogleDrive({
+        localPath: approvedPath,
+        fileName,
+        extension,
+        sku: job.sku || ""
+      });
+    }
+
+    await recordApprovedExportAsset({
+      jobId,
+      userId: adminUserId,
+      fileName,
+      extension,
+      fileSize: approvedFileStat.size,
+      approvedPath,
+      drivePath: null,
+      googleDriveFile
+    });
+
+    if (!keepLocalApproved && googleDriveFile) {
+      await fs.unlink(approvedPath).catch(() => {});
+    }
+
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId,
+      generationId: source.generationId || null,
+      eventType: "retry_completed",
+      eventJson: {
+        retry_type: "export",
+        google_drive_file_id: googleDriveFile?.id || null
+      }
+    });
+
+    return {
+      jobId,
+      generationId: source.generationId || null,
+      status: googleDriveFile ? "google_drive" : "exported",
+      message: "Retry export สำเร็จ",
+      googleDriveFile: googleDriveFile ? {
+        id: googleDriveFile.id,
+        name: googleDriveFile.name,
+        webViewLink: googleDriveFile.webViewLink || null
+      } : null
+    };
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId,
+      generationId: source.generationId || null,
+      eventType: "retry_failed",
+      eventJson: { retry_type: "export", error: readableError(error) }
+    });
+    throw error;
+  }
+}
+
+async function findRetryExportSource(jobId) {
+  const { data: assets, error } = await supabaseAdmin
+    .from("assets")
+    .select("id, type, public_url, storage_key, created_at")
+    .eq("job_id", jobId)
+    .in("type", ["approved_export", "hero_generated", "support_generated"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  const asset = (assets || []).find((item) => safeRetryUrl(item.public_url || item.storage_key));
+  if (!asset) return null;
+  const generationId = await findGenerationIdForAsset(jobId, asset.id);
+  return {
+    assetId: asset.id,
+    generationId,
+    imageUrl: safeRetryUrl(asset.public_url || asset.storage_key)
+  };
+}
+
+async function findGenerationIdForAsset(jobId, assetId) {
+  const { data, error } = await supabaseAdmin
+    .from("audit_events")
+    .select("generation_id")
+    .eq("job_id", jobId)
+    .contains("event_json", { assetId })
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) return null;
+  return data?.[0]?.generation_id || null;
 }
 
 async function getOwnedGeneration(generationId, userId) {
@@ -2061,6 +2617,12 @@ function isNoRowsError(error) {
 
 function parseExtraImageUrls(value) {
   if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((url) => String(url || "").trim())
+      .filter((url) => /^https?:\/\//i.test(url))
+      .slice(0, 6);
+  }
   try {
     const urls = JSON.parse(String(value));
     if (!Array.isArray(urls)) return [];
@@ -2967,7 +3529,7 @@ async function buildProductionJobsView(query = {}) {
       optional: true
     }),
     readMonitoringRows("audit_events", [
-      "id, actor_id, job_id, generation_id, event_type, created_at",
+      "id, actor_id, job_id, generation_id, event_type, event_json, created_at",
       "id, actor_id, job_id, generation_id, event_type, created_at"
     ], {
       since: rangeMeta.since,
@@ -2986,7 +3548,7 @@ async function buildProductionJobsView(query = {}) {
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const generationsByJobId = groupBy(generations, "job_id");
   const assetsByJobId = groupBy(assets, "job_id");
-  const auditEventsByJobId = groupBy(auditEvents, "job_id");
+  const auditEventsByJobId = groupAuditEventsByProductionJobId(auditEvents);
   const approvalGenerationIds = new Set(approvals.map((approval) => approval.generation_id).filter(Boolean));
   const approvalByGenerationId = new Map(approvals.map((approval) => [approval.generation_id, approval]));
 
@@ -3095,7 +3657,7 @@ async function buildProductionAssetsView(query = {}) {
   const approvalByGenerationId = new Map(approvals.map((approval) => [approval.generation_id, approval]));
   const generationIdByAssetId = buildGenerationIdByAssetId(auditEvents);
 
-  const rows = assets
+  const serializedAssets = assets
     .map((asset) => serializeProductionAsset({
       asset,
       job: jobById.get(asset.job_id),
@@ -3103,7 +3665,8 @@ async function buildProductionAssetsView(query = {}) {
       generationId: generationIdByAssetId.get(asset.id) || null,
       approvalByGenerationId,
       profile: profileById.get(asset.created_by)
-    }))
+    }));
+  const rows = buildCanonicalProductionAssets(serializedAssets)
     .filter((asset) => {
       if (!matchesProductionAssetType(asset, typeFilter)) return false;
       if (jobIdFilter && !String(asset.jobId || "").toLowerCase().includes(jobIdFilter)) return false;
@@ -3119,6 +3682,8 @@ async function buildProductionAssetsView(query = {}) {
         asset.fileName,
         asset.bucket,
         asset.storagePath,
+        asset.googleDriveLink,
+        ...(asset.statusBadges || []),
         asset.createdBy?.email,
         asset.createdBy?.name
       ].join(" ").toLowerCase();
@@ -3144,6 +3709,7 @@ function matchesProductionAssetType(asset, filter) {
   if (filter === "all") return true;
   if (filter === "outputs") return ["hero", "support", "approved"].includes(asset.typeGroup);
   if (filter === "references") return asset.typeGroup === "reference";
+  if (filter === "approved") return asset.typeGroup === "approved" || (asset.statusBadges || []).some((status) => ["approved", "exported"].includes(status));
   return asset.typeGroup === filter;
 }
 
@@ -3182,6 +3748,17 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
   const approvedGeneration = sortedGenerations.find((generation) => approvalGenerationIds.has(generation.id));
   const approval = approvedGeneration ? approvalByGenerationId.get(approvedGeneration.id) : null;
   const exportAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "approved_export");
+  const exportUrl = safeUrl(approval?.export_path || exportAsset?.public_url || "");
+  const hasValidExportLink = Boolean(exportUrl);
+  const exportFailureEvents = auditEvents.filter((event) => monitoringFailureType(event.event_type) === "export" && isMonitoringFailureEvent(event.event_type));
+  const latestExportFailureAt = latestTimestamp(exportFailureEvents.map((event) => event.created_at));
+  const latestExportSuccessAt = latestTimestamp([exportAsset?.created_at, hasValidExportLink ? approval?.approved_at : null]);
+  const hasExportFailureAfterSuccess = latestExportFailureAt && (!latestExportSuccessAt || new Date(latestExportFailureAt) > new Date(latestExportSuccessAt));
+  const isGoogleDriveExport = exportAsset?.bucket === "google_drive" || /^https?:\/\/(?:drive|docs)\.google\.com\//i.test(exportUrl);
+  const exportStatus = hasValidExportLink
+    ? isGoogleDriveExport ? "google_drive" : "exported"
+    : hasExportFailureAfterSuccess ? "export_failed" : "not_exported";
+  const canRetryExport = Boolean((approval || exportAsset) && !hasValidExportLink);
   const latestActivityAt = latestTimestamp([
     job.updated_at,
     job.created_at,
@@ -3212,11 +3789,15 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
       : "",
     approvalStatus: approval ? "approved" : "pending",
     approvedAt: approval?.approved_at || null,
-    exportStatus: exportAsset ? exportAsset.bucket === "google_drive" ? "google_drive" : "exported" : approval?.export_path ? "exported" : "not_exported",
-    exportUrl: safeUrl(approval?.export_path || exportAsset?.public_url || ""),
+    exportStatus,
+    exportUrl,
+    exportActionLabel: exportStatus === "export_failed" ? "Retry Export" : "Export",
     latestActivityAt,
     assetCount: assets.length,
-    generationCount: generations.length
+    generationCount: generations.length,
+    retryable: isFailedStatus(job.status) || isRetryableGeneration(latestGeneration) || isStuckJobStatus(job.status, job.updated_at || job.created_at) || isStuckGeneration(latestGeneration),
+    canMarkFailed: isStuckJobStatus(job.status, job.updated_at || job.created_at) || isStuckGeneration(latestGeneration),
+    canRetryExport
   };
 }
 
@@ -3224,11 +3805,17 @@ function serializeProductionAsset({ asset, job, generations, generationId, appro
   const typeGroup = classifyProductionAssetType(asset.type);
   const relatedGeneration = generationId
     ? generations.find((generation) => generation.id === generationId)
-    : inferAssetGeneration(asset, generations);
+    : inferAssetGeneration(asset, generations, approvalByGenerationId);
   const approval = relatedGeneration ? approvalByGenerationId.get(relatedGeneration.id) : null;
   const publicUrl = safeUrl(asset.public_url || "");
   const storagePath = safeProductionText(asset.storage_key || "");
   const googleDriveLink = asset.bucket === "google_drive" ? safeUrl(asset.public_url || asset.storage_key || approval?.export_path || "") : "";
+  const previewUrl = bestProductionAssetPreviewUrl({
+    typeGroup,
+    bucket: asset.bucket,
+    publicUrl,
+    storagePath
+  });
   return {
     id: asset.id,
     shortId: shortServerId(asset.id),
@@ -3244,14 +3831,123 @@ function serializeProductionAsset({ asset, job, generations, generationId, appro
     fileName: safeProductionText(asset.file_name || path.basename(String(asset.storage_key || "")) || ""),
     mimeType: asset.mime_type || "",
     fileSize: Number.isFinite(asset.file_size) ? asset.file_size : null,
-    previewUrl: publicUrl,
-    imageUrl: publicUrl,
+    previewUrl,
+    imageUrl: previewUrl,
     storagePath,
     googleDriveLink,
     createdAt: asset.created_at || null,
     createdBy: serializeProductionUser(profile, asset.created_by),
     status: productionAssetStatus(asset, approval)
   };
+}
+
+function buildCanonicalProductionAssets(assets) {
+  const canonicalByKey = new Map();
+  const passthrough = [];
+  const generatedByJobId = groupBy(
+    assets.filter((asset) => ["hero", "support"].includes(asset.typeGroup)),
+    "jobId"
+  );
+
+  assets.forEach((asset) => {
+    if (!["hero", "support", "approved"].includes(asset.typeGroup)) {
+      passthrough.push(withAssetStatusBadges(asset));
+      return;
+    }
+
+    const mergeSource = chooseCanonicalMergeSource(asset, generatedByJobId);
+    const key = canonicalOutputKey(mergeSource);
+    const current = canonicalByKey.get(key);
+    canonicalByKey.set(key, mergeCanonicalProductionAsset(current, asset, mergeSource));
+  });
+
+  return [...canonicalByKey.values(), ...passthrough].sort((left, right) => {
+    const leftTime = new Date(left.latestActivityAt || left.createdAt || 0).getTime() || 0;
+    const rightTime = new Date(right.latestActivityAt || right.createdAt || 0).getTime() || 0;
+    return rightTime - leftTime;
+  });
+}
+
+function chooseCanonicalMergeSource(asset, generatedByJobId) {
+  if (asset.generationId) return asset;
+  if (asset.typeGroup !== "approved" || !asset.jobId) return asset;
+  const generated = generatedByJobId.get(asset.jobId) || [];
+  return generated.length === 1 ? generated[0] : asset;
+}
+
+function canonicalOutputKey(asset) {
+  if (asset.jobId && asset.generationId) return `job:${asset.jobId}:generation:${asset.generationId}`;
+  const role = ["hero", "support"].includes(asset.typeGroup) ? asset.typeGroup : "approved";
+  const source = asset.imageUrl || asset.previewUrl || asset.storagePath || asset.googleDriveLink || asset.id;
+  return `job:${asset.jobId || "unknown"}:${role}:${source}`;
+}
+
+function mergeCanonicalProductionAsset(current, asset, mergeSource) {
+  const base = current || withAssetStatusBadges({ ...mergeSource });
+  const next = { ...base };
+  const statusBadges = new Set([...(next.statusBadges || []), ...assetStatusBadges(asset)]);
+  const sourceIds = new Set([...(next.sourceAssetIds || []), asset.id].filter(Boolean));
+
+  const incomingPreview = bestProductionAssetPreviewUrl({
+    typeGroup: asset.typeGroup,
+    bucket: asset.bucket,
+    publicUrl: asset.imageUrl || asset.previewUrl,
+    storagePath: asset.storagePath
+  });
+  if (!next.previewUrl && incomingPreview) {
+    next.previewUrl = incomingPreview;
+    next.imageUrl = incomingPreview;
+  }
+
+  if (!["hero", "support"].includes(next.typeGroup) && ["hero", "support"].includes(asset.typeGroup)) {
+    next.typeGroup = asset.typeGroup;
+    next.type = asset.type;
+    next.fileName = asset.fileName || next.fileName;
+  }
+  if (!next.generationId && asset.generationId) {
+    next.generationId = asset.generationId;
+    next.generationShortId = asset.generationShortId;
+  }
+  if (!next.googleDriveLink && asset.googleDriveLink) next.googleDriveLink = asset.googleDriveLink;
+  if (!next.storagePath && asset.storagePath) next.storagePath = asset.storagePath;
+  if (!next.bucket || next.bucket === "google_drive") next.bucket = asset.bucket || next.bucket;
+  if (!next.createdBy?.email && asset.createdBy?.email) next.createdBy = asset.createdBy;
+
+  next.latestActivityAt = latestTimestamp([next.latestActivityAt, next.createdAt, asset.createdAt]);
+  next.statusBadges = Array.from(statusBadges);
+  next.sourceAssetIds = Array.from(sourceIds);
+  next.status = summarizeAssetStatusBadges(next.statusBadges);
+  next.id = next.id || asset.id;
+  next.shortId = next.shortId || asset.shortId;
+  return next;
+}
+
+function withAssetStatusBadges(asset) {
+  const statusBadges = assetStatusBadges(asset);
+  return {
+    ...asset,
+    statusBadges,
+    sourceAssetIds: asset.id ? [asset.id] : [],
+    latestActivityAt: asset.createdAt || null,
+    status: summarizeAssetStatusBadges(statusBadges) || asset.status
+  };
+}
+
+function assetStatusBadges(asset) {
+  const badges = [];
+  if (["hero", "support"].includes(asset.typeGroup)) badges.push("generated");
+  if (asset.status === "approved" || asset.typeGroup === "approved") badges.push("approved");
+  if (asset.status === "google_drive" || asset.googleDriveLink || String(asset.bucket || "").toLowerCase() === "google_drive") badges.push("exported");
+  if (!badges.length && asset.status) badges.push(asset.status);
+  return Array.from(new Set(badges));
+}
+
+function summarizeAssetStatusBadges(badges = []) {
+  const values = new Set(badges);
+  if (values.has("exported")) return "exported";
+  if (values.has("approved")) return "approved";
+  if (values.has("generated")) return "generated";
+  return badges[0] || "";
 }
 
 function serializeProductionUser(profile, fallbackId = "") {
@@ -3269,6 +3965,18 @@ function groupBy(items, key) {
     if (!value) return;
     if (!groups.has(value)) groups.set(value, []);
     groups.get(value).push(item);
+  });
+  return groups;
+}
+
+function groupAuditEventsByProductionJobId(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+    const jobId = event.job_id || eventJson.jobId || eventJson.job_id || null;
+    if (!jobId) return;
+    if (!groups.has(jobId)) groups.set(jobId, []);
+    groups.get(jobId).push(event);
   });
   return groups;
 }
@@ -3307,11 +4015,39 @@ function productionAssetStatus(asset, approval) {
   return "metadata_only";
 }
 
-function inferAssetGeneration(asset, generations) {
+function inferAssetGeneration(asset, generations, approvalByGenerationId = new Map()) {
   const typeGroup = classifyProductionAssetType(asset.type);
   if (typeGroup === "hero") return generations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || null;
   if (typeGroup === "support") return generations.find((generation) => String(generation.kind || "").toLowerCase() !== "hero") || null;
+  if (typeGroup === "approved") {
+    const approvedGenerations = generations
+      .map((generation) => ({ generation, approval: approvalByGenerationId.get(generation.id) }))
+      .filter((item) => item.approval);
+    if (approvedGenerations.length === 1) return approvedGenerations[0].generation;
+    if (approvedGenerations.length > 1) {
+      const assetTime = new Date(asset.created_at || 0).getTime() || 0;
+      return approvedGenerations
+        .sort((left, right) => {
+          const leftTime = new Date(left.approval.approved_at || left.generation.completed_at || left.generation.created_at || 0).getTime() || 0;
+          const rightTime = new Date(right.approval.approved_at || right.generation.completed_at || right.generation.created_at || 0).getTime() || 0;
+          if (assetTime) return Math.abs(leftTime - assetTime) - Math.abs(rightTime - assetTime);
+          return rightTime - leftTime;
+        })[0]?.generation || null;
+    }
+  }
   return null;
+}
+
+function bestProductionAssetPreviewUrl({ bucket = "", publicUrl = "", storagePath = "" } = {}) {
+  const candidates = [publicUrl, storagePath].map(safeUrl).filter(Boolean);
+  return candidates.find(isEmbeddableProductionImageUrl) || "";
+}
+
+function isEmbeddableProductionImageUrl(value) {
+  const url = safeUrl(value);
+  if (!url) return false;
+  if (/\/\/(?:drive|docs)\.google\.com\//i.test(url)) return false;
+  return true;
 }
 
 function buildGenerationIdByAssetId(auditEvents) {
@@ -3335,6 +4071,37 @@ function safeProductionText(value, maxLength = 240) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function publicError(status, code, publicMessage) {
+  const error = new Error(publicMessage);
+  error.status = status;
+  error.code = code;
+  error.publicMessage = publicMessage;
+  return error;
+}
+
+function isRetryableGeneration(generation) {
+  return Boolean(generation && (isFailedStatus(generation.status) || generation.error_message));
+}
+
+function isActiveWorkStatus(status) {
+  return ["queued", "running", "processing", "generating", "uploading", "pending", "in_progress"].includes(String(status || "").trim().toLowerCase());
+}
+
+function isStuckGeneration(generation) {
+  if (!generation || !isActiveWorkStatus(generation.status)) return false;
+  return minutesSince(generation.updated_at || generation.created_at) >= 30;
+}
+
+function isStuckJobStatus(status, timestamp) {
+  if (!isActiveWorkStatus(status)) return false;
+  return minutesSince(timestamp) >= 30;
+}
+
+function safeRetryUrl(value) {
+  const text = String(value || "").trim();
+  return /^https?:\/\//i.test(text) ? text.slice(0, 1000) : "";
 }
 
 function shortServerId(value) {
@@ -3460,7 +4227,10 @@ function buildMonitoringStuckItems({ jobs, generations, profileById }) {
       user: formatProfileName(profileById.get(job.created_by)),
       ageMinutes,
       detail: safeMonitoringText(job.product_name || job.sku || "job is still active"),
-      recommendedAction: "ตรวจสอบ queue/server log แล้วพิจารณา retry หรือสร้างงานใหม่ถ้างานค้างจริง"
+      recommendedAction: "ตรวจสอบ queue/server log แล้วพิจารณา retry หรือสร้างงานใหม่ถ้างานค้างจริง",
+      retryable: true,
+      canMarkFailed: true,
+      canRetryExport: false
     });
   });
 
@@ -3481,7 +4251,10 @@ function buildMonitoringStuckItems({ jobs, generations, profileById }) {
       user: formatProfileName(profileById.get(generation.created_by)),
       ageMinutes,
       detail: safeMonitoringText(`${generation.kind || "generation"} ${generation.request_id || ""}`.trim()),
-      recommendedAction: "ตรวจสอบ FAL/generation queue ถ้าไม่มีผลลัพธ์ให้ retry จาก job เดิม"
+      recommendedAction: "ตรวจสอบ FAL/generation queue ถ้าไม่มีผลลัพธ์ให้ retry จาก job เดิม",
+      retryable: true,
+      canMarkFailed: true,
+      canRetryExport: false
     });
   });
 
@@ -3499,7 +4272,10 @@ function buildMonitoringFailedItems({ failedJobs, failedGenerations, failureEven
       jobId: job.id,
       generationId: null,
       detail: safeMonitoringText(job.product_name || job.sku || "job status failed"),
-      recommendedAction: "เปิดงานนี้ ตรวจสอบ reference/input ล่าสุด แล้ว retry generation ถ้าข้อมูลพร้อม"
+      recommendedAction: "เปิดงานนี้ ตรวจสอบ reference/input ล่าสุด แล้ว retry generation ถ้าข้อมูลพร้อม",
+      retryable: true,
+      canMarkFailed: false,
+      canRetryExport: false
     })),
     ...failedGenerations.map((generation) => {
       const job = generation.job_id ? jobById.get(generation.job_id) : null;
@@ -3512,22 +4288,30 @@ function buildMonitoringFailedItems({ failedJobs, failedGenerations, failureEven
         jobId: generation.job_id || null,
         generationId: generation.id,
         detail: safeMonitoringText(generation.error_message || generation.request_id || job?.product_name || "generation failed"),
-        recommendedAction: "ตรวจสอบ FAL error/input image แล้ว Generate ใหม่จากงานเดิมเมื่อแก้สาเหตุแล้ว"
+        recommendedAction: "ตรวจสอบ FAL error/input image แล้ว Generate ใหม่จากงานเดิมเมื่อแก้สาเหตุแล้ว",
+        retryable: true,
+        canMarkFailed: false,
+        canRetryExport: false
       };
     }),
     ...failureEvents.map((event) => {
+      const eventJson = event?.event_json && typeof event.event_json === "object" ? event.event_json : {};
+      const eventJobId = event.job_id || eventJson.jobId || eventJson.job_id || null;
       const generation = event.generation_id ? generationById.get(event.generation_id) : null;
-      const job = event.job_id ? jobById.get(event.job_id) : generation?.job_id ? jobById.get(generation.job_id) : null;
+      const job = eventJobId ? jobById.get(eventJobId) : generation?.job_id ? jobById.get(generation.job_id) : null;
       return {
         id: `event:${event.id}`,
         time: event.created_at || null,
         type: monitoringFailureType(event.event_type),
         status: statusFromEventType(event.event_type) || "failed",
         user: formatProfileName(profileById.get(event.actor_id)),
-        jobId: event.job_id || generation?.job_id || null,
+        jobId: eventJobId || generation?.job_id || null,
         generationId: event.generation_id || null,
         detail: safeMonitoringEventDetail(event),
-        recommendedAction: recommendedMonitoringAction(event.event_type, job)
+        recommendedAction: recommendedMonitoringAction(event.event_type, job),
+        retryable: monitoringFailureType(event.event_type) === "generate",
+        canMarkFailed: false,
+        canRetryExport: monitoringFailureType(event.event_type) === "export"
       };
     })
   ];
@@ -4217,4 +5001,7 @@ function readableError(error) {
 
 app.listen(PORT, () => {
   console.log(`Winter Image Desk running on http://127.0.0.1:${PORT}`);
+  recoverAbandonedGenerationQueue().catch((error) => {
+    console.warn("[queue-recovery] failed:", readableError(error));
+  });
 });

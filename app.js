@@ -478,6 +478,7 @@ let appActionsBound = false;
 let globalDiagnosticsBound = false;
 const appStates = ["boot", "auth-loading", "logged-out", "blocked", "password-required", "app-ready", "logging-out"];
 const validRoles = new Set(["admin", "staff"]);
+const recoveryActionsInProgress = new Set();
 const appState = {
   state: "boot",
   session: null,
@@ -1455,6 +1456,7 @@ function bindEvents() {
       button.textContent = original;
     }, 1200);
   });
+  document.addEventListener("click", handleRecoveryActionClick);
   els.operatorName.addEventListener("input", () => {
     localStorage.setItem("winter-image-desk-operator", els.operatorName.value.trim());
   });
@@ -3484,7 +3486,7 @@ function renderHistory() {
 
 function renderJobSummary(items) {
   const approvedCount = items.filter((item) => item.approvalStatus === "approved").length;
-  const exportedCount = items.filter((item) => item.exportStatus && item.exportStatus !== "not_exported").length;
+  const exportedCount = items.filter((item) => item.exportUrl || ["google_drive", "exported"].includes(String(item.exportStatus || "").toLowerCase())).length;
   els.jobSummary.innerHTML = `
     <span>${items.length.toLocaleString("th-TH")} งาน</span>
     <span>${approvedCount.toLocaleString("th-TH")} งาน approved</span>
@@ -3549,14 +3551,29 @@ function renderProductionJobRow(job) {
       </td>
       <td>
         ${renderStatusBadge(job.exportStatus || "not_exported", "Export")}
-        ${job.exportUrl ? `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">Open export</a>` : '<div class="table-muted">ยังไม่มี export link</div>'}
+        ${renderJobExportAction(job)}
       </td>
       <td>
         <strong>${escapeHtml(formatJobTime(job.latestActivityAt || job.updatedAt || job.createdAt))}</strong>
         <div class="table-muted">${formatThaiNumber(job.generationCount || 0)} gen · ${formatThaiNumber(job.assetCount || 0)} assets</div>
+        ${isAdmin() ? renderRecoveryActions(job, "jobs") : ""}
       </td>
     </tr>
   `;
+}
+
+function renderJobExportAction(job) {
+  if (job.exportUrl) {
+    return `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">Open export</a>`;
+  }
+  if (isAdmin() && job.canRetryExport && job.id) {
+    return `
+      <div class="export-recovery-action">
+        ${renderRecoveryButton("retry-export", job.exportActionLabel || "Retry Export", job.id || job.jobId || "", job.latestGenerationId || "", "jobs-export")}
+      </div>
+    `;
+  }
+  return '<div class="table-muted">ยังไม่มี export link</div>';
 }
 
 function renderProductionAssetCard(asset) {
@@ -3570,7 +3587,8 @@ function renderProductionAssetCard(asset) {
       ${preview}
       <div>
         <strong>${escapeHtml(asset.fileName || asset.productName || asset.type || "asset")}</strong>
-        <span>${escapeHtml(formatAssetTypeLabel(asset.typeGroup, asset.type))} · ${escapeHtml(asset.status || "-")}</span>
+        <span>${escapeHtml(formatAssetTypeLabel(asset.typeGroup, asset.type))}</span>
+        ${renderAssetStatusBadges(asset)}
         <span>${escapeHtml(asset.sku || asset.productName || "-")} · Job ${escapeHtml(jobShort || "-")}</span>
         <span>${escapeHtml(formatJobTime(asset.createdAt))}</span>
         <span>${escapeHtml(asset.createdBy?.email || asset.createdBy?.name || "ไม่ระบุผู้ใช้งาน")}</span>
@@ -3588,6 +3606,17 @@ function renderProductionAssetCard(asset) {
   `;
 }
 
+function renderAssetStatusBadges(asset) {
+  const badges = Array.isArray(asset.statusBadges) && asset.statusBadges.length
+    ? asset.statusBadges
+    : [asset.status || "-"];
+  return `
+    <div class="asset-status-stack">
+      ${badges.map((badge) => renderStatusBadge(badge)).join("")}
+    </div>
+  `;
+}
+
 function normalizeAssetTypeFilter(value) {
   const type = String(value || "outputs").trim().toLowerCase();
   if (["outputs", "hero", "support", "approved", "references", "all"].includes(type)) return type;
@@ -3599,6 +3628,104 @@ function updateAssetLibraryHelper() {
   els.assetLibraryHelper.textContent = selectedAssetType === "references"
     ? "Reference Assets คือภาพ input ที่ใช้ประกอบการสร้างงาน เช่น ภาพสินค้าและภาพโมเดล"
     : "คลังภาพสำหรับดูผลงานที่สร้างจาก workflow เช่น Hero, Support และภาพที่ Approved/Export แล้ว";
+}
+
+function renderRecoveryActions(item, source) {
+  if (!isAdmin()) return "";
+  const jobId = item.jobId || item.id || "";
+  const generationId = item.generationId || item.latestGenerationId || "";
+  const buttons = [];
+  if (item.retryable && (jobId || generationId)) {
+    buttons.push(renderRecoveryButton("retry", "Retry", jobId, generationId, source));
+  }
+  if (source !== "jobs" && item.canRetryExport && jobId) {
+    buttons.push(renderRecoveryButton("retry-export", "Retry Export", jobId, generationId, source));
+  }
+  if (item.canMarkFailed && jobId) {
+    buttons.push(renderRecoveryButton("mark-failed", "Mark Failed", jobId, generationId, source));
+  }
+  if (!buttons.length) return "";
+  return `<div class="recovery-actions">${buttons.join("")}</div>`;
+}
+
+function renderRecoveryButton(action, label, jobId, generationId, source) {
+  const key = `${action}:${jobId || "-"}:${generationId || "-"}`;
+  const loading = recoveryActionsInProgress.has(key);
+  return `
+    <button
+      class="ghost-button compact recovery-button"
+      type="button"
+      data-recovery-action="${escapeHtml(action)}"
+      data-recovery-source="${escapeHtml(source)}"
+      data-job-id="${escapeHtml(jobId || "")}"
+      data-generation-id="${escapeHtml(generationId || "")}"
+      ${loading ? "disabled" : ""}
+    >${loading ? "กำลังทำงาน..." : escapeHtml(label)}</button>
+  `;
+}
+
+async function handleRecoveryActionClick(event) {
+  const button = event.target.closest("[data-recovery-action]");
+  if (!button) return;
+  event.preventDefault();
+  if (!isAdmin()) return;
+
+  const action = button.dataset.recoveryAction;
+  const jobId = button.dataset.jobId || "";
+  const generationId = button.dataset.generationId || "";
+  const key = `${action}:${jobId || "-"}:${generationId || "-"}`;
+  if (recoveryActionsInProgress.has(key)) return;
+  if (action === "mark-failed" && !window.confirm("ยืนยัน mark งานนี้เป็น failed?")) return;
+
+  recoveryActionsInProgress.add(key);
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "กำลังทำงาน...";
+  try {
+    const response = await authFetch(getRecoveryEndpoint(action, jobId, generationId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generationId, reason: "Marked failed by admin from Monitoring/Jobs" })
+    });
+    const data = await readJsonResponse(response, "Recovery action ไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "Recovery action ไม่สำเร็จ");
+    showRecoveryMessage(data.message || "ดำเนินการสำเร็จ", false);
+    await refreshRecoveryViews();
+  } catch (error) {
+    showRecoveryMessage(`ดำเนินการไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`, true);
+  } finally {
+    recoveryActionsInProgress.delete(key);
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+function getRecoveryEndpoint(action, jobId, generationId) {
+  if (action === "retry") {
+    if (generationId) return `/api/admin/generations/${encodeURIComponent(generationId)}/retry`;
+    return `/api/admin/jobs/${encodeURIComponent(jobId)}/retry`;
+  }
+  if (action === "retry-export") return `/api/admin/jobs/${encodeURIComponent(jobId)}/retry-export`;
+  if (action === "mark-failed") return `/api/admin/jobs/${encodeURIComponent(jobId)}/mark-failed`;
+  return "/api/admin/jobs/unknown/retry";
+}
+
+async function refreshRecoveryViews() {
+  const page = getPageFromHash();
+  if (page === "monitoring") await refreshMonitoring();
+  if (page === "jobs") await refreshJobHistory();
+}
+
+function showRecoveryMessage(message, isError) {
+  if (els.systemStatus) {
+    els.systemStatus.textContent = message;
+    els.systemStatus.classList.toggle("danger", isError);
+    window.setTimeout(() => {
+      els.systemStatus.classList.remove("danger");
+      refreshSystemStatus();
+    }, 3500);
+  }
+  if (isError) console.warn(message);
 }
 
 function renderStatusBadge(status, label = "") {
@@ -4096,6 +4223,7 @@ function renderMonitoringStuckRow(item) {
         <span>ค้างประมาณ ${escapeHtml(formatDurationMinutes(item.ageMinutes))}</span>
       </div>
       <p>${escapeHtml(item.recommendedAction || "ตรวจสอบ queue และ retry ถ้าจำเป็น")}</p>
+      ${renderRecoveryActions(item, "monitoring")}
     </article>
   `;
 }
@@ -4122,6 +4250,7 @@ function renderMonitoringFailureRow(item) {
         <span>${escapeHtml(item.detail || "ไม่มีรายละเอียดเพิ่มเติม")}</span>
       </div>
       <p>${escapeHtml(item.recommendedAction || "ตรวจสอบรายการนี้และ retry ถ้าจำเป็น")}</p>
+      ${renderRecoveryActions(item, "monitoring")}
     </article>
   `;
 }
