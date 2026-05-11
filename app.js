@@ -136,7 +136,7 @@ const imageTypes = {
   },
   "ใส่กับโมเดล": {
     mode: "On-model",
-    prompt: "Create a clean on-model e-commerce catalog hero image with a modern Thai influencer feel. Use one attractive, approachable Thai model with bright cheerful facial expression, lively eyes, natural confident smile, fresh makeup, neat hair styling, and friendly social-commerce energy. The product is still the hero and must be worn naturally, but the model should feel aspirational, stylish, and warm rather than plain."
+    prompt: "Create a clean on-model e-commerce catalog hero image with a modern Thai influencer feel. Use attractive, approachable Thai model casting with bright cheerful facial expression, lively eyes, natural confident smile, fresh makeup, neat hair styling, and friendly social-commerce energy. The product is still the hero and must be worn naturally, but the model casting should feel aspirational, stylish, and warm rather than plain."
   },
   "Close-up จุดเด่น": {
     mode: "Support",
@@ -195,6 +195,8 @@ const modelProfiles = [
   "ระบบเลือกโมเดลให้เหมาะกับสินค้า",
   "ผู้หญิงไทยวัยทำงาน ลุค influencer สดใส",
   "ผู้ชายไทยวัยทำงาน ลุค influencer ดูดี",
+  "Unisex ชายหญิงไทยวัยทำงาน ใส่สินค้ารุ่นเดียวกันร่วมเฟรม",
+  "Unisex วัยรุ่นชายหญิง ลุคสดใส ใส่สินค้ารุ่นเดียวกันร่วมเฟรม",
   "วัยรุ่นหญิง ลุคสดใส",
   "วัยรุ่นชาย ลุคสดใส",
   "เด็กผู้หญิง ลุคครอบครัว",
@@ -2076,7 +2078,7 @@ async function rerunSupportImage(index) {
 
   try {
     const prompt = `${buildSupportPrompt(item.shot, index + 1, supportResults.length || 1)}
-Rerun correction: regenerate only this support shot from the approved hero anchor. Pay extra attention to preserving every visible product detail from the hero, including logo patches, labels, zipper pulls, stitching, fur/lining, material texture, color, shape, and proportions. If a logo or detail exists on the hero/reference product, keep it visible and consistent in this support shot.`;
+Rerun correction: regenerate only this support shot from the approved hero anchor. Pay extra attention to preserving every visible product detail from the hero, including real logo patches or labels only when they are visible and physically correct for this shot, zipper pulls, stitching, fur/lining, material texture, color, shape, and proportions. If a logo or detail exists on the hero/reference product and naturally belongs in this support shot, keep it visible and consistent.`;
 
     const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support-rerun", shot: item.shot, jobId: currentJobId }), (job) => {
       supportResults[index] = {
@@ -2306,6 +2308,60 @@ function getBrandImagePrompt(selectedType, brandProfile, effectiveMode) {
     .join(" ");
 }
 
+function isUnisexModelProfile(model) {
+  return /unisex|ชายหญิง|ชายและหญิง|ทั้งชายและหญิง/i.test(model || "");
+}
+
+function getModelDirection(category, model, brandProfile) {
+  const selectedModel = model === "ระบบเลือกโมเดลให้เหมาะกับสินค้า" ? getAutoModelDirection(category) : model;
+  if (isUnisexModelProfile(selectedModel)) {
+    return `${getUnisexModelDirection(category, selectedModel)} ${brandProfile.modelRule} Keep both models aspirational but not over-posed, and keep the product as the main selling focus on both bodies.`;
+  }
+  return `Model profile: ${selectedModel}. ${getCropDirection(category)} ${brandProfile.modelRule} Keep the model aspirational but not over-posed, and keep the product as the main selling focus.`;
+}
+
+function getUnisexModelDirection(category, model) {
+  const pairDirection = /วัยรุ่น/i.test(model)
+    ? "a young adult Thai man and a young adult Thai woman with fresh, cheerful social-commerce energy"
+    : "a Thai working-age man and a Thai working-age woman with polished, approachable social-commerce energy";
+
+  return [
+    `Model profile: Unisex two-model composition. Show exactly two models together in the same frame: ${pairDirection}.`,
+    "Both models must wear the same exact product style from the reference so the image clearly communicates that this garment is suitable for both men and women.",
+    "Balance the two models equally in scale, lighting, styling quality, and product readability. Do not make one model feel like a background extra.",
+    getUnisexCropDirection(category),
+    "Unisex product allowance: two worn copies of the same product are allowed only for this unisex communication shot. They must match the reference product identity, color, material, silhouette, construction, and visible details."
+  ].join(" ");
+}
+
+function getUnisexCropDirection(category) {
+  if (category === "เสื้อโค้ทยาว / พาร์กา") {
+    return "Crop direction: use a two-person near full-body catalog crop from head to ankle or head to mid-calf so coat length, silhouette, sleeves, hood/collar, front opening, and hem are readable on both the man and woman.";
+  }
+  if (category === "เสื้อแจ็คเก็ต / เสื้อท่อนบน") {
+    return "Crop direction: use a two-person upper-body or three-quarter catalog crop from head/neck to hip or upper thigh, keeping the jacket/top large and readable on both the man and woman. Do not use a distant full-body crop unless the garment length requires it.";
+  }
+  if (category === "กางเกง") {
+    return "Crop direction: use a balanced two-person waist-to-feet or three-quarter crop. Pants must remain readable on both the man and woman, including waistband, pockets, leg shape, length, and hem.";
+  }
+  if (category === "รองเท้า / บูท") {
+    return "Crop direction: use a two-person lower-leg crop only, showing one male styling and one female styling side by side. Do not show faces or full bodies. Keep the footwear dominant and readable on both people.";
+  }
+  if (category === "ถุงเท้า") {
+    return "Crop direction: use a two-person lower-calf-to-feet crop only, showing the socks clearly on both a man and a woman. Socks must stay larger than any shoes or pants.";
+  }
+  if (category === "ถุงมือ") {
+    return "Crop direction: use a two-person hands-and-forearms crop only, showing the gloves clearly on both a man and a woman with coordinated winter sleeves.";
+  }
+  if (category === "หมวก") {
+    return "Crop direction: use a two-person head-and-shoulders crop, showing the hat clearly on both a man and a woman with balanced face visibility and winter collar styling.";
+  }
+  if (category === "ผ้าพันคอ / อุปกรณ์ชิ้นเล็ก") {
+    return "Crop direction: use a two-person head-to-torso or relevant body crop that shows how the accessory works for both a man and a woman while keeping the accessory dominant.";
+  }
+  return "Crop direction: use the most useful balanced two-person catalog crop for this product category, keeping the product readable on both the man and woman.";
+}
+
 function getCiSafetyRule() {
   return "CI safety rule: the selected visual profile is only for background color, lighting, casting, crop, and mood. Do not add any store/business brand name, store/business logo, watermark, hangtag, packaging, sign, advertising text, or graphic badge to the image. Preserve real product logos, product labels, product patches, and product text only when they already exist on the attached product reference or approved hero. If the product has no real brand mark in the reference and no product brand is provided, keep the product completely unbranded.";
 }
@@ -2348,10 +2404,13 @@ function buildPrompt() {
     : "Product mark rule: if the reference product visibly has a real logo, label, patch, badge, woven tag, or printed product text, preserve it exactly as a product detail. If no such mark exists in the reference, do not add any fake logos, patches, labels, or brand marks.";
 
   const modelRule = isOnModel
-    ? `Model profile: ${model === "ระบบเลือกโมเดลให้เหมาะกับสินค้า" ? getAutoModelDirection(els.category.value) : model}. ${getCropDirection(els.category.value)} ${brandProfile.modelRule} Keep the model aspirational but not over-posed, and keep the product as the main selling focus.`
+    ? getModelDirection(els.category.value, model, brandProfile)
     : brandProfile.forceOffModel ? brandProfile.modelRule : "No human model. Product-only catalog image.";
 
   const heroRule = getHeroRule(els.category.value, effectiveMode);
+  const outputRule = isOnModel && isUnisexModelProfile(model)
+    ? "Output rules: image must be web-ready, high detail, clean edges, no warped product, no incorrect text, no fake branding, no unrelated duplicate products, no extra people beyond the one man and one woman, and no distorted anatomy. For this Unisex shot only, two worn copies of the same reference product are allowed so the garment reads as suitable for both men and women."
+    : "Output rules: image must be web-ready, high detail, clean edges, no warped product, no incorrect text, no fake branding, no duplicate products, no distorted anatomy.";
 
   currentPrompt = [
     `Use ${imageRef} as the exact product identity reference.`,
@@ -2377,7 +2436,7 @@ function buildPrompt() {
     "",
     `Global style rules: ${brandProfile.backgroundRule} ${brandProfile.styleRule} Soft studio lighting, realistic material texture, centered composition, sharp product details, no extra objects unless requested.`,
     "Product preservation rules: keep the same silhouette, proportions, construction, fabric, seams, pockets, zipper, outsole, lining, labels, color, and all visible details from the reference. Do not redesign the product.",
-    "Output rules: image must be web-ready, high detail, clean edges, no warped product, no incorrect text, no fake branding, no duplicate products, no distorted anatomy.",
+    outputRule,
     notes ? `Additional staff note: ${notes}` : ""
   ]
     .filter(Boolean)
@@ -2399,16 +2458,20 @@ function buildSupportPrompt(shot, shotIndex, totalShots) {
   const keyFeature = els.keyFeature.value.trim() || "the product's most important visible detail";
   const color = els.color.value.trim() || "the exact product color from the reference";
   const notes = els.notes.value.trim();
+  const model = els.modelProfile.value;
+  const isUnisex = isOnModel && isUnisexModelProfile(model);
   const categoryModule = isOnModel ? selectedCategory.on : selectedCategory.off;
 
   const brandRule = brand
-    ? `Preserve the authentic ${brand} branding, logo patches, labels, and recognizable design details exactly.`
-    : "Product mark rule: preserve any real logo, label, patch, badge, woven tag, or printed product text that is visible on the approved hero or product references. Do not add fake logos or new brand marks that are not in the references.";
+    ? `Preserve the authentic ${brand} branding, logo patches, labels, and recognizable design details exactly when they are visible in the approved hero or product references and physically belong in this requested shot.`
+    : "Product mark rule: preserve any real logo, label, patch, badge, woven tag, or printed product text that is visible on the approved hero or product references and physically belongs in this requested shot. Do not add fake logos or new brand marks that are not in the references.";
 
   return [
     `Create support image ${shotIndex} of ${totalShots} for the same product page.`,
     "The first reference image is the approved hero image. Treat it as the primary identity and style anchor for this support set.",
-    isOnModel
+    isUnisex
+      ? "Hero identity lock: preserve the same two-person Unisex casting from the approved hero image whenever people are visible: one man and one woman, same age range, skin tone impression, body proportions, hair impression, styling energy, and overall look. Do not replace them with different people or add extra people."
+      : isOnModel
       ? "Hero identity lock: preserve the same model/person from the approved hero image whenever a person is visible. Keep the same face identity, age range, skin tone, body proportion, hair impression, styling energy, and overall look. Do not create a different model, different face, different ethnicity, or different person."
       : "Hero identity lock: preserve the same product-only presentation from the approved hero image. Do not add a human model, face, body part, mannequin, or lifestyle scene unless the requested shot explicitly requires minimal wearing context.",
     "Use the attached real product reference images as the strict source of truth for product identity. If the hero image and product reference conflict, follow the real product reference.",
@@ -2426,8 +2489,11 @@ function buildSupportPrompt(shot, shotIndex, totalShots) {
     categoryModule,
     getSubtypePromptRule(),
     getSupportShotInstruction(els.category.value, shot),
+    getSupportLabelSafetyRule(shot),
     getSupportCropRule(els.category.value, shot),
-    isOnModel
+    isUnisex
+      ? `Model direction: if people are visible, keep the same Unisex pair from the approved hero. ${getUnisexCropDirection(els.category.value)} ${brandProfile.modelRule} Keep the product readable on both the man and woman, but allow tight product-only detail crops when the requested support shot is about construction, lining, texture, sole, seam, zipper, or material technology.`
+      : isOnModel
       ? `Model direction: keep the same person from the approved hero. ${getCropDirection(els.category.value)} ${brandProfile.modelRule} Keep the same influencer-level freshness and believable winter layering as the hero.`
       : brandProfile.forceOffModel
         ? "No human model for this brand profile. Product-only support images only."
@@ -2436,7 +2502,7 @@ function buildSupportPrompt(shot, shotIndex, totalShots) {
     getLayeringRule(els.category.value, baseMode),
     getStylingVariationRule(els.category.value, baseMode),
     "",
-    "Consistency lock: keep the same product identity, product color, material texture, proportions, real product logos/labels/patches when visible in the hero/reference, approved hero model identity when present, and selected visual CI catalog style across the whole set.",
+    "Consistency lock: keep the same product identity, product color, material texture, proportions, real product logos/labels/patches only when visible in the hero/reference and physically correct for the requested shot, approved hero model identity when present, and selected visual CI catalog style across the whole set.",
     "Change only the requested shot/crop/angle/detail. Do not redesign the product, do not change the person from the hero, do not add unrelated props, do not invent text, and do not create fake branding.",
     notes ? `Additional staff note: ${notes}` : ""
   ]
@@ -2463,7 +2529,7 @@ function getSupportShotInstruction(category, shot) {
   if (shot === "โคลสอัพจุดเด่น" || /(close-up|โคลสอัพ)/i.test(shot)) {
     return "Support shot role: close-up detail. Crop tightly on the product feature, material, lining, logo patch, seam, zipper, outsole, or texture that helps customers decide. Do not show a full-body model.";
   }
-  if (shot === "เปิดให้เห็นด้านใน / ซับใน" || /(ซับใน|ซับขน|บุด้านใน|lining|interior)/i.test(shot)) {
+  if (isInteriorSupportShot(shot)) {
     return "Support shot role: interior construction. Open or fold the product naturally to show lining, fleece, padding, fur, stitching, or inner material clearly without damaging product shape.";
   }
   if (shot === "พื้นรองเท้า") {
@@ -2491,6 +2557,20 @@ function getSupportShotInstruction(category, shot) {
     return "Support shot role: hood detail. Show hood shape, fur trim, drawcord, collar relationship, and wearing fit clearly.";
   }
   return `Support shot role: ${shot}. Keep the crop and composition useful for customers comparing product details.`;
+}
+
+function isInteriorSupportShot(shot) {
+  return shot === "เปิดให้เห็นด้านใน / ซับใน" || /(ซับใน|ซับขน|บุด้านใน|lining|interior)/i.test(shot || "");
+}
+
+function getSupportLabelSafetyRule(shot) {
+  if (!isInteriorSupportShot(shot)) return "";
+  return [
+    "Interior label safety: this support shot is for lining, fleece, padding, inner fabric texture, seam construction, warmth technology, or hidden functional construction only.",
+    "Do not invent, enlarge, relocate, or emphasize neck tags, care labels, wash labels, size labels, hang tags, brand labels, or random printed text.",
+    "If an interior label is not clearly visible in the approved hero or product references, or if its exact physical position is uncertain, omit it.",
+    "Never place a tag floating on the collar, center chest, sleeve, zipper area, or any incorrect inner panel. Texture and construction are more important than labels in this shot."
+  ].join(" ");
 }
 
 function getSupportCropRule(category, shot) {
