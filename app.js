@@ -2080,7 +2080,7 @@ async function rerunSupportImage(index) {
     const prompt = `${buildSupportPrompt(item.shot, index + 1, supportResults.length || 1)}
 Rerun correction: regenerate only this support shot from the approved hero anchor. Pay extra attention to preserving every visible product detail from the hero, including real logo patches or labels only when they are visible and physically correct for this shot, zipper pulls, stitching, fur/lining, material texture, color, shape, and proportions. If a logo or detail exists on the hero/reference product and naturally belongs in this support shot, keep it visible and consistent.`;
 
-    const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support-rerun", shot: item.shot, jobId: currentJobId }), (job) => {
+    const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
       supportResults[index] = {
         ...supportResults[index],
         status: `rerun: ${getJobTitle(job)}${job.message ? ` · ${job.message}` : ""}`,
@@ -2382,8 +2382,8 @@ function getJobBaseName(fallback) {
 }
 
 function buildPrompt() {
-  const selectedType = imageTypes[els.imageType.value];
-  const selectedCategory = categories[els.category.value];
+  const selectedType = imageTypes[els.imageType.value] || imageTypes["สินค้าเดี่ยวบนพื้นขาว"];
+  const selectedCategory = categories[els.category.value] || categories["เสื้อแจ็คเก็ต / เสื้อท่อนบน"];
   const selectedSubtype = getSelectedSubtype();
   const brandProfile = getSelectedBrandProfile();
   const effectiveMode = getEffectiveMode(selectedType, brandProfile);
@@ -2448,8 +2448,8 @@ function buildPrompt() {
 }
 
 function buildSupportPrompt(shot, shotIndex, totalShots) {
-  const selectedType = imageTypes[els.imageType.value];
-  const selectedCategory = categories[els.category.value];
+  const selectedType = imageTypes[els.imageType.value] || imageTypes["สินค้าเดี่ยวบนพื้นขาว"];
+  const selectedCategory = categories[els.category.value] || categories["เสื้อแจ็คเก็ต / เสื้อท่อนบน"];
   const selectedSubtype = getSelectedSubtype();
   const brandProfile = getSelectedBrandProfile();
   const baseMode = getEffectiveMode(selectedType, brandProfile);
@@ -2458,7 +2458,7 @@ function buildSupportPrompt(shot, shotIndex, totalShots) {
   const keyFeature = els.keyFeature.value.trim() || "the product's most important visible detail";
   const color = els.color.value.trim() || "the exact product color from the reference";
   const notes = els.notes.value.trim();
-  const model = els.modelProfile.value;
+  const model = els.modelProfile?.value || "ระบบเลือกโมเดลให้เหมาะกับสินค้า";
   const isUnisex = isOnModel && isUnisexModelProfile(model);
   const categoryModule = isOnModel ? selectedCategory.on : selectedCategory.off;
 
