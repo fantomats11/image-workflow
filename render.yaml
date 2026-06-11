@@ -1,0 +1,126 @@
+services:
+  - type: web
+    name: image-workflow
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: PUBLIC_BASE_URL
+        value: https://image-workflow.onrender.com
+      - key: AI_GENERATION_DRY_RUN
+        value: true
+      - key: WORDPRESS_DRY_RUN
+        value: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_TARGET_USER_ID
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: GOMALL_WOO_CONSUMER_KEY
+        sync: false
+      - key: GOMALL_WOO_CONSUMER_SECRET
+        sync: false
+      - key: GOMALL_WP_APP_PASSWORD
+        sync: false
+      - key: RAC_WOO_CONSUMER_KEY
+        sync: false
+      - key: RAC_WOO_CONSUMER_SECRET
+        sync: false
+      - key: RAC_WP_APP_PASSWORD
+        sync: false
+
+  - type: worker
+    name: image-workflow-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm run worker
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: AI_GENERATION_DRY_RUN
+        value: true
+      - key: WORDPRESS_DRY_RUN
+        value: true
+      - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
+        value: 5000
+      - key: SUPABASE_URL
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: SUPABASE_URL
+      - key: SUPABASE_ANON_KEY
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: SUPABASE_ANON_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: SUPABASE_SERVICE_ROLE_KEY
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: LINE_CHANNEL_ACCESS_TOKEN
+      - key: LINE_CHANNEL_SECRET
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: LINE_CHANNEL_SECRET
+      - key: LINE_TARGET_USER_ID
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: LINE_TARGET_USER_ID
+      - key: FAL_KEY
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: FAL_KEY
+      - key: GOMALL_WOO_CONSUMER_KEY
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: GOMALL_WOO_CONSUMER_KEY
+      - key: GOMALL_WOO_CONSUMER_SECRET
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: GOMALL_WOO_CONSUMER_SECRET
+      - key: GOMALL_WP_APP_PASSWORD
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: GOMALL_WP_APP_PASSWORD
+      - key: RAC_WOO_CONSUMER_KEY
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: RAC_WOO_CONSUMER_KEY
+      - key: RAC_WOO_CONSUMER_SECRET
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: RAC_WOO_CONSUMER_SECRET
+      - key: RAC_WP_APP_PASSWORD
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: RAC_WP_APP_PASSWORD

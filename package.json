@@ -5,7 +5,8 @@
   "main": "app.js",
   "scripts": {
     "start": "node server.mjs",
-    "dev": "node server.mjs"
+    "dev": "node server.mjs",
+    "worker": "node scripts/automation/worker.mjs"
   },
   "keywords": [],
   "author": "",

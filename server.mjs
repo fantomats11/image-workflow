@@ -6,9 +6,10 @@ import fs from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { fal } from "@fal-ai/client";
 import { google } from "googleapis";
+import { isDryRun } from "./lib/automation/env.mjs";
 import { getUserFromAccessToken, supabaseAdmin } from "./lib/supabase-admin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,8 @@ const googleOAuthRedirectUri =
 const googleDriveTokenPath = resolveProjectPath(process.env.GOOGLE_DRIVE_TOKEN_PATH || ".oauth/google-token.json");
 const shouldCreateMissingSkuFolder = process.env.GOOGLE_DRIVE_CREATE_SKU_FOLDER === "true";
 const keepLocalApproved = process.env.KEEP_LOCAL_APPROVED !== "false";
+const lineChannelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
+const lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
 const costTrackingConfig = {
   provider: "fal",
   model: "openai/gpt-image-2/edit",
@@ -68,6 +71,45 @@ const app = express();
 const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }
+});
+
+app.post("/api/line/webhook", express.raw({ type: "application/json", limit: "2mb" }), async (req, res) => {
+  if (!isLineWebhookConfigured()) {
+    return res.status(503).json({
+      ok: false,
+      code: "line_not_configured",
+      error: "LINE webhook is not configured."
+    });
+  }
+
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+  const signature = Array.isArray(req.headers["x-line-signature"])
+    ? req.headers["x-line-signature"][0]
+    : req.headers["x-line-signature"];
+
+  if (!verifyLineSignature(rawBody, signature)) {
+    return res.status(401).json({
+      ok: false,
+      code: "bad_line_signature",
+      error: "Invalid LINE signature."
+    });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"));
+  } catch (_error) {
+    return res.status(400).json({
+      ok: false,
+      code: "invalid_line_payload",
+      error: "Invalid LINE webhook payload."
+    });
+  }
+
+  res.json({ ok: true });
+  handleLineWebhookPayload(payload).catch((error) => {
+    console.error("[line] webhook handling failed:", readableError(error));
+  });
 });
 
 app.use(express.json({ limit: "2mb" }));
@@ -263,7 +305,8 @@ app.get("/api/health", async (_req, res) => {
       googleDriveConfigured: isGoogleDriveApiConfigured() || isGoogleOAuthConfigured(),
       googleDriveConnected: googleDriveStatus.connected === true,
       falConfigured: Boolean(process.env.FAL_KEY),
-      storageConfigured: isSupabaseStorageConfigured()
+      storageConfigured: isSupabaseStorageConfigured(),
+      lineConfigured: isLineWebhookConfigured()
     },
     falConfigured: Boolean(process.env.FAL_KEY),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
@@ -2464,6 +2507,291 @@ async function recordAuditEvent({ actorId, jobId = null, generationId = null, ev
     }
   } catch (error) {
     console.warn(readableError(error));
+  }
+}
+
+function isLineWebhookConfigured() {
+  return Boolean(lineChannelSecret && lineChannelAccessToken);
+}
+
+function verifyLineSignature(rawBody, signature) {
+  if (!lineChannelSecret || !signature) return false;
+  const expected = createHmac("sha256", lineChannelSecret).update(rawBody).digest("base64");
+  const expectedBuffer = Buffer.from(expected);
+  const signatureBuffer = Buffer.from(String(signature));
+  if (expectedBuffer.length !== signatureBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, signatureBuffer);
+}
+
+async function handleLineWebhookPayload(payload) {
+  const events = Array.isArray(payload?.events) ? payload.events : [];
+  await Promise.all(events.map((event) => handleLineWebhookEvent(event, payload)));
+}
+
+async function handleLineWebhookEvent(event, payload) {
+  const source = event?.source || {};
+  const lineUserId = cleanOptionalString(source.userId);
+  const baseEventJson = {
+    source: "line",
+    destination: cleanOptionalString(payload?.destination),
+    line_user_id: lineUserId,
+    line_source_type: cleanOptionalString(source.type),
+    webhook_event_id: cleanOptionalString(event?.webhookEventId),
+    mode: cleanOptionalString(event?.mode),
+    is_redelivery: event?.deliveryContext?.isRedelivery === true,
+    event_timestamp: event?.timestamp || null
+  };
+
+  if (event?.type === "postback") {
+    const action = parseLinePostbackAction(event.postback?.data);
+    const eventType = lineAuditEventTypeForAction(action.action);
+    const eventJson = {
+      ...baseEventJson,
+      action: action.action,
+      batch_id: action.batchId,
+      job_id: action.jobId,
+      generation_id: action.generationId,
+      sku: action.sku,
+      raw_postback_data: cleanOptionalString(event.postback?.data)
+    };
+
+    await recordAuditEvent({
+      actorId: null,
+      jobId: isValidUuid(action.jobId) ? action.jobId : null,
+      generationId: isValidUuid(action.generationId) ? action.generationId : null,
+      eventType,
+      eventJson
+    });
+
+    await recordLineAutomationAction({ action, baseEventJson, eventType });
+    await replyLinePostbackAcknowledgement(event.replyToken, action);
+    return;
+  }
+
+  if (event?.type === "message") {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "line_message_received",
+      eventJson: {
+        ...baseEventJson,
+        message_type: cleanOptionalString(event.message?.type),
+        message_text: cleanOptionalString(event.message?.text)
+      }
+    });
+  }
+}
+
+function parseLinePostbackAction(data) {
+  const params = new URLSearchParams(String(data || ""));
+  return {
+    action: normalizeLineAction(params.get("action")),
+    batchId: cleanOptionalString(params.get("batch_id") || params.get("batchId")),
+    jobId: cleanOptionalString(params.get("job_id") || params.get("jobId")),
+    generationId: cleanOptionalString(params.get("generation_id") || params.get("generationId")),
+    sku: sanitizeSku(params.get("sku") || "")
+  };
+}
+
+function normalizeLineAction(action) {
+  const normalized = cleanOptionalString(action).toLowerCase().replace(/[^a-z0-9_:-]/g, "_");
+  return normalized || "unknown";
+}
+
+function lineAuditEventTypeForAction(action) {
+  const allowed = new Set(["approve_batch", "needs_review", "reject_batch", "approve_sku", "reject_sku"]);
+  return allowed.has(action) ? `line_${action}` : "line_postback_received";
+}
+
+async function recordLineAutomationAction({ action, baseEventJson, eventType }) {
+  if (!action.batchId && !action.sku) return;
+
+  try {
+    const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
+    if (action.action === "approve_batch") {
+      await enqueueAutomationTask({
+        taskType: "generate_batch",
+        batchId: batch?.id || null,
+        dedupeKey: `line:approve_batch:${action.batchId}`,
+        payload: {
+          source: "line",
+          action: action.action,
+          batch_id: action.batchId,
+          line_user_id: baseEventJson.line_user_id,
+          dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
+        }
+      });
+    }
+
+    if (action.action === "needs_review") {
+      await enqueueAutomationTask({
+        taskType: "review_batch",
+        batchId: batch?.id || null,
+        dedupeKey: `line:needs_review:${action.batchId}`,
+        status: "completed",
+        payload: {
+          source: "line",
+          action: action.action,
+          batch_id: action.batchId,
+          line_user_id: baseEventJson.line_user_id,
+          completed_reason: "Recorded review request from LINE"
+        }
+      });
+    }
+
+    if (action.action === "reject_batch") {
+      await enqueueAutomationTask({
+        taskType: "reject_batch",
+        batchId: batch?.id || null,
+        dedupeKey: `line:reject_batch:${action.batchId}`,
+        status: "completed",
+        payload: {
+          source: "line",
+          action: action.action,
+          batch_id: action.batchId,
+          line_user_id: baseEventJson.line_user_id,
+          completed_reason: "Recorded rejection from LINE"
+        }
+      });
+    }
+
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "line_automation_action_recorded",
+      eventJson: {
+        ...baseEventJson,
+        action: action.action,
+        batch_id: action.batchId,
+        sku: action.sku,
+        audit_event_type: eventType,
+        automation_batch_id: batch?.id || null
+      }
+    });
+  } catch (error) {
+    console.warn("[line] automation action record failed:", readableError(error));
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "line_automation_action_failed",
+      eventJson: {
+        ...baseEventJson,
+        action: action.action,
+        batch_id: action.batchId,
+        sku: action.sku,
+        error: readableError(error)
+      }
+    });
+  }
+}
+
+async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
+  const batchKey = action.batchId || `line-sku-${action.sku}`;
+  const patch = {
+    source: "line",
+    status: automationBatchStatusForAction(action.action),
+    requested_by_line_user_id: baseEventJson.line_user_id || null,
+    metadata: {
+      source: "line",
+      last_action: action.action,
+      last_sku: action.sku || null,
+      last_webhook_event_id: baseEventJson.webhook_event_id || null,
+      dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
+    }
+  };
+
+  if (action.action === "approve_batch") patch.approved_at = new Date().toISOString();
+  if (action.action === "reject_batch") patch.rejected_at = new Date().toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from("automation_batches")
+    .upsert(
+      {
+        batch_key: batchKey,
+        dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true),
+        ...patch
+      },
+      { onConflict: "batch_key" }
+    )
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+function automationBatchStatusForAction(action) {
+  if (action === "approve_batch") return "approved";
+  if (action === "needs_review") return "needs_review";
+  if (action === "reject_batch") return "rejected";
+  return "received";
+}
+
+async function enqueueAutomationTask({
+  taskType,
+  batchId = null,
+  batchItemId = null,
+  jobId = null,
+  generationId = null,
+  dedupeKey,
+  payload = {},
+  status = "queued",
+  priority = 100
+}) {
+  const taskPayload = {
+    task_type: taskType,
+    status,
+    priority,
+    batch_id: batchId,
+    batch_item_id: batchItemId,
+    job_id: jobId,
+    generation_id: generationId,
+    dedupe_key: dedupeKey,
+    payload,
+    completed_at: status === "completed" ? new Date().toISOString() : null
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("automation_tasks")
+    .upsert(taskPayload, { onConflict: "dedupe_key", ignoreDuplicates: true })
+    .select("*");
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+async function replyLinePostbackAcknowledgement(replyToken, action) {
+  if (!replyToken || !lineChannelAccessToken) return;
+  const labelByAction = {
+    approve_batch: "Approve batch",
+    needs_review: "Needs review",
+    reject_batch: "Reject batch",
+    approve_sku: "Approve SKU",
+    reject_sku: "Reject SKU"
+  };
+  const actionLabel = labelByAction[action.action] || action.action || "-";
+  const batchLine = action.batchId ? `Batch: ${action.batchId}` : "";
+  const skuLine = action.sku ? `SKU: ${action.sku}` : "";
+  const text = [
+    `รับ action แล้ว: ${actionLabel}`,
+    batchLine,
+    skuLine,
+    "ตอนนี้ยังเป็น dry-run ยังไม่เจนภาพ/ไม่ลง WordPress"
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${lineChannelAccessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: "text", text }]
+    })
+  });
+
+  if (!response.ok) {
+    console.warn(`[line] reply failed ${response.status}: ${await response.text()}`);
   }
 }
 
