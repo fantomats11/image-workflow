@@ -30,6 +30,36 @@ test("createPilotBatch selects 2 SKU per brand with framework v3 fields", async 
   }
 });
 
+test("createPilotBatch defaults blank PILOT_SKU_PER_BRAND to 2", async () => {
+  const { createPilotBatch } = await import("../../scripts/automation/create-pilot-batch.mjs");
+  const batch = createPilotBatch({
+    auditRows: catalogAuditRows,
+    generationRows,
+    env: { PILOT_SKU_PER_BRAND: " " },
+    now: new Date("2026-06-11T00:00:00Z")
+  });
+
+  assert.equal(batch.selection.sku_per_brand, 2);
+  assert.equal(batch.items.length, 4);
+});
+
+test("createPilotBatch rejects invalid PILOT_SKU_PER_BRAND values", async () => {
+  const { createPilotBatch } = await import("../../scripts/automation/create-pilot-batch.mjs");
+  const invalidValues = ["abc", "0", "-1", "1.5"];
+
+  for (const value of invalidValues) {
+    assert.throws(
+      () => createPilotBatch({
+        auditRows: catalogAuditRows,
+        generationRows,
+        env: { PILOT_SKU_PER_BRAND: value },
+        now: new Date("2026-06-11T00:00:00Z")
+      }),
+      /PILOT_SKU_PER_BRAND must be a positive integer\./
+    );
+  }
+});
+
 test("importing create-pilot-batch does not write dry-run output files", async () => {
   const outputsDir = path.resolve(process.cwd(), "../..", "outputs");
   const outputFiles = [

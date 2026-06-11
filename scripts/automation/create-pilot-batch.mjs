@@ -17,7 +17,11 @@ export function createPilotBatch({
   env = process.env,
   now = new Date()
 } = {}) {
-  const skuPerBrand = Number(env.PILOT_SKU_PER_BRAND || 2);
+  const rawSkuPerBrand = String(env.PILOT_SKU_PER_BRAND ?? "").trim();
+  const skuPerBrand = rawSkuPerBrand === "" ? 2 : Number(rawSkuPerBrand);
+  if (!Number.isInteger(skuPerBrand) || skuPerBrand < 1) {
+    throw new Error("PILOT_SKU_PER_BRAND must be a positive integer.");
+  }
   return selectPilotItemsV3({
     auditRows,
     generationRows,
