@@ -40,6 +40,7 @@ const shouldCreateMissingSkuFolder = process.env.GOOGLE_DRIVE_CREATE_SKU_FOLDER 
 const keepLocalApproved = process.env.KEEP_LOCAL_APPROVED !== "false";
 const lineChannelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
 const lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
+const lineTargetUserId = process.env.LINE_TARGET_USER_ID?.trim();
 const automationEmbeddedWorkerEnabled = isBooleanEnvEnabled("AUTOMATION_EMBEDDED_WORKER");
 const automationWorkerId = process.env.AUTOMATION_WORKER_ID?.trim() || `web-${process.pid}`;
 const automationWorkerPollIntervalMs = Math.max(
@@ -2580,6 +2581,18 @@ async function handleLineWebhookEvent(event, payload) {
       eventJson
     });
 
+    if (!isAuthorizedLinePostbackUser(lineUserId)) {
+      await recordAuditEvent({
+        actorId: null,
+        eventType: "line_postback_unauthorized",
+        eventJson: {
+          ...eventJson,
+          expected_line_user_id_configured: Boolean(lineTargetUserId)
+        }
+      });
+      return;
+    }
+
     await recordLineAutomationAction({ action, baseEventJson, eventType });
     await replyLinePostbackAcknowledgement(event.replyToken, action);
     return;
@@ -2617,6 +2630,10 @@ function normalizeLineAction(action) {
 function lineAuditEventTypeForAction(action) {
   const allowed = new Set(["approve_batch", "needs_review", "reject_batch", "approve_sku", "reject_sku"]);
   return allowed.has(action) ? `line_${action}` : "line_postback_received";
+}
+
+function isAuthorizedLinePostbackUser(lineUserId) {
+  return !lineTargetUserId || lineUserId === lineTargetUserId;
 }
 
 async function recordLineAutomationAction({ action, baseEventJson, eventType }) {
@@ -2671,6 +2688,35 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
       });
     }
 
+    if (action.action === "approve_sku" || action.action === "reject_sku") {
+      const batchItem = await updateAutomationBatchItemFromLineAction({
+        action,
+        batchId: batch?.id || null,
+        baseEventJson
+      });
+
+      if (batchItem) {
+        await enqueueAutomationTask({
+          taskType: action.action === "approve_sku" ? "approve_sku" : "reject_sku",
+          batchId: batch?.id || null,
+          batchItemId: batchItem.id,
+          dedupeKey: `line:${action.action}:${action.batchId}:${action.sku}`,
+          status: "completed",
+          payload: {
+            source: "line",
+            action: action.action,
+            batch_id: action.batchId,
+            sku: action.sku,
+            line_user_id: baseEventJson.line_user_id,
+            completed_reason:
+              action.action === "approve_sku"
+                ? "Recorded SKU approval from LINE"
+                : "Recorded SKU rejection from LINE"
+          }
+        });
+      }
+    }
+
     await recordAuditEvent({
       actorId: null,
       eventType: "line_automation_action_recorded",
@@ -2701,16 +2747,33 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
 
 async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
   const batchKey = action.batchId || `line-sku-${action.sku}`;
+  const existingResult = await supabaseAdmin
+    .from("automation_batches")
+    .select("id, metadata, status")
+    .eq("batch_key", batchKey)
+    .maybeSingle();
+  if (existingResult.error) throw existingResult.error;
+
+  const existingMetadata = isPlainObject(existingResult.data?.metadata)
+    ? existingResult.data.metadata
+    : {};
+  const isSkuAction = action.action === "approve_sku" || action.action === "reject_sku";
   const patch = {
     source: "line",
-    status: automationBatchStatusForAction(action.action),
+    status: isSkuAction
+      ? existingResult.data?.status || automationBatchStatusForAction(action.action)
+      : automationBatchStatusForAction(action.action),
     requested_by_line_user_id: baseEventJson.line_user_id || null,
     metadata: {
-      source: "line",
-      last_action: action.action,
-      last_sku: action.sku || null,
-      last_webhook_event_id: baseEventJson.webhook_event_id || null,
-      dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
+      ...existingMetadata,
+      line_action: {
+        source: "line",
+        last_action: action.action,
+        last_sku: action.sku || null,
+        last_webhook_event_id: baseEventJson.webhook_event_id || null,
+        dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true),
+        recorded_at: new Date().toISOString()
+      }
     }
   };
 
@@ -2730,6 +2793,40 @@ async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
     .select("*")
     .single();
 
+  if (error) throw error;
+  return data;
+}
+
+async function updateAutomationBatchItemFromLineAction({ action, batchId, baseEventJson }) {
+  if (!batchId || !action.sku) return null;
+
+  const status = action.action === "approve_sku" ? "approved" : "rejected";
+  const existingResult = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("id, metadata")
+    .eq("batch_id", batchId)
+    .eq("sku", action.sku)
+    .maybeSingle();
+  if (existingResult.error) throw existingResult.error;
+  if (!existingResult.data?.id) return null;
+
+  const metadata = {
+    ...(isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {}),
+    line_action: {
+      source: "line",
+      last_action: action.action,
+      last_webhook_event_id: baseEventJson.webhook_event_id || null,
+      line_user_id: baseEventJson.line_user_id || null,
+      recorded_at: new Date().toISOString()
+    }
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("automation_batch_items")
+    .update({ status, metadata })
+    .eq("id", existingResult.data.id)
+    .select("id, sku, status")
+    .single();
   if (error) throw error;
   return data;
 }
@@ -3373,6 +3470,10 @@ function normalizeJsonObject(value) {
     }
   }
   return {};
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function cleanJobValue(value, fallback = "") {
