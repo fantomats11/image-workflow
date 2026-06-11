@@ -7,8 +7,8 @@
     "start": "node server.mjs",
     "dev": "node server.mjs",
     "worker": "node scripts/automation/worker.mjs",
-    "test": "node --test",
-    "test:automation": "node --test test/automation/*.test.mjs"
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:automation": "node --test \"test/automation/**/*.test.mjs\""
   },
   "keywords": [],
   "author": "",
