@@ -4,7 +4,6 @@ import { buildPilotBatchFlex, buildReferenceMatchFlex } from "../../lib/automati
 
 test("pilot batch flex includes brand scope and dry-run state", () => {
   const flex = buildPilotBatchFlex({
-    batch_id: "dry-test",
     dry_run: true,
     prompt_framework_version: "prompt-framework-v3.0-dry-run",
     items: [
@@ -15,7 +14,7 @@ test("pilot batch flex includes brand scope and dry-run state", () => {
   const text = JSON.stringify(flex);
   assert.match(text, /Rent A Coat/);
   assert.match(text, /GO Mall/);
-  assert.match(text, /dry-test/);
+  assert.match(text, /unknown-batch/);
   assert.match(text, /Approve batch/);
   assert.doesNotMatch(text, /undefined/);
 });
