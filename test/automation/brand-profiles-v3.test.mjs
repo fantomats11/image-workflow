@@ -27,3 +27,15 @@ test("GO Mall profile emphasizes grid clarity", () => {
   assert.equal(profile.visualMix.studio_controlled_variation, 65);
   assert.equal(profile.heroBias, "product_dominant");
 });
+
+test("returned profile mutation does not affect subsequent profile calls", () => {
+  const profile = getBrandProfile(BRAND_IDS.RENT_A_COAT);
+  profile.visualMix.soft_lifestyle_context = 0;
+  profile.supportPriorities.push("per_sku_annotation");
+  profile.realismPolicy.push("temporary composition note");
+
+  const nextProfile = getBrandProfile(BRAND_IDS.RENT_A_COAT);
+  assert.equal(nextProfile.visualMix.soft_lifestyle_context, 45);
+  assert.equal(nextProfile.supportPriorities.includes("per_sku_annotation"), false);
+  assert.equal(nextProfile.realismPolicy.includes("temporary composition note"), false);
+});
