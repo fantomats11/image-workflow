@@ -56,3 +56,44 @@ test("support prompt forbids generated candidates overriding real product refere
   assert.match(prompt, /generated candidate/i);
   assert.match(prompt, /real product reference/i);
 });
+
+test("brand support shot priorities have explicit prompt descriptions", () => {
+  const genericFallback = "Product support shot. Keep requested product details clear and consistent.";
+  const representativeItems = [
+    {
+      sku: "RAC-GLOVE-001",
+      product_type: "rental",
+      target_site: "rentacoat",
+      product_name: "ถุงมือกันหนาว",
+      category: "ถุงมือกันหนาว"
+    },
+    {
+      sku: "GM-HAT-001",
+      product_type: "sale",
+      target_site: "gomall",
+      product_name: "หมวกไหมพรมกันหนาว",
+      category: "หมวกกันหนาว"
+    }
+  ];
+
+  for (const item of representativeItems) {
+    const shotKeys = getSupportShotsV3(item);
+    for (const [index, shotKey] of shotKeys.entries()) {
+      const prompt = buildSupportPromptV3(item, shotKey, index + 1, shotKeys.length);
+      assert.doesNotMatch(prompt, new RegExp(genericFallback.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
+  }
+
+  const brandPriorityKeys = [
+    "lining_warmth",
+    "fabric_fur_zip_patch_detail",
+    "front_back_side",
+    "texture_construction_closeup",
+    "style_cue",
+    "optional_model_scale"
+  ];
+  for (const [index, shotKey] of brandPriorityKeys.entries()) {
+    const prompt = buildSupportPromptV3(representativeItems[0], shotKey, index + 1, brandPriorityKeys.length);
+    assert.doesNotMatch(prompt, new RegExp(genericFallback.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
