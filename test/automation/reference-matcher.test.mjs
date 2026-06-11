@@ -19,7 +19,7 @@ test("exact SKU in path creates high-confidence auto match", () => {
   assert.equal(match.asset_manifest.length, 4);
 });
 
-test("label OCR evidence participates in exact SKU evidence matching", () => {
+test("label OCR evidence can support a proposed match", () => {
   const classified = classifyReferenceAssets([referenceAssets[1]], { sku: "RAC-COAT-001" });
   const match = matchReferenceFolderToSku({
     sku: "RAC-COAT-001",
@@ -28,9 +28,37 @@ test("label OCR evidence participates in exact SKU evidence matching", () => {
     folderPath: "unmapped-folder",
     classifiedAssets: classified.assets
   });
+  assert.equal(match.confidence >= 0.8, true);
+  assert.equal(match.confidence < 0.9, true);
+  assert.equal(match.needs_review, true);
+});
+
+test("generated-only exact SKU path still requires review", () => {
+  const classified = classifyReferenceAssets([referenceAssets[2]], { sku: "RAC-COAT-001" });
+  const match = matchReferenceFolderToSku({
+    sku: "RAC-COAT-001",
+    productName: "เสื้อโค้ทกันหนาวขนเฟอร์",
+    folderId: "folder-generated",
+    folderPath: "Rent-A-Coat/RAC-COAT-001/generated",
+    classifiedAssets: classified.assets
+  });
   assert.equal(match.match_method, "exact_sku_path_or_filename");
-  assert.equal(match.confidence >= 0.9, true);
-  assert.equal(match.needs_review, false);
+  assert.equal(match.confidence < 0.9, true);
+  assert.equal(match.needs_review, true);
+});
+
+test("noise-only exact SKU path still requires review", () => {
+  const classified = classifyReferenceAssets([referenceAssets[3]], { sku: "RAC-COAT-001" });
+  const match = matchReferenceFolderToSku({
+    sku: "RAC-COAT-001",
+    productName: "เสื้อโค้ทกันหนาวขนเฟอร์",
+    folderId: "folder-noise",
+    folderPath: "Rent-A-Coat/RAC-COAT-001/noise",
+    classifiedAssets: classified.assets
+  });
+  assert.equal(match.match_method, "exact_sku_path_or_filename");
+  assert.equal(match.confidence < 0.9, true);
+  assert.equal(match.needs_review, true);
 });
 
 test("weak evidence requires review", () => {
