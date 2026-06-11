@@ -19,7 +19,7 @@ test("exact SKU in path creates high-confidence auto match", () => {
   assert.equal(match.asset_manifest.length, 4);
 });
 
-test("label OCR evidence can support a proposed match", () => {
+test("label OCR evidence participates in exact SKU evidence matching", () => {
   const classified = classifyReferenceAssets([referenceAssets[1]], { sku: "RAC-COAT-001" });
   const match = matchReferenceFolderToSku({
     sku: "RAC-COAT-001",
@@ -28,9 +28,9 @@ test("label OCR evidence can support a proposed match", () => {
     folderPath: "unmapped-folder",
     classifiedAssets: classified.assets
   });
-  assert.equal(match.match_method, "ocr_sku_label");
-  assert.equal(match.confidence >= 0.8, true);
-  assert.equal(match.needs_review, true);
+  assert.equal(match.match_method, "exact_sku_path_or_filename");
+  assert.equal(match.confidence >= 0.9, true);
+  assert.equal(match.needs_review, false);
 });
 
 test("weak evidence requires review", () => {
