@@ -5,4 +5,5 @@ outputs/
 approved/
 .oauth/
 metrics/
+.superpowers/
 .DS_Store
