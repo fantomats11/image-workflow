@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyReferenceAsset, classifyReferenceAssets } from "../../lib/automation/asset-classifier.mjs";
+import { classifyReferenceAsset, classifyReferenceAssets, detectSku } from "../../lib/automation/asset-classifier.mjs";
 import { referenceAssets } from "./fixtures/reference-assets.mjs";
 
 test("classifies product references from SKU filename and normal photo dimensions", () => {
@@ -35,4 +35,38 @@ test("summarizes asset counts for a folder", () => {
   assert.equal(result.summary.label_or_tag, 1);
   assert.equal(result.summary.generated_candidate, 1);
   assert.equal(result.summary.staff_noise, 1);
+});
+
+test("does not auto-use unrelated large photos as product truth", () => {
+  const result = classifyReferenceAsset({
+    id: "asset-random-large",
+    path: "Uploads/misc/parking-lot.jpg",
+    name: "parking-lot.jpg",
+    mimeType: "image/jpeg",
+    ocrText: "",
+    width: 1200,
+    height: 800
+  });
+
+  assert.equal(result.asset_type, "ambiguous");
+  assert.equal(result.use_as_reference, false);
+  assert.equal(result.needs_review, true);
+});
+
+test("detects hyphenated SKU shapes without expected SKU context", () => {
+  assert.equal(detectSku("Rent-A-Coat/RAC-COAT-001/front.jpg"), "RAC-COAT-001");
+
+  const result = classifyReferenceAsset({
+    id: "asset-product-with-hyphenated-sku",
+    path: "Rent-A-Coat/RAC-COAT-001/front.jpg",
+    name: "RAC-COAT-001_front.jpg",
+    mimeType: "image/jpeg",
+    ocrText: "",
+    width: 1600,
+    height: 2000
+  });
+
+  assert.equal(result.asset_type, "product_reference");
+  assert.equal(result.use_as_reference, true);
+  assert.equal(result.sku_detected, "RAC-COAT-001");
 });
