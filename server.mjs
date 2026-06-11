@@ -40,6 +40,12 @@ const shouldCreateMissingSkuFolder = process.env.GOOGLE_DRIVE_CREATE_SKU_FOLDER 
 const keepLocalApproved = process.env.KEEP_LOCAL_APPROVED !== "false";
 const lineChannelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
 const lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
+const automationEmbeddedWorkerEnabled = isBooleanEnvEnabled("AUTOMATION_EMBEDDED_WORKER");
+const automationWorkerId = process.env.AUTOMATION_WORKER_ID?.trim() || `web-${process.pid}`;
+const automationWorkerPollIntervalMs = Math.max(
+  1000,
+  Number(process.env.AUTOMATION_WORKER_POLL_INTERVAL_MS || 5000) || 5000
+);
 const costTrackingConfig = {
   provider: "fal",
   model: "openai/gpt-image-2/edit",
@@ -54,6 +60,10 @@ let pendingGenerations = 0;
 const generationJobs = new Map();
 let googleDriveClientPromise = null;
 const googleOAuthStateById = new Map();
+let automationEmbeddedWorkerRunning = false;
+let automationEmbeddedWorkerLastRunAt = null;
+let automationEmbeddedWorkerLastError = null;
+let automationEmbeddedWorkerProcessedTasks = 0;
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -316,6 +326,13 @@ app.get("/api/health", async (_req, res) => {
     queue: {
       active: activeGenerations,
       pending: pendingGenerations
+    },
+    automationWorker: {
+      embedded: automationEmbeddedWorkerEnabled,
+      running: automationEmbeddedWorkerRunning,
+      lastRunAt: automationEmbeddedWorkerLastRunAt,
+      lastError: automationEmbeddedWorkerLastError,
+      processedTasks: automationEmbeddedWorkerProcessedTasks
     },
     jobs: generationJobs.size
   });
@@ -2793,6 +2810,180 @@ async function replyLinePostbackAcknowledgement(replyToken, action) {
   if (!response.ok) {
     console.warn(`[line] reply failed ${response.status}: ${await response.text()}`);
   }
+}
+
+function startEmbeddedAutomationWorker() {
+  if (!automationEmbeddedWorkerEnabled) return;
+  if (!isSupabaseAutomationConfigured()) {
+    automationEmbeddedWorkerLastError = "Supabase automation env is incomplete.";
+    console.warn("[automation-worker] embedded worker disabled: Supabase automation env is incomplete.");
+    return;
+  }
+
+  automationEmbeddedWorkerRunning = true;
+  console.log(`[automation-worker] embedded worker started ${automationWorkerId}`);
+
+  const loop = async () => {
+    if (!automationEmbeddedWorkerRunning) return;
+    try {
+      automationEmbeddedWorkerLastRunAt = new Date().toISOString();
+      const task = await claimNextAutomationTask();
+      if (task) {
+        await processAutomationTask(task);
+        automationEmbeddedWorkerProcessedTasks += 1;
+      }
+      automationEmbeddedWorkerLastError = null;
+    } catch (error) {
+      automationEmbeddedWorkerLastError = readableError(error);
+      console.warn("[automation-worker] embedded loop failed:", automationEmbeddedWorkerLastError);
+    } finally {
+      if (automationEmbeddedWorkerRunning) {
+        setTimeout(loop, automationWorkerPollIntervalMs).unref?.();
+      }
+    }
+  };
+
+  setTimeout(loop, 1000).unref?.();
+}
+
+function isSupabaseAutomationConfigured() {
+  return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
+async function claimNextAutomationTask() {
+  const { data: candidates, error } = await supabaseAdmin
+    .from("automation_tasks")
+    .select("*")
+    .eq("status", "queued")
+    .lte("available_at", new Date().toISOString())
+    .order("priority", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(5);
+
+  if (error) throw error;
+
+  for (const candidate of candidates || []) {
+    const { data: claimed, error: claimError } = await supabaseAdmin
+      .from("automation_tasks")
+      .update({
+        status: "running",
+        locked_at: new Date().toISOString(),
+        locked_by: automationWorkerId,
+        attempts: Number(candidate.attempts || 0) + 1,
+        last_error: null
+      })
+      .eq("id", candidate.id)
+      .eq("status", "queued")
+      .select("*")
+      .maybeSingle();
+
+    if (claimError) throw claimError;
+    if (claimed) return claimed;
+  }
+
+  return null;
+}
+
+async function processAutomationTask(task) {
+  console.log(`[automation-worker] processing ${task.id} ${task.task_type}`);
+  try {
+    const dryRun =
+      task.payload?.dry_run !== false ||
+      isDryRun("AI_GENERATION_DRY_RUN", true) ||
+      isDryRun("WORDPRESS_DRY_RUN", true);
+    const batchItems = task.batch_id ? await readAutomationBatchItems(task.batch_id) : [];
+
+    if (dryRun) {
+      await recordAuditEvent({
+        actorId: null,
+        eventType: "automation_task_dry_run_completed",
+        eventJson: {
+          task_id: task.id,
+          task_type: task.task_type,
+          batch_id: task.batch_id,
+          batch_item_count: batchItems.length,
+          batch_skus: batchItems.map((item) => item.sku).filter(Boolean).slice(0, 50),
+          dedupe_key: task.dedupe_key,
+          worker_id: automationWorkerId,
+          embedded_worker: true,
+          payload: task.payload || {}
+        }
+      });
+      await completeAutomationTask(task.id, {
+        ...task.payload,
+        dry_run: true,
+        batch_item_count: batchItems.length,
+        message: "Dry-run completed. No image generation or WordPress publishing was executed."
+      });
+      return;
+    }
+
+    throw new Error(`Live automation task processing is not enabled yet for ${task.task_type}.`);
+  } catch (error) {
+    await failOrRetryAutomationTask(task, error);
+  }
+}
+
+async function readAutomationBatchItems(batchId) {
+  const { data, error } = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("id, sku, product_type, target_site, product_name, status, woo_status")
+    .eq("batch_id", batchId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function completeAutomationTask(taskId, result = {}) {
+  const { error } = await supabaseAdmin
+    .from("automation_tasks")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      locked_at: null,
+      locked_by: null,
+      payload: result
+    })
+    .eq("id", taskId);
+  if (error) throw error;
+}
+
+async function failOrRetryAutomationTask(task, error) {
+  const attempts = Number(task.attempts || 1);
+  const maxAttempts = Number(task.max_attempts || 3);
+  const finalFailure = attempts >= maxAttempts;
+  const backoffSeconds = Math.min(300, Math.max(15, attempts * attempts * 15));
+  const nextAvailableAt = new Date(Date.now() + backoffSeconds * 1000).toISOString();
+  const message = readableError(error);
+
+  await recordAuditEvent({
+    actorId: null,
+    eventType: finalFailure ? "automation_task_failed" : "automation_task_retry_scheduled",
+    eventJson: {
+      task_id: task.id,
+      task_type: task.task_type,
+      batch_id: task.batch_id,
+      dedupe_key: task.dedupe_key,
+      worker_id: automationWorkerId,
+      embedded_worker: true,
+      attempts,
+      max_attempts: maxAttempts,
+      next_available_at: finalFailure ? null : nextAvailableAt,
+      error: message
+    }
+  });
+
+  const { error: updateError } = await supabaseAdmin
+    .from("automation_tasks")
+    .update({
+      status: finalFailure ? "failed" : "queued",
+      locked_at: null,
+      locked_by: null,
+      last_error: message,
+      available_at: finalFailure ? task.available_at : nextAvailableAt
+    })
+    .eq("id", task.id);
+  if (updateError) throw updateError;
 }
 
 function buildGenerationUsageEventJson({
@@ -6033,6 +6224,10 @@ function readableError(error) {
   return redactSensitiveText(message);
 }
 
+function isBooleanEnvEnabled(name) {
+  return ["1", "true", "yes", "on"].includes(String(process.env[name] || "").trim().toLowerCase());
+}
+
 app.use("/api", (req, res) => {
   res.status(404).json({
     ok: false,
@@ -6051,4 +6246,5 @@ app.listen(PORT, () => {
   recoverAbandonedGenerationQueue().catch((error) => {
     console.warn("[queue-recovery] failed:", readableError(error));
   });
+  startEmbeddedAutomationWorker();
 });

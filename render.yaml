@@ -16,6 +16,10 @@ services:
         value: true
       - key: WORDPRESS_DRY_RUN
         value: true
+      - key: AUTOMATION_EMBEDDED_WORKER
+        value: true
+      - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
+        value: 5000
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
