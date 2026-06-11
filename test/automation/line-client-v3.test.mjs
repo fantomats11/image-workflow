@@ -17,6 +17,7 @@ test("pilot batch flex includes brand scope and dry-run state", () => {
   assert.match(text, /GO Mall/);
   assert.match(text, /dry-test/);
   assert.match(text, /Approve batch/);
+  assert.doesNotMatch(text, /undefined/);
 });
 
 test("reference match flex exposes confidence and review action", () => {
@@ -42,4 +43,34 @@ test("reference match flex exposes confidence and review action", () => {
   assert.match(text, /0.82/);
   assert.match(text, /Needs review/);
   assert.match(text, /ocr_sku_label/);
+  assert.match(text, /approve_sku/);
+  assert.doesNotMatch(text, /approve_reference/);
+  assert.doesNotMatch(text, /undefined/);
+});
+
+test("reference match flex encodes postback data for URLSearchParams", () => {
+  const sku = "RAC&COAT=001 ไทย";
+  const batchId = "dry=test & batch";
+  const flex = buildReferenceMatchFlex({
+    batch_id: batchId,
+    sku,
+    brand_label: "Rent A Coat",
+    product_name: "เสื้อโค้ท",
+    reference_manifest: {
+      confidence: 0.82,
+      match_method: "ocr_sku_label",
+      needs_review: true
+    }
+  });
+  const buttons = flex.contents.footer.contents;
+  assert.equal(buttons.length, 3);
+
+  const actions = buttons.map((button) => {
+    assert.ok(button.action.data.length <= 300);
+    const params = new URLSearchParams(button.action.data);
+    assert.equal(params.get("batch_id"), batchId);
+    assert.equal(params.get("sku"), sku);
+    return params.get("action");
+  });
+  assert.deepEqual(actions, ["approve_sku", "needs_review", "reject_sku"]);
 });
