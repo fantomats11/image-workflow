@@ -529,8 +529,8 @@ const appState = {
 };
 
 const pageMeta = {
-  create: { eyebrow: "Prompt Tools", title: "สร้างภาพสินค้า" },
-  jobs: { eyebrow: "Production Control", title: "งานทั้งหมด" },
+  create: { eyebrow: "Manual Tool", title: "สร้างภาพสินค้า" },
+  jobs: { eyebrow: "Production Control", title: "Automation Inbox" },
   assets: { eyebrow: "Asset Library", title: "คลังภาพ" },
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
   costs: { eyebrow: "Cost Control", title: "Cost / Usage Tracking" },
@@ -625,7 +625,7 @@ async function initializeAuth() {
       if (event === "SIGNED_OUT") {
         if (authFlowInProgress || appState.state === "logging-out") return;
         clearFrontendAuthState();
-        window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
+        window.history.replaceState({}, document.title, `${window.location.pathname}#jobs`);
         showAuthGate("logged-out", "auth:event:signed_out");
         return;
       }
@@ -1146,7 +1146,7 @@ function updateAuthUi(session, message = "") {
 
   els.authState.innerHTML = isLoggedIn
     ? `<strong>${passwordSetupRequired ? "ต้องตั้งรหัสผ่าน" : "เข้าสู่ระบบแล้ว"}</strong><span>${escapeHtml(message || `${email}${roleLabel}`)}</span>`
-    : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "Login ก่อน Generate / KPI / Ops")}</span>`;
+    : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "Login ก่อน Production / Review / Ops")}</span>`;
   updateActionAvailability();
 }
 
@@ -1245,7 +1245,7 @@ async function refreshSystemStatus() {
 
 function getPageFromHash() {
   const page = window.location.hash.replace("#", "").trim().split("?")[0];
-  return pageMeta[page] ? page : "create";
+  return pageMeta[page] ? page : "jobs";
 }
 
 function getHashParams() {
@@ -1255,10 +1255,10 @@ function getHashParams() {
 }
 
 function navigateToPage(page) {
-  let targetPage = pageMeta[page] ? page : "create";
+  let targetPage = pageMeta[page] ? page : "jobs";
   if ((targetPage === "settings" || targetPage === "monitoring" || targetPage === "costs") && !isAdmin()) {
-    targetPage = "create";
-    if (window.location.hash !== "#create") window.location.hash = "create";
+    targetPage = "jobs";
+    if (window.location.hash !== "#jobs") window.location.hash = "jobs";
   }
   els.pageViews.forEach((view) => {
     view.classList.toggle("active", view.dataset.page === targetPage);
@@ -1709,7 +1709,7 @@ async function handleLogout() {
     console.warn("[logout] signOut failed; clearing local state", { message: getSafeAuthErrorMessage(error) });
   } finally {
     clearFrontendAuthState();
-    window.history.replaceState({}, document.title, `${window.location.pathname}#create`);
+    window.history.replaceState({}, document.title, `${window.location.pathname}#jobs`);
     showAuthGate("logged-out", "logout:finished");
     els.gateLoginMessage.textContent = logoutMessage;
     els.gateLoginMessage.classList.add("is-success");
@@ -3647,10 +3647,11 @@ function renderHistory() {
 function renderJobSummary(items) {
   const approvedCount = items.filter((item) => item.approvalStatus === "approved").length;
   const exportedCount = items.filter((item) => item.exportUrl || ["google_drive", "exported"].includes(String(item.exportStatus || "").toLowerCase())).length;
+  const reviewCount = items.filter((item) => isHeroReviewReady(item)).length;
   els.jobSummary.innerHTML = `
     <span>${items.length.toLocaleString("th-TH")} งาน</span>
-    <span>${approvedCount.toLocaleString("th-TH")} งาน approved</span>
-    <span>${exportedCount.toLocaleString("th-TH")} งาน exported</span>
+    <span>${reviewCount.toLocaleString("th-TH")} รอ review</span>
+    <span>${approvedCount.toLocaleString("th-TH")} approved · ${exportedCount.toLocaleString("th-TH")} exported</span>
   `;
 }
 
@@ -3694,11 +3695,7 @@ function renderProductionJobRow(job) {
         <strong>${escapeHtml(job.productName || job.sku || "Untitled product")}</strong>
         <div class="table-muted">Job ${escapeHtml(job.shortId || shortId(job.id))}${job.sku ? ` · SKU ${escapeHtml(job.sku)}` : ""}</div>
         <div class="production-meta">${escapeHtml(job.brand || "-")} · ${escapeHtml(job.category || "-")} · ${escapeHtml(job.imageType || "-")}</div>
-      </td>
-      <td>
-        <strong>${escapeHtml(job.createdBy?.name || job.createdBy?.email || "ไม่ระบุผู้ใช้งาน")}</strong>
-        <div class="table-muted">${escapeHtml(job.createdBy?.email || "")}</div>
-        <div class="production-meta">${escapeHtml(formatJobTime(job.createdAt))}</div>
+        <div class="production-meta">Owner: ${escapeHtml(job.createdBy?.name || job.createdBy?.email || "automation")}</div>
       </td>
       <td>
         <div class="production-status-stack">
@@ -3709,6 +3706,7 @@ function renderProductionJobRow(job) {
           ${renderStatusBadge(job.approvalStatus || "pending", "Approve")}
         </div>
       </td>
+      <td>${renderJobNextAction(job)}</td>
       <td>
         ${renderStatusBadge(job.exportStatus || "not_exported", "Export")}
         ${renderJobExportAction(job)}
@@ -3719,6 +3717,51 @@ function renderProductionJobRow(job) {
         ${isAdmin() ? renderRecoveryActions(job, "jobs") : ""}
       </td>
     </tr>
+  `;
+}
+
+function isHeroReviewReady(job = {}) {
+  if (job.approvalStatus === "approved") return false;
+  const statusText = [job.status, job.generationStatus, job.heroStatus].filter(Boolean).join(" ").toLowerCase();
+  return Boolean(job.latestGenerationId) && /hero_ready|completed|ready|succeeded/.test(statusText);
+}
+
+function getJobNextAction(job = {}) {
+  if (String(job.status || "").toLowerCase().includes("failed")) {
+    return { tone: "danger", label: "ตรวจ error / retry", helper: "งานล้มเหลวหรือ generation มีปัญหา" };
+  }
+  if (job.approvalStatus === "approved" && job.exportUrl) {
+    return { tone: "ok", label: "จบแล้ว", helper: "approved และมี export link แล้ว" };
+  }
+  if (job.approvalStatus === "approved") {
+    return { tone: "ok", label: "รอ export", helper: "Hero approved แล้ว ขั้นถัดไปคือ media/export" };
+  }
+  if (isHeroReviewReady(job)) {
+    return { tone: "warning", label: "Review hero", helper: "เปิดหน้า review เพื่อ approve หรือ regenerate" };
+  }
+  if (/generating|queued|running/i.test([job.status, job.generationStatus].join(" "))) {
+    return { tone: "info", label: "รอ generation", helper: "ระบบกำลังสร้างหรือรอคิว" };
+  }
+  return { tone: "muted", label: "รอข้อมูล", helper: "ยังไม่มี hero candidate พร้อม review" };
+}
+
+function buildJobReviewHref(job = {}) {
+  if (!job.latestGenerationId) return "";
+  const params = new URLSearchParams();
+  params.set("generation_id", job.latestGenerationId);
+  if (job.sku) params.set("sku", job.sku);
+  return `#review?${params.toString()}`;
+}
+
+function renderJobNextAction(job = {}) {
+  const action = getJobNextAction(job);
+  const reviewHref = isHeroReviewReady(job) ? buildJobReviewHref(job) : "";
+  return `
+    <div class="job-next-action ${escapeHtml(action.tone)}">
+      <strong>${escapeHtml(action.label)}</strong>
+      <span>${escapeHtml(action.helper)}</span>
+      ${reviewHref ? `<a class="ghost-button compact" href="${escapeHtml(reviewHref)}">Open review</a>` : ""}
+    </div>
   `;
 }
 

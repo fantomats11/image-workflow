@@ -62,8 +62,7 @@
         </div>
 
         <nav class="nav-list" id="pageNav">
-          <a class="active" href="#create" data-page-link="create">สร้างภาพ</a>
-          <a href="#jobs" data-page-link="jobs">งานทั้งหมด</a>
+          <a class="active" href="#jobs" data-page-link="jobs">Automation Inbox</a>
           <a href="#assets" data-page-link="assets">คลังภาพ</a>
           <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
           <a href="#costs" data-page-link="costs">Costs</a>
@@ -79,14 +78,14 @@
       <section class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Prompt Tools</p>
-            <h2>สร้างภาพสินค้า</h2>
+            <p class="eyebrow">Production Control</p>
+            <h2>Automation Inbox</h2>
           </div>
           <div class="topbar-actions">
             <section class="auth-card" id="authCard" aria-label="Login">
               <div class="auth-state" id="authState">
                 <strong>ยังไม่ได้เข้าสู่ระบบ</strong>
-                <span>Login ก่อน Generate / KPI / Ops</span>
+                <span>Login ก่อน Production / Review / Ops</span>
               </div>
               <form class="auth-form" id="loginForm">
                 <input id="loginEmail" type="email" autocomplete="email" placeholder="email" required />
@@ -99,7 +98,7 @@
           </div>
         </header>
 
-        <section class="page-view active create-page" id="page-create" data-page="create">
+        <section class="page-view create-page" id="page-create" data-page="create">
         <section class="dashboard-grid create-workbench">
           <form class="panel request-panel intake-panel" id="requestForm">
             <div class="panel-heading">
@@ -414,16 +413,16 @@
           </section>
         </section>
 
-        <section class="page-view" id="page-jobs" data-page="jobs">
-          <section class="panel page-panel" id="jobs">
+        <section class="page-view active automation-inbox-page" id="page-jobs" data-page="jobs">
+          <section class="panel page-panel jobs-panel" id="jobs">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Jobs</p>
-                <h3>งานทั้งหมด</h3>
+                <p class="eyebrow">Automation Inbox</p>
+                <h3>คิวงานจาก Automation</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshJobsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">ดูงานจริงจาก production database พร้อมสถานะ generate, approve, export และ activity ล่าสุด</div>
+            <div class="section-note">ดูงานที่ระบบสร้างจาก Product Catalog / LINE / automation พร้อมสถานะ Hero, approval, export และ action ถัดไป</div>
             <div class="kpi-range-tabs" id="jobsRangeControls" aria-label="เลือกช่วงเวลา Jobs">
               <button class="active" type="button" data-jobs-range="today">Today</button>
               <button type="button" data-jobs-range="7d">Last 7 days</button>
@@ -433,10 +432,10 @@
             <div class="filter-grid">
               <label>
                 ค้นหา
-                <input id="historySearch" type="search" placeholder="SKU / job id / email / ชื่องาน" />
+                <input id="historySearch" type="search" placeholder="SKU / job id / ชื่อสินค้า / ผู้สร้าง" />
               </label>
               <label>
-                สถานะ
+                Workflow state
                 <select id="historyStatusFilter">
                   <option value="">ทั้งหมด</option>
                   <option value="queued">queued</option>
@@ -467,10 +466,10 @@
                 <thead>
                   <tr>
                     <th>งาน</th>
-                    <th>ผู้สร้าง</th>
-                    <th>Workflow</th>
+                    <th>สถานะ</th>
+                    <th>Action ถัดไป</th>
                     <th>Export</th>
-                    <th>Activity</th>
+                    <th>ล่าสุด</th>
                   </tr>
                 </thead>
                 <tbody id="historyBody">

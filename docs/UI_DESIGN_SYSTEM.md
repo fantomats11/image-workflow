@@ -15,6 +15,8 @@ Reference direction from 21st.dev:
 
 - Review pages prioritize image comparison over decoration.
 - LINE is a notification surface; web review pages are the decision surface.
+- Jobs is the default automation inbox and should be the first operational surface.
+- Create is a manual/debug fallback. Keep it available by direct route, but do not show it in primary navigation.
 - Actions must show where state is recorded.
 - Cards are for repeated items or bounded tools, not nested page decoration.
 - Operational pages should use compact headings, stable controls, and visible status.
@@ -48,6 +50,17 @@ Hero Review uses a two-column comparison layout on desktop:
 - Right: Hero Candidate, large image, checklist, action dock.
 - The action dock must not overlap the hero image.
 - Mobile stacks in this order: brief, reference set, hero candidate, checklist, actions.
+
+## Automation Inbox Pattern
+
+Jobs is the primary page after login:
+
+- Default route is `#jobs`.
+- Main navigation does not show Create.
+- Rows should expose product identity, workflow state, next action, export state, and latest activity.
+- `Hero Ready` jobs should link directly to the web review page when a generation id is available.
+- Failed or stuck jobs should surface recovery action for admin users.
+- Summary cards should emphasize work waiting for review, approved count, and exported count.
 
 ## Create Intake Pattern
 
