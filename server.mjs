@@ -3048,6 +3048,29 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
   let actionResult = { recorded: false, ignored: false };
 
   try {
+    if (action.action === "approve_hero" || action.action === "regenerate_hero") {
+      actionResult = {
+        recorded: false,
+        ignored: true,
+        reason: "line_hero_decisions_disabled",
+        currentAction: ""
+      };
+      await recordAuditEvent({
+        actorId: null,
+        eventType: "line_automation_action_recorded",
+        eventJson: {
+          ...baseEventJson,
+          action: action.action,
+          batch_id: action.batchId,
+          sku: action.sku,
+          audit_event_type: eventType,
+          automation_batch_id: null,
+          action_result: actionResult
+        }
+      });
+      return actionResult;
+    }
+
     const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
     if (action.action === "approve_batch") {
       await enqueueAutomationTask({
@@ -3111,50 +3134,6 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
         }
       });
       actionResult = { recorded: true, ignored: false };
-    }
-
-    if (action.action === "approve_hero" || action.action === "regenerate_hero") {
-      const batchItem = await updateAutomationBatchItemFromLineAction({
-        action,
-        batchId: batch?.id || null,
-        baseEventJson
-      });
-
-      if (batchItem?.ignored) {
-        actionResult = {
-          recorded: false,
-          ignored: true,
-          reason: batchItem.ignored_reason,
-          currentAction: batchItem.current_action,
-          status: batchItem.status
-        };
-      } else if (batchItem) {
-        await enqueueAutomationTask({
-          taskType: GENERATE_BATCH_TASK,
-          batchId: batch?.id || null,
-          batchItemId: batchItem.id,
-          generationId: isValidUuid(action.generationId) ? action.generationId : null,
-          dedupeKey: `line:${action.action}:${action.batchId}:${action.sku}`,
-          priority: action.action === "approve_hero" ? 125 : 130,
-          payload: {
-            source: "line",
-            action: action.action,
-            batch_id: action.batchId,
-            sku: action.sku,
-            generation_id: action.generationId || null,
-            line_user_id: baseEventJson.line_user_id,
-            generation_phase: action.action === "approve_hero" ? "support_after_hero_approval" : "hero_regeneration",
-            request_mode: action.action === "approve_hero" ? "support-only-after-approved-hero" : "hero-only",
-            requires_approved_hero_anchor: action.action === "approve_hero",
-            dry_run: true,
-            completed_reason:
-              action.action === "approve_hero"
-                ? "Hero approved from LINE; support generation plan can now attach reference plus approved hero anchor"
-                : "Hero regeneration requested from LINE"
-          }
-        });
-        actionResult = { recorded: true, ignored: false, status: batchItem.status };
-      }
     }
 
     if (action.action === "approve_sku" || action.action === "reject_sku") {
@@ -3421,6 +3400,7 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
       batchLine,
       skuLine,
       currentActionLabel ? `มีผลตัดสินใจแล้ว: ${currentActionLabel}` : "",
+      actionResult.reason === "line_hero_decisions_disabled" ? "ปุ่มตัดสินใจใน LINE ถูกปิดแล้วเพื่อกัน action เก่า/ผิดลำดับ" : "",
       actionResult.reason === "stale_hero_review_action" ? "ปุ่มนี้มาจาก hero version เก่า" : "",
       "ให้ใช้หน้า Review เป็นจุดตัดสินใจหลัก"
     ]
