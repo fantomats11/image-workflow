@@ -27,3 +27,23 @@ test("item payload stores brand and reference manifest metadata", () => {
   assert.equal(payload.metadata.brand_id, "rent_a_coat");
   assert.equal(payload.metadata.reference_manifest.confidence, 0.95);
 });
+
+test("item payload preserves preflight metadata for later WordPress/WooCommerce proposal", () => {
+  const payload = buildAutomationBatchItemPayload("batch-id", {
+    sku: "GM-001",
+    brand_id: "go_mall",
+    brand_label: "GO Mall",
+    target_site: "gomall",
+    product_type: "rental",
+    product_name: "เสื้อกันหนาว",
+    woo_status: "not_found",
+    reference_branch: "GO Mall",
+    reference_sheet_row: "405"
+  });
+
+  assert.equal(payload.status, "awaiting_approval");
+  assert.equal(payload.metadata.brand_id, "go_mall");
+  assert.equal(payload.metadata.target_site, "gomall");
+  assert.equal(payload.metadata.reference_branch, "GO Mall");
+  assert.equal(payload.metadata.reference_sheet_row, "405");
+});

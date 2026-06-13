@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import os from "node:os";
-import { isDryRun } from "../../lib/automation/env.mjs";
 import { supabaseAdmin } from "../../lib/supabase-admin.mjs";
+import { processAutomationTaskCore } from "../../lib/automation/automation-worker-core.mjs";
+import { buildSupabaseMediaAssetManifestForBatch } from "../../lib/automation/supabase-media-asset-manifest.mjs";
 
 const workerId = process.env.AUTOMATION_WORKER_ID || `${os.hostname()}-${process.pid}`;
 const pollIntervalMs = Number(process.env.AUTOMATION_WORKER_POLL_INTERVAL_MS || 5000);
@@ -58,33 +59,23 @@ async function claimNextTask() {
 async function processTask(task) {
   console.log(`[automation-worker] processing ${task.id} ${task.task_type}`);
   try {
-    const dryRun = task.payload?.dry_run !== false || isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true);
     const batchItems = task.batch_id ? await readBatchItems(task.batch_id) : [];
-
-    if (dryRun) {
-      await recordAuditEvent({
-        eventType: "automation_task_dry_run_completed",
-        eventJson: {
-          task_id: task.id,
-          task_type: task.task_type,
-          batch_id: task.batch_id,
-          batch_item_count: batchItems.length,
-          batch_skus: batchItems.map((item) => item.sku).filter(Boolean).slice(0, 50),
-          dedupe_key: task.dedupe_key,
-          worker_id: workerId,
-          payload: task.payload || {}
-        }
-      });
-      await completeTask(task.id, {
-        ...task.payload,
-        dry_run: true,
-        batch_item_count: batchItems.length,
-        message: "Dry-run completed. No image generation or WordPress publishing was executed."
-      });
-      return;
-    }
-
-    throw new Error(`Live automation task processing is not enabled yet for ${task.task_type}.`);
+    await processAutomationTaskCore({
+      task,
+      batchItems,
+      workerId,
+      embeddedWorker: false,
+      recordAuditEvent,
+      completeTask,
+      readMediaManifest: ({ task: currentTask, batchItems: currentBatchItems }) => buildSupabaseMediaAssetManifestForBatch({
+        supabaseAdmin,
+        batch: {
+          batch_id: currentTask.batch_id || null,
+          items: currentBatchItems
+        },
+        batchItems: currentBatchItems
+      })
+    });
   } catch (error) {
     await failOrRetryTask(task, error);
   }
@@ -93,7 +84,7 @@ async function processTask(task) {
 async function readBatchItems(batchId) {
   const { data, error } = await supabaseAdmin
     .from("automation_batch_items")
-    .select("id, sku, product_type, target_site, product_name, status, woo_status")
+    .select("id, sku, product_type, target_site, product_name, status, woo_status, metadata")
     .eq("batch_id", batchId)
     .order("created_at", { ascending: true });
   if (error) throw error;

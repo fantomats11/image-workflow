@@ -335,6 +335,49 @@
         </section>
         </section>
 
+        <section class="page-view" id="page-review" data-page="review">
+          <section class="panel page-panel hero-review-page" id="heroReviewPage">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Hero Review</p>
+                <h3 id="heroReviewTitle">ตรวจ Hero ก่อนสร้าง Support</h3>
+              </div>
+              <span class="workflow-status" id="heroReviewStatus">รอข้อมูล</span>
+            </div>
+            <div class="section-note" id="heroReviewMeta">เปิดจาก LINE เพื่อเทียบ ref ต้นทางกับ hero candidate แบบเต็มภาพ</div>
+            <div class="hero-review-layout">
+              <section class="hero-review-column">
+                <div class="review-column-header">
+                  <strong>Reference</strong>
+                  <span id="heroReviewRefCount">0 ภาพ</span>
+                </div>
+                <div class="review-image-grid" id="heroReviewRefs">
+                  <p class="empty-state">ยังไม่มี reference</p>
+                </div>
+              </section>
+              <section class="hero-review-column">
+                <div class="review-column-header">
+                  <strong>Hero Candidate</strong>
+                  <span id="heroReviewGenerationId">-</span>
+                </div>
+                <div class="review-hero-frame" id="heroReviewHero">
+                  <p class="empty-state">ยังไม่มี hero</p>
+                </div>
+                <div class="review-checklist">
+                  <label><input type="checkbox" data-hero-review-check="product" /> สินค้าตรงกับ ref</label>
+                  <label><input type="checkbox" data-hero-review-check="logo" /> โลโก้/ป้ายไม่เพี้ยน</label>
+                  <label><input type="checkbox" data-hero-review-check="model" /> โมเดลและ fit ใช้ได้</label>
+                </div>
+                <div class="actions">
+                  <button class="primary-button" type="button" id="heroReviewApproveButton">Approve hero</button>
+                  <button class="secondary-button" type="button" id="heroReviewRegenerateButton">Regenerate</button>
+                </div>
+                <div class="auth-gate-message" id="heroReviewMessage" role="status"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+
         <section class="page-view" id="page-jobs" data-page="jobs">
           <section class="panel page-panel" id="jobs">
             <div class="panel-heading">

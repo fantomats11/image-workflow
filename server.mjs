@@ -11,6 +11,12 @@ import { fal } from "@fal-ai/client";
 import { google } from "googleapis";
 import { isDryRun } from "./lib/automation/env.mjs";
 import { getUserFromAccessToken, supabaseAdmin } from "./lib/supabase-admin.mjs";
+import { processAutomationTaskCore } from "./lib/automation/automation-worker-core.mjs";
+import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
+import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
+import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
+import { buildMonitoringWordPressPreflights } from "./lib/automation/wordpress-preflight-monitoring.mjs";
+import { buildWordPressPreflightFlex, pushLineMessage } from "./lib/automation/line-client.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +47,7 @@ const keepLocalApproved = process.env.KEEP_LOCAL_APPROVED !== "false";
 const lineChannelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
 const lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
 const lineTargetUserId = process.env.LINE_TARGET_USER_ID?.trim();
+const lineImageProxySecret = process.env.LINE_IMAGE_PROXY_SECRET?.trim() || lineChannelSecret;
 const automationEmbeddedWorkerEnabled = isBooleanEnvEnabled("AUTOMATION_EMBEDDED_WORKER");
 const automationWorkerId = process.env.AUTOMATION_WORKER_ID?.trim() || `web-${process.pid}`;
 const automationWorkerPollIntervalMs = Math.max(
@@ -131,6 +138,50 @@ app.use((error, req, res, next) => {
     return sendApiError(res, 400, "invalid_json", "Request JSON ไม่ถูกต้อง");
   }
   return next(error);
+});
+
+app.get("/api/public/line-image/:fileId", async (req, res) => {
+  const fileId = String(req.params.fileId || "").trim();
+  const exp = String(req.query.exp || "").trim();
+  const sig = String(req.query.sig || "").trim();
+  if (!isValidDriveFileId(fileId)) {
+    return sendApiError(res, 400, "invalid_file_id", "Invalid image file id.");
+  }
+  if (!verifyLineImageProxySignature({ fileId, exp, sig })) {
+    return sendApiError(res, 403, "invalid_image_signature", "Invalid or expired image link.");
+  }
+
+  try {
+    const drive = await getGoogleDriveClient();
+    if (!drive) return sendApiError(res, 503, "google_drive_unavailable", "Google Drive is not connected.");
+
+    const metadataResult = await drive.files.get({
+      fileId,
+      fields: "name,mimeType,size"
+    });
+    const mimeType = metadataResult.data?.mimeType || "image/jpeg";
+    if (!/^image\//i.test(mimeType)) {
+      return sendApiError(res, 415, "unsupported_image_type", "File is not an image.");
+    }
+
+    const mediaResult = await drive.files.get(
+      { fileId, alt: "media" },
+      { responseType: "stream" }
+    );
+    res.setHeader("Content-Type", mimeType);
+    if (metadataResult.data?.size) res.setHeader("Content-Length", String(metadataResult.data.size));
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    mediaResult.data.on("error", (error) => {
+      console.warn(readableError(error));
+      if (!res.headersSent) res.status(500).end();
+    });
+    mediaResult.data.pipe(res);
+  } catch (error) {
+    console.warn(error?.message || readableError(error));
+    if (!res.headersSent) {
+      res.status(500).json({ ok: false, code: "line_image_proxy_failed", error: "โหลดรูปภาพไม่สำเร็จ" });
+    }
+  }
 });
 
 validateStartupConfig();
@@ -913,6 +964,99 @@ app.post("/api/qc-checks", requireUser, async (req, res) => {
   }
 });
 
+app.get("/api/review/hero", requireUser, async (req, res) => {
+  let generationId = String(req.query.generation_id || req.query.generationId || "").trim();
+  const assetId = String(req.query.asset_id || req.query.assetId || "").trim();
+  if (!generationId && assetId) {
+    generationId = await resolveGenerationIdFromOwnedAsset(assetId, req.user.id);
+  }
+  if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
+
+  try {
+    const generation = await getOwnedGeneration(generationId, req.user.id);
+    if (!generation) return sendApiError(res, 404, "generation_not_found", "Generation not found.");
+
+    const { data: job, error: jobError } = await supabaseAdmin
+      .from("jobs")
+      .select("*")
+      .eq("id", generation.job_id)
+      .maybeSingle();
+    if (jobError) throw jobError;
+
+    const [assetsResult, approvalsResult] = await Promise.all([
+      supabaseAdmin
+        .from("assets")
+        .select("*")
+        .eq("job_id", generation.job_id)
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("approvals")
+        .select("*")
+        .eq("generation_id", generationId)
+        .order("approved_at", { ascending: false })
+    ]);
+    if (assetsResult.error) throw assetsResult.error;
+    if (approvalsResult.error) throw approvalsResult.error;
+
+    const assets = assetsResult.data || [];
+    const heroAsset = assets.find((asset) => asset.generation_id === generationId) ||
+      assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
+      null;
+    const referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
+
+    res.json({
+      ok: true,
+      review: {
+        batch_id: cleanOptionalString(req.query.batch_id || req.query.batchId),
+        sku: cleanOptionalString(req.query.sku) || job?.sku || "",
+        generation_id: generationId,
+        job: sanitizeWorkflowJobDetail(job || {}),
+        hero_asset: heroAsset,
+        reference_assets: referenceAssets,
+        approved: Boolean(approvalsResult.data?.length),
+        approvals: approvalsResult.data || []
+      }
+    });
+  } catch (error) {
+    console.warn(error?.message || readableError(error));
+    res.status(500).json({ ok: false, code: "hero_review_failed", error: "โหลด Hero Review ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
+  const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
+  if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
+
+  try {
+    const generation = await getOwnedGeneration(generationId, req.user.id);
+    if (!generation) return sendApiError(res, 404, "generation_not_found", "Generation not found.");
+    const batchId = cleanOptionalString(req.body.batch_id || req.body.batchId);
+    const sku = sanitizeSku(req.body.sku || "");
+
+    await recordAuditEvent({
+      actorId: req.user.id,
+      jobId: generation.job_id,
+      generationId,
+      eventType: "hero_regeneration_requested",
+      eventJson: { source: "web_review_page", batch_id: batchId, sku }
+    });
+
+    const task = await maybeEnqueueHeroReviewAutomationTask({
+      action: "regenerate_hero",
+      batchId,
+      sku,
+      jobId: generation.job_id,
+      generationId,
+      actorId: req.user.id
+    });
+
+    res.json({ ok: true, task });
+  } catch (error) {
+    console.warn(error?.message || readableError(error));
+    res.status(500).json({ ok: false, code: "hero_regenerate_failed", error: "บันทึกคำขอ regenerate ไม่สำเร็จ" });
+  }
+});
+
 app.post("/api/approvals", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
   if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
@@ -942,7 +1086,15 @@ app.post("/api/approvals", requireUser, async (req, res) => {
     if (existingApprovalResult.error) {
       console.warn(existingApprovalResult.error.message || readableError(existingApprovalResult.error));
     } else if (existingApprovalResult.data?.length) {
-      return res.json({ ok: true, approval: existingApprovalResult.data[0], duplicate: true });
+      const task = await maybeEnqueueHeroReviewAutomationTask({
+        action: "approve_hero",
+        batchId: cleanOptionalString(req.body.batch_id || req.body.batchId),
+        sku: sanitizeSku(req.body.sku || ""),
+        jobId: generation.job_id,
+        generationId,
+        actorId: req.user.id
+      });
+      return res.json({ ok: true, approval: existingApprovalResult.data[0], duplicate: true, task });
     }
 
     const payload = {
@@ -982,7 +1134,16 @@ app.post("/api/approvals", requireUser, async (req, res) => {
       }
     });
 
-    res.status(201).json({ ok: true, approval });
+    const task = await maybeEnqueueHeroReviewAutomationTask({
+      action: "approve_hero",
+      batchId: cleanOptionalString(req.body.batch_id || req.body.batchId),
+      sku: sanitizeSku(req.body.sku || ""),
+      jobId: generation.job_id,
+      generationId,
+      actorId: req.user.id
+    });
+
+    res.status(201).json({ ok: true, approval, task });
   } catch (error) {
     console.warn(error?.message || readableError(error));
     await recordAuditEvent({
@@ -2389,6 +2550,108 @@ async function findGenerationIdForAsset(jobId, assetId) {
   return data?.[0]?.generation_id || null;
 }
 
+async function resolveGenerationIdFromOwnedAsset(assetId, userId) {
+  if (!assetId || !userId) return "";
+  if (!isValidUuid(assetId)) return "";
+  const { data: asset, error: assetError } = await supabaseAdmin
+    .from("assets")
+    .select("id, job_id, generation_id")
+    .eq("id", assetId)
+    .maybeSingle();
+  if (assetError || !asset?.job_id) return "";
+
+  const { data: job, error: jobError } = await supabaseAdmin
+    .from("jobs")
+    .select("id, created_by")
+    .eq("id", asset.job_id)
+    .eq("created_by", userId)
+    .maybeSingle();
+  if (jobError || !job?.id) return "";
+
+  if (asset.generation_id) return asset.generation_id;
+  return findGenerationIdForAsset(asset.job_id, asset.id);
+}
+
+function isReferenceReviewAsset(asset = {}) {
+  const type = String(asset.type || "").toLowerCase();
+  if (!type) return false;
+  if (type.includes("generated") || type === "approved_export") return false;
+  return type.includes("reference") || type.includes("upload") || type.includes("source") || type.includes("product");
+}
+
+async function maybeEnqueueHeroReviewAutomationTask({
+  action,
+  batchId,
+  sku,
+  jobId,
+  generationId,
+  actorId
+} = {}) {
+  if (!batchId || !isValidUuid(batchId) || !sku) return null;
+  const taskType = GENERATE_BATCH_TASK;
+  const approve = action === "approve_hero";
+  const task = await enqueueAutomationTask({
+    taskType,
+    batchId,
+    jobId,
+    generationId,
+    dedupeKey: `web-review:${action}:${batchId}:${sku}:${generationId}`,
+    priority: approve ? 125 : 130,
+    payload: {
+      source: "web_review_page",
+      action,
+      batch_id: batchId,
+      sku,
+      generation_id: generationId,
+      actor_id: actorId || null,
+      generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration",
+      request_mode: approve ? "support-only-after-approved-hero" : "hero-only",
+      requires_approved_hero_anchor: approve,
+      dry_run: true,
+      completed_reason: approve
+        ? "Hero approved from web review page; support generation plan can now attach reference plus approved hero anchor"
+        : "Hero regeneration requested from web review page"
+    }
+  });
+
+  if (approve) {
+    await updateAutomationBatchItemFromReviewAction({ action, batchId, sku, actorId, generationId });
+  }
+  return task;
+}
+
+async function updateAutomationBatchItemFromReviewAction({ action, batchId, sku, actorId, generationId }) {
+  if (!batchId || !sku) return null;
+  const existingResult = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("id, metadata")
+    .eq("batch_id", batchId)
+    .eq("sku", sku)
+    .maybeSingle();
+  if (existingResult.error) throw existingResult.error;
+  if (!existingResult.data?.id) return null;
+
+  const metadata = {
+    ...(isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {}),
+    web_review_action: {
+      source: "web_review_page",
+      last_action: action,
+      actor_id: actorId || null,
+      generation_id: generationId || null,
+      recorded_at: new Date().toISOString()
+    }
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("automation_batch_items")
+    .update({ status: batchItemStatusForLineAction(action), metadata })
+    .eq("id", existingResult.data.id)
+    .select("id, sku, status")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 async function getOwnedGeneration(generationId, userId) {
   if (!generationId || !userId) return null;
   const { data, error } = await supabaseAdmin
@@ -2396,13 +2659,20 @@ async function getOwnedGeneration(generationId, userId) {
     .select("id, job_id, created_by")
     .eq("id", generationId)
     .eq("created_by", userId)
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    if (isNoRowsError(error)) return null;
-    throw error;
-  }
-  return data;
+  if (error) throw error;
+  if (data) return data;
+
+  const profile = await getWorkflowProfileForUser(userId);
+  if (!profile.ok || profile.profile?.role !== "admin") return null;
+  const adminResult = await supabaseAdmin
+    .from("generations")
+    .select("id, job_id, created_by")
+    .eq("id", generationId)
+    .maybeSingle();
+  if (adminResult.error) throw adminResult.error;
+  return adminResult.data || null;
 }
 
 async function getProfileForUser(user) {
@@ -2541,6 +2811,23 @@ function verifyLineSignature(rawBody, signature) {
   return timingSafeEqual(expectedBuffer, signatureBuffer);
 }
 
+function verifyLineImageProxySignature({ fileId, exp, sig } = {}) {
+  if (!lineImageProxySecret || !fileId || !exp || !sig) return false;
+  const expiresAt = Number(exp);
+  if (!Number.isFinite(expiresAt) || expiresAt < Math.floor(Date.now() / 1000)) return false;
+  const expected = createHmac("sha256", lineImageProxySecret)
+    .update(`${fileId}.${exp}`)
+    .digest("hex");
+  const expectedBuffer = Buffer.from(expected);
+  const signatureBuffer = Buffer.from(String(sig));
+  if (expectedBuffer.length !== signatureBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, signatureBuffer);
+}
+
+function isValidDriveFileId(value = "") {
+  return /^[A-Za-z0-9_-]{10,200}$/.test(String(value || ""));
+}
+
 async function handleLineWebhookPayload(payload) {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   await Promise.all(events.map((event) => handleLineWebhookEvent(event, payload)));
@@ -2628,7 +2915,15 @@ function normalizeLineAction(action) {
 }
 
 function lineAuditEventTypeForAction(action) {
-  const allowed = new Set(["approve_batch", "needs_review", "reject_batch", "approve_sku", "reject_sku"]);
+  const allowed = new Set([
+    "approve_batch",
+    "needs_review",
+    "reject_batch",
+    "approve_sku",
+    "reject_sku",
+    "approve_hero",
+    "regenerate_hero"
+  ]);
   return allowed.has(action) ? `line_${action}` : "line_postback_received";
 }
 
@@ -2652,6 +2947,20 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           batch_id: action.batchId,
           line_user_id: baseEventJson.line_user_id,
           dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
+        }
+      });
+      await enqueueAutomationTask({
+        taskType: WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK,
+        batchId: batch?.id || null,
+        dedupeKey: `line:${WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK}:${action.batchId}`,
+        priority: 120,
+        payload: {
+          source: "line",
+          action: action.action,
+          batch_id: action.batchId,
+          line_user_id: baseEventJson.line_user_id,
+          dry_run: true,
+          requires_final_confirmation: true
         }
       });
     }
@@ -2686,6 +2995,41 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           completed_reason: "Recorded rejection from LINE"
         }
       });
+    }
+
+    if (action.action === "approve_hero" || action.action === "regenerate_hero") {
+      const batchItem = await updateAutomationBatchItemFromLineAction({
+        action,
+        batchId: batch?.id || null,
+        baseEventJson
+      });
+
+      if (batchItem) {
+        await enqueueAutomationTask({
+          taskType: GENERATE_BATCH_TASK,
+          batchId: batch?.id || null,
+          batchItemId: batchItem.id,
+          generationId: isValidUuid(action.generationId) ? action.generationId : null,
+          dedupeKey: `line:${action.action}:${action.batchId}:${action.sku}`,
+          priority: action.action === "approve_hero" ? 125 : 130,
+          payload: {
+            source: "line",
+            action: action.action,
+            batch_id: action.batchId,
+            sku: action.sku,
+            generation_id: action.generationId || null,
+            line_user_id: baseEventJson.line_user_id,
+            generation_phase: action.action === "approve_hero" ? "support_after_hero_approval" : "hero_regeneration",
+            request_mode: action.action === "approve_hero" ? "support-only-after-approved-hero" : "hero-only",
+            requires_approved_hero_anchor: action.action === "approve_hero",
+            dry_run: true,
+            completed_reason:
+              action.action === "approve_hero"
+                ? "Hero approved from LINE; support generation plan can now attach reference plus approved hero anchor"
+                : "Hero regeneration requested from LINE"
+          }
+        });
+      }
     }
 
     if (action.action === "approve_sku" || action.action === "reject_sku") {
@@ -2757,7 +3101,7 @@ async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
   const existingMetadata = isPlainObject(existingResult.data?.metadata)
     ? existingResult.data.metadata
     : {};
-  const isSkuAction = action.action === "approve_sku" || action.action === "reject_sku";
+  const isSkuAction = ["approve_sku", "reject_sku", "approve_hero", "regenerate_hero"].includes(action.action);
   const patch = {
     source: "line",
     status: isSkuAction
@@ -2800,7 +3144,7 @@ async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
 async function updateAutomationBatchItemFromLineAction({ action, batchId, baseEventJson }) {
   if (!batchId || !action.sku) return null;
 
-  const status = action.action === "approve_sku" ? "approved" : "rejected";
+  const status = batchItemStatusForLineAction(action.action);
   const existingResult = await supabaseAdmin
     .from("automation_batch_items")
     .select("id, metadata")
@@ -2815,6 +3159,7 @@ async function updateAutomationBatchItemFromLineAction({ action, batchId, baseEv
     line_action: {
       source: "line",
       last_action: action.action,
+      generation_id: action.generationId || null,
       last_webhook_event_id: baseEventJson.webhook_event_id || null,
       line_user_id: baseEventJson.line_user_id || null,
       recorded_at: new Date().toISOString()
@@ -2835,6 +3180,16 @@ function automationBatchStatusForAction(action) {
   if (action === "approve_batch") return "approved";
   if (action === "needs_review") return "needs_review";
   if (action === "reject_batch") return "rejected";
+  if (action === "approve_hero") return "hero_reviewed";
+  if (action === "regenerate_hero") return "needs_hero_regeneration";
+  return "received";
+}
+
+function batchItemStatusForLineAction(action) {
+  if (action === "approve_sku") return "approved";
+  if (action === "reject_sku") return "rejected";
+  if (action === "approve_hero") return "hero_approved";
+  if (action === "regenerate_hero") return "needs_hero_regeneration";
   return "received";
 }
 
@@ -2877,6 +3232,8 @@ async function replyLinePostbackAcknowledgement(replyToken, action) {
     approve_batch: "Approve batch",
     needs_review: "Needs review",
     reject_batch: "Reject batch",
+    approve_hero: "Approve hero",
+    regenerate_hero: "Regenerate hero",
     approve_sku: "Approve SKU",
     reject_sku: "Reject SKU"
   };
@@ -2984,47 +3341,99 @@ async function claimNextAutomationTask() {
 async function processAutomationTask(task) {
   console.log(`[automation-worker] processing ${task.id} ${task.task_type}`);
   try {
-    const dryRun =
-      task.payload?.dry_run !== false ||
-      isDryRun("AI_GENERATION_DRY_RUN", true) ||
-      isDryRun("WORDPRESS_DRY_RUN", true);
     const batchItems = task.batch_id ? await readAutomationBatchItems(task.batch_id) : [];
-
-    if (dryRun) {
-      await recordAuditEvent({
-        actorId: null,
-        eventType: "automation_task_dry_run_completed",
-        eventJson: {
-          task_id: task.id,
-          task_type: task.task_type,
-          batch_id: task.batch_id,
-          batch_item_count: batchItems.length,
-          batch_skus: batchItems.map((item) => item.sku).filter(Boolean).slice(0, 50),
-          dedupe_key: task.dedupe_key,
-          worker_id: automationWorkerId,
-          embedded_worker: true,
-          payload: task.payload || {}
-        }
-      });
-      await completeAutomationTask(task.id, {
-        ...task.payload,
-        dry_run: true,
-        batch_item_count: batchItems.length,
-        message: "Dry-run completed. No image generation or WordPress publishing was executed."
-      });
-      return;
-    }
-
-    throw new Error(`Live automation task processing is not enabled yet for ${task.task_type}.`);
+    await processAutomationTaskCore({
+      task,
+      batchItems,
+      workerId: automationWorkerId,
+      embeddedWorker: true,
+      recordAuditEvent: ({ eventType, eventJson }) => recordAuditEvent({ actorId: null, eventType, eventJson }),
+      completeTask: completeAutomationTask,
+      onPreflightCompleted: handleWordPressProductPreflightCompleted
+    });
   } catch (error) {
     await failOrRetryAutomationTask(task, error);
+  }
+}
+
+async function handleWordPressProductPreflightCompleted({ task, preflight }) {
+  await sendWordPressPreflightLineSummary({ task, preflight });
+  await enqueueWordPressMediaMappingPreflight({ task, preflight });
+}
+
+async function sendWordPressPreflightLineSummary({ task, preflight }) {
+  const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
+  if (!target || !lineChannelAccessToken) return;
+
+  try {
+    await pushLineMessage({
+      to: target,
+      messages: [buildWordPressPreflightFlex(preflight)]
+    });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_product_publish_preflight_line_summary_sent",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        line_target_configured: Boolean(lineTargetUserId),
+        summary: preflight.summary || {}
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_product_publish_preflight_line_summary_failed",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        error: readableError(error)
+      }
+    });
+  }
+}
+
+async function enqueueWordPressMediaMappingPreflight({ task, preflight }) {
+  if (!task?.batch_id) return;
+  try {
+    await enqueueAutomationTask({
+      taskType: WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK,
+      batchId: task.batch_id,
+      dedupeKey: `line:${WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK}:${preflight.batch_id || task.payload?.batch_id || task.batch_id}`,
+      priority: 140,
+      payload: {
+        source: task.payload?.source || "automation_worker",
+        action: "media_mapping_preflight",
+        batch_id: task.payload?.batch_id || preflight.batch_id || null,
+        line_user_id: task.payload?.line_user_id || null,
+        dry_run: true,
+        requires_final_confirmation: true,
+        product_preflight: preflight
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_media_mapping_preflight_enqueue_failed",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        error: readableError(error)
+      }
+    });
   }
 }
 
 async function readAutomationBatchItems(batchId) {
   const { data, error } = await supabaseAdmin
     .from("automation_batch_items")
-    .select("id, sku, product_type, target_site, product_name, status, woo_status")
+    .select("id, sku, product_type, target_site, product_name, status, woo_status, metadata")
     .eq("batch_id", batchId)
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -4234,7 +4643,8 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
     generationsResult,
     approvalsResult,
     assetsResult,
-    auditEventsResult
+    auditEventsResult,
+    automationTasksResult
   ] = await Promise.all([
     readMonitoringRows("jobs", [
       "id, sku, product_name, status, created_by, created_at, updated_at",
@@ -4274,10 +4684,18 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
       since: rangeMeta.since,
       limit,
       optional: true
+    }),
+    readMonitoringRows("automation_tasks", [
+      "id, task_type, batch_id, dedupe_key, status, payload, completed_at, created_at",
+      "id, task_type, batch_id, dedupe_key, status, completed_at, created_at"
+    ], {
+      since: rangeMeta.since,
+      limit: 250,
+      optional: true
     })
   ]);
 
-  [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult].forEach((result) => {
+  [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult, automationTasksResult].forEach((result) => {
     if (result.error) {
       readWarnings.push(createWarning(`${result.table}_unavailable`, `ยังอ่านข้อมูล ${result.table} ไม่ได้ จึงแสดงผลส่วนนั้นเป็นค่าว่าง`));
     }
@@ -4291,6 +4709,7 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
   const approvals = approvalsResult.data;
   const assets = assetsResult.data;
   const auditEvents = auditEventsResult.data;
+  const automationTasks = automationTasksResult.data;
   const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
   const profiles = await readKpiProfiles(userIds);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
@@ -4327,10 +4746,12 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
   const recentErrors = failedItems.slice(0, 30);
   const latestErrorTime = recentErrors[0]?.time || null;
   const recentSystemEvents = buildMonitoringRecentEvents({ auditEvents, jobById, generationById, profileById });
+  const wordpressPreflights = buildMonitoringWordPressPreflights(automationTasks);
   const pagination = buildMonitoringPaginationMeta(paginationInput, {
     stuckJobs: stuckJobs.length,
     failedItems: failedItems.length,
-    recentSystemEvents: recentSystemEvents.length
+    recentSystemEvents: recentSystemEvents.length,
+    wordpressPreflights: wordpressPreflights.length
   });
 
   const warnings = [
@@ -4364,6 +4785,7 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
       failedGenerations: failedGenerations.length,
       pendingApprovals: pendingApprovals.length,
       stuckJobs: stuckJobs.length,
+      wordpressPreflights: wordpressPreflights.length,
       warningsCount: dedupedWarnings.length
     },
     integrationHealth: {
@@ -4385,6 +4807,7 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
       storageWarnings: resolvedStorageFailureEvents.length,
       approvalFailures: approvalFailureEvents.length,
       pendingApprovals: pendingApprovals.length,
+      wordpressPreflights: wordpressPreflights.length,
       warningsCount: dedupedWarnings.length,
       latestErrorTime
     },
@@ -4392,7 +4815,8 @@ async function buildMonitoringCenter(range, paginationInput = normalizeMonitorin
     stuckJobs: paginateMonitoringItems(stuckJobs, pagination),
     failedItems: paginateMonitoringItems(failedItems, pagination),
     recentErrors,
-    recentSystemEvents: paginateMonitoringItems(recentSystemEvents, pagination)
+    recentSystemEvents: paginateMonitoringItems(recentSystemEvents, pagination),
+    wordpressPreflights: paginateMonitoringItems(wordpressPreflights, pagination)
   };
 }
 
@@ -5427,7 +5851,8 @@ function buildMonitoringPaginationMeta(input, totalsByList) {
     totals: {
       stuckJobs: Number(totalsByList.stuckJobs || 0),
       failedItems: Number(totalsByList.failedItems || 0),
-      recentSystemEvents: Number(totalsByList.recentSystemEvents || 0)
+      recentSystemEvents: Number(totalsByList.recentSystemEvents || 0),
+      wordpressPreflights: Number(totalsByList.wordpressPreflights || 0)
     }
   };
 }

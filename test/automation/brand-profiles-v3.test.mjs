@@ -14,6 +14,13 @@ test("infers GO Mall from sale product type and site", () => {
   assert.equal(inferBrandIdFromItem({ product_type: "sale", target_site: "gomall" }), BRAND_IDS.GO_MALL);
 });
 
+test("uses Product Catalog branch before legacy target site and product type", () => {
+  assert.equal(
+    inferBrandIdFromItem({ reference_branch: "GO Mall", product_type: "rental", target_site: "rentacoat" }),
+    BRAND_IDS.GO_MALL
+  );
+});
+
 test("Rent A Coat profile emphasizes rental trust", () => {
   const profile = getBrandProfile(BRAND_IDS.RENT_A_COAT);
   assert.equal(profile.brandId, "rent_a_coat");

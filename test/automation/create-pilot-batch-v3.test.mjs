@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { catalogAuditRows, generationRows } from "./fixtures/catalog-rows.mjs";
+import { PROMPT_FRAMEWORK_V3_VERSION } from "../../lib/automation/prompt-framework-v3.mjs";
 
 test("createPilotBatch selects 2 SKU per brand with framework v3 fields", async () => {
   const { createPilotBatch } = await import("../../scripts/automation/create-pilot-batch.mjs");
@@ -15,13 +16,13 @@ test("createPilotBatch selects 2 SKU per brand with framework v3 fields", async 
   });
 
   assert.equal(batch.items.length, 4);
-  assert.equal(batch.prompt_framework_version, "prompt-framework-v3.0-dry-run");
+  assert.equal(batch.prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
   assert.equal(batch.selection.sku_per_brand, 2);
   assert.equal(batch.items.filter((item) => item.brand_id === "rent_a_coat").length, 2);
   assert.equal(batch.items.filter((item) => item.brand_id === "go_mall").length, 2);
 
   for (const item of batch.items) {
-    assert.equal(item.prompt_framework_version, "prompt-framework-v3.0-dry-run");
+    assert.equal(item.prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
     assert.ok(item.brand_id);
     assert.ok(item.brand_label);
     assert.ok(item.hero_prompt);

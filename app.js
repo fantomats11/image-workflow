@@ -426,6 +426,16 @@ const els = {
   staffSuccessState: document.getElementById("staffSuccessState"),
   staffEmptyState: document.getElementById("staffEmptyState"),
   staffAdminList: document.getElementById("staffAdminList"),
+  heroReviewTitle: document.getElementById("heroReviewTitle"),
+  heroReviewStatus: document.getElementById("heroReviewStatus"),
+  heroReviewMeta: document.getElementById("heroReviewMeta"),
+  heroReviewRefCount: document.getElementById("heroReviewRefCount"),
+  heroReviewGenerationId: document.getElementById("heroReviewGenerationId"),
+  heroReviewRefs: document.getElementById("heroReviewRefs"),
+  heroReviewHero: document.getElementById("heroReviewHero"),
+  heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
+  heroReviewRegenerateButton: document.getElementById("heroReviewRegenerateButton"),
+  heroReviewMessage: document.getElementById("heroReviewMessage"),
   openCreateStaffButton: document.getElementById("openCreateStaffButton"),
   createStaffModal: document.getElementById("createStaffModal"),
   closeCreateStaffButton: document.getElementById("closeCreateStaffButton"),
@@ -525,6 +535,7 @@ const pageMeta = {
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
   costs: { eyebrow: "Cost Control", title: "Cost / Usage Tracking" },
   monitoring: { eyebrow: "Production Monitoring", title: "System Health" },
+  review: { eyebrow: "Hero Review", title: "ตรวจ Hero ก่อน Support" },
   settings: { eyebrow: "Admin", title: "ตั้งค่าระบบภาพ" }
 };
 
@@ -1233,8 +1244,14 @@ async function refreshSystemStatus() {
 }
 
 function getPageFromHash() {
-  const page = window.location.hash.replace("#", "").trim();
+  const page = window.location.hash.replace("#", "").trim().split("?")[0];
   return pageMeta[page] ? page : "create";
+}
+
+function getHashParams() {
+  const hash = window.location.hash.replace(/^#/, "");
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+  return new URLSearchParams(query);
 }
 
 function navigateToPage(page) {
@@ -1260,6 +1277,7 @@ function navigateToPage(page) {
     renderAssets();
     if (isAppReady()) refreshAssetLibrary();
   }
+  if (targetPage === "review" && isAppReady()) loadHeroReviewPage();
   if (targetPage === "kpi") refreshMetrics();
   if (targetPage === "costs" && isAdmin()) refreshCosts();
   if (targetPage === "monitoring" && isAdmin()) refreshMonitoring();
@@ -1328,6 +1346,8 @@ function bindEvents() {
     event.preventDefault();
     buildPrompt();
   });
+  if (els.heroReviewApproveButton) els.heroReviewApproveButton.addEventListener("click", approveHeroFromReviewPage);
+  if (els.heroReviewRegenerateButton) els.heroReviewRegenerateButton.addEventListener("click", regenerateHeroFromReviewPage);
 
   els.copyButton.addEventListener("click", async () => {
     if (!currentPrompt) buildPrompt();
@@ -4865,6 +4885,132 @@ function buildQcChecklistJson() {
 function getQcSubmissionKey(checklistJson, score, passed) {
   const checkedMask = checklistJson.items.map((item) => (item.checked ? "1" : "0")).join("");
   return `${currentHeroGenerationId}:${score}:${passed ? "1" : "0"}:${checkedMask}`;
+}
+
+async function loadHeroReviewPage() {
+  if (!els.heroReviewStatus) return;
+  const params = getHashParams();
+  const generationId = params.get("generation_id") || params.get("generationId") || "";
+  const assetId = params.get("asset_id") || params.get("assetId") || "";
+  const sku = params.get("sku") || "";
+  if (!generationId && !assetId) {
+    setHeroReviewMessage("ลิงก์นี้ไม่มี generation_id หรือ asset_id จึงยัง approve จากหน้าเว็บไม่ได้", "danger");
+    els.heroReviewStatus.textContent = "missing generation";
+    return;
+  }
+
+  els.heroReviewStatus.textContent = "กำลังโหลด";
+  setHeroReviewMessage("", "");
+  try {
+    const response = await authFetch(`/api/review/hero?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "โหลด Hero Review ไม่สำเร็จ");
+    renderHeroReviewPage(data.review || {}, { generationId, sku });
+  } catch (error) {
+    els.heroReviewStatus.textContent = "โหลดไม่สำเร็จ";
+    setHeroReviewMessage(error.message, "danger");
+  }
+}
+
+function renderHeroReviewPage(review = {}, fallback = {}) {
+  const job = review.job || {};
+  const heroAsset = review.hero_asset || {};
+  const refs = Array.isArray(review.reference_assets) ? review.reference_assets : [];
+  const generationId = review.generation_id || fallback.generationId || "";
+  const sku = review.sku || fallback.sku || job.sku || heroAsset.sku || "-";
+  const heroUrl = heroAsset.public_url || heroAsset.url || heroAsset.source_url || "";
+
+  els.heroReviewTitle.textContent = `Hero Review / ${sku}`;
+  els.heroReviewStatus.textContent = review.approved ? "approved" : "ready";
+  els.heroReviewMeta.textContent = [job.product_name, job.product_type, job.status].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
+  els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
+  els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
+  els.heroReviewApproveButton.dataset.generationId = generationId;
+  els.heroReviewApproveButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
+  els.heroReviewApproveButton.dataset.sku = sku;
+  els.heroReviewRegenerateButton.dataset.generationId = generationId;
+  els.heroReviewRegenerateButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
+  els.heroReviewRegenerateButton.dataset.sku = sku;
+  els.heroReviewApproveButton.disabled = Boolean(review.approved);
+
+  els.heroReviewHero.innerHTML = heroUrl
+    ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="Hero candidate ${escapeHtml(sku)}" /></a>`
+    : `<p class="empty-state">ไม่พบ hero image</p>`;
+
+  if (!refs.length) {
+    els.heroReviewRefs.innerHTML = `<p class="empty-state">ไม่พบ reference image ในงานนี้</p>`;
+  } else {
+    els.heroReviewRefs.innerHTML = refs.map((asset, index) => {
+      const url = asset.public_url || asset.url || asset.thumbnailLink || "";
+      const label = asset.file_name || asset.name || asset.source_name || `Reference ${index + 1}`;
+      return `
+        <figure class="review-image-tile">
+          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
+          <figcaption>${escapeHtml(label)}</figcaption>
+        </figure>
+      `;
+    }).join("");
+  }
+
+  setHeroReviewMessage(review.approved ? "Hero นี้ approve แล้ว" : "", review.approved ? "success" : "");
+}
+
+async function approveHeroFromReviewPage() {
+  const generationId = els.heroReviewApproveButton?.dataset.generationId || "";
+  if (!generationId) return setHeroReviewMessage("ไม่มี generation_id สำหรับ approve", "danger");
+  els.heroReviewApproveButton.disabled = true;
+  setHeroReviewMessage("กำลังบันทึก approval...", "");
+  try {
+    const response = await authFetch("/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        generation_id: generationId,
+        batch_id: els.heroReviewApproveButton.dataset.batchId || "",
+        sku: els.heroReviewApproveButton.dataset.sku || "",
+        note: "Hero approved from web review page"
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Approval was not recorded.");
+    els.heroReviewStatus.textContent = "approved";
+    setHeroReviewMessage("Approve แล้ว: support planning ถูกปลดล็อกตาม flow", "success");
+  } catch (error) {
+    els.heroReviewApproveButton.disabled = false;
+    setHeroReviewMessage(error.message, "danger");
+  }
+}
+
+async function regenerateHeroFromReviewPage() {
+  const generationId = els.heroReviewRegenerateButton?.dataset.generationId || "";
+  if (!generationId) return setHeroReviewMessage("ไม่มี generation_id สำหรับ regenerate", "danger");
+  els.heroReviewRegenerateButton.disabled = true;
+  setHeroReviewMessage("กำลังส่งคำขอ regenerate...", "");
+  try {
+    const response = await authFetch("/api/review/hero/regenerate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        generation_id: generationId,
+        batch_id: els.heroReviewRegenerateButton.dataset.batchId || "",
+        sku: els.heroReviewRegenerateButton.dataset.sku || ""
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Regenerate request was not recorded.");
+    els.heroReviewStatus.textContent = "regenerate queued";
+    setHeroReviewMessage("รับคำขอ regenerate แล้ว", "success");
+  } catch (error) {
+    els.heroReviewRegenerateButton.disabled = false;
+    setHeroReviewMessage(error.message, "danger");
+  }
+}
+
+function setHeroReviewMessage(message, tone = "") {
+  if (!els.heroReviewMessage) return;
+  els.heroReviewMessage.textContent = message || "";
+  els.heroReviewMessage.classList.toggle("is-success", tone === "success");
+  els.heroReviewMessage.classList.toggle("danger", tone === "danger");
 }
 
 async function submitQcCheck() {

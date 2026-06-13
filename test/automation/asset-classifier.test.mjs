@@ -17,6 +17,20 @@ test("classifies label/tag images from OCR evidence", () => {
   assert.equal(result.sku_detected, "RAC-COAT-001");
 });
 
+test("classifies SKU card filenames as label evidence instead of product truth", () => {
+  const result = classifyReferenceAsset({
+    id: "asset-sku-card",
+    name: "2BT0158000_SkuCard_1779857095046.jpg",
+    mimeType: "image/jpeg",
+    width: 600,
+    height: 800
+  }, { sku: "2BT0158000" });
+
+  assert.equal(result.asset_type, "label_or_tag");
+  assert.equal(result.use_as_reference, false);
+  assert.equal(result.sku_detected, "2BT0158000");
+});
+
 test("classifies generated candidates from path/name hints", () => {
   const result = classifyReferenceAsset(referenceAssets[2], { sku: "RAC-COAT-001" });
   assert.equal(result.asset_type, "generated_candidate");
