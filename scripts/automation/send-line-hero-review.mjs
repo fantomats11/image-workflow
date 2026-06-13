@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadLocalEnv, getRequiredEnv } from "../../lib/automation/env.mjs";
 import { buildHeroReviewMessages, pushLineMessage } from "../../lib/automation/line-client.mjs";
+import { canUseSupabaseAutomation, registerAutomationBatch } from "../../lib/automation/batch-registry.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
@@ -46,6 +47,17 @@ export async function main() {
   fs.writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   console.info(`LINE hero review payload wrote: ${outputPath}`);
   console.info(`Summary: ${JSON.stringify(payload.summary)}`);
+
+  const registration = await registerHeroReviewBatchContext({
+    batch,
+    payload,
+    lineUserId: options.to || process.env.LINE_TARGET_USER_ID || ""
+  });
+  if (registration?.ok) {
+    console.info(`LINE hero review batch context registered: ${registration.itemCount} item(s)`);
+  } else if (registration?.skipped) {
+    console.info(`LINE hero review batch context registration skipped: ${registration.reason}`);
+  }
 
   if (options.send) {
     assertSafeToSendHeroReviewPayload(payload, options);
@@ -133,6 +145,32 @@ export function buildHeroReviewPayload({
     items,
     messages
   };
+}
+
+async function registerHeroReviewBatchContext({ batch = {}, payload = {}, lineUserId = "" } = {}) {
+  if (!canUseSupabaseAutomation()) {
+    return { ok: false, skipped: true, reason: "Supabase automation env is incomplete." };
+  }
+  const reviewItemsBySku = new Map((payload.items || []).map((item) => [normalizeSku(item.sku), item]));
+  const enrichedBatch = {
+    ...batch,
+    batch_id: batch.batch_id || payload.batch_id || "",
+    dry_run: true,
+    items: (batch.items || []).map((item) => {
+      const reviewItem = reviewItemsBySku.get(normalizeSku(item.sku)) || {};
+      return {
+        ...item,
+        hero_review_status: reviewItem.status || "",
+        hero_review_ready: Boolean(reviewItem.review_page_ready),
+        hero_review_hero_asset: reviewItem.hero_asset || null,
+        hero_review_reference_assets: Array.isArray(reviewItem.reference_assets) ? reviewItem.reference_assets : []
+      };
+    })
+  };
+  return registerAutomationBatch(enrichedBatch, {
+    source: "line_hero_review",
+    lineUserId
+  });
 }
 
 function parseArgs(args) {

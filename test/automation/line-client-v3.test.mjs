@@ -114,7 +114,7 @@ test("hero review flex shows hero plus references and encodes hero approval acti
   assert.equal(params.get("sku"), "2CT1600000");
 });
 
-test("hero review messages use full images and quick replies for action", () => {
+test("hero review messages use full images and persistent action buttons", () => {
   const messages = buildHeroReviewMessages({
     batchId: "batch-hero-1",
     reviewBaseUrl: "https://image-workflow.onrender.com",
@@ -142,9 +142,11 @@ test("hero review messages use full images and quick replies for action", () => 
   assert.equal(messages[1].originalContentUrl, "https://cdn.example.com/ref-front.jpg");
   assert.equal(messages[2].type, "image");
   assert.equal(messages[2].originalContentUrl, "https://cdn.example.com/hero.png");
-  assert.equal(messages[3].quickReply.items.length, 3);
+  assert.equal(messages[3].type, "template");
+  assert.equal(messages[3].template.type, "buttons");
+  assert.equal(messages[3].template.actions.length, 3);
 
-  const [approve, regenerate, review] = messages[3].quickReply.items.map((item) => item.action);
+  const [approve, regenerate, review] = messages[3].template.actions;
   assert.equal(approve.type, "postback");
   assert.equal(new URLSearchParams(approve.data).get("generation_id"), "gen-hero-1");
   assert.equal(regenerate.type, "postback");
@@ -202,7 +204,7 @@ test("hero review messages omit review page link without generation id", () => {
     }]
   });
 
-  const actions = messages[3].quickReply.items.map((item) => item.action);
+  const actions = messages[3].template.actions;
   assert.deepEqual(actions.map((action) => action.label), ["Approve hero", "Regenerate"]);
   assert.equal(actions.some((action) => action.type === "uri"), false);
 });

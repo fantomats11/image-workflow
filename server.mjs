@@ -1002,13 +1002,20 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
     const heroAsset = assets.find((asset) => asset.generation_id === generationId) ||
       assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
       null;
-    const referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
+    const batchKey = cleanOptionalString(req.query.batch_id || req.query.batchId);
+    const reviewSku = cleanOptionalString(req.query.sku) || job?.sku || "";
+    let referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
+    const batchReferenceAssets = await readHeroReviewReferenceAssetsFromBatch({
+      batchKey,
+      sku: reviewSku
+    });
+    referenceAssets = mergeReviewReferenceAssets(referenceAssets, batchReferenceAssets);
 
     res.json({
       ok: true,
       review: {
-        batch_id: cleanOptionalString(req.query.batch_id || req.query.batchId),
-        sku: cleanOptionalString(req.query.sku) || job?.sku || "",
+        batch_id: batchKey,
+        sku: reviewSku,
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
@@ -2577,6 +2584,111 @@ function isReferenceReviewAsset(asset = {}) {
   if (!type) return false;
   if (type.includes("generated") || type === "approved_export") return false;
   return type.includes("reference") || type.includes("upload") || type.includes("source") || type.includes("product");
+}
+
+async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "" } = {}) {
+  const normalizedBatchKey = cleanOptionalString(batchKey);
+  const normalizedSku = sanitizeSku(sku);
+  if (!normalizedBatchKey || !normalizedSku) return [];
+
+  let batchQuery = supabaseAdmin
+    .from("automation_batches")
+    .select("id")
+    .limit(1);
+  batchQuery = isValidUuid(normalizedBatchKey)
+    ? batchQuery.eq("id", normalizedBatchKey)
+    : batchQuery.eq("batch_key", normalizedBatchKey);
+
+  const { data: batches, error: batchError } = await batchQuery;
+  if (batchError) throw batchError;
+  const batch = (batches || [])[0];
+  if (!batch?.id) return [];
+
+  const { data: item, error: itemError } = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("metadata")
+    .eq("batch_id", batch.id)
+    .eq("sku", normalizedSku)
+    .maybeSingle();
+  if (itemError) throw itemError;
+
+  const metadata = isPlainObject(item?.metadata) ? item.metadata : {};
+  const referenceAssets = firstArray(
+    metadata.hero_review_reference_assets,
+    metadata.selected_reference_assets,
+    metadata.reference_assets,
+    metadata.reference_resolution?.selected_reference_assets
+  );
+  return referenceAssets.map(normalizeHeroReviewReferenceAsset).filter(Boolean);
+}
+
+function normalizeHeroReviewReferenceAsset(asset = {}) {
+  if (!isPlainObject(asset)) return null;
+  const driveFileId = cleanOptionalString(asset.drive_file_id || asset.driveFileId || asset.id);
+  const signedDriveUrl = driveFileId && isValidDriveFileId(driveFileId)
+    ? buildSignedLineImageProxyUrl({
+      driveFileId,
+      fileName: asset.name || asset.file_name || asset.source_name || ""
+    })
+    : "";
+  const fallbackUrl = safeHttpsUrl(
+    asset.public_url ||
+    asset.url ||
+    asset.source_url ||
+    asset.thumbnailLink ||
+    asset.webContentLink ||
+    asset.webViewLink
+  );
+  const url = signedDriveUrl || fallbackUrl;
+  return {
+    ...asset,
+    type: asset.type || "product_reference",
+    file_name: asset.file_name || asset.name || asset.source_name || "reference image",
+    name: asset.name || asset.file_name || asset.source_name || "reference image",
+    public_url: url,
+    url
+  };
+}
+
+function mergeReviewReferenceAssets(primary = [], fallback = []) {
+  const seen = new Set();
+  const merged = [];
+  for (const asset of [...primary, ...fallback]) {
+    const normalized = normalizeHeroReviewReferenceAsset(asset);
+    if (!normalized) continue;
+    const key = [
+      normalized.drive_file_id || normalized.id || "",
+      normalized.public_url || normalized.url || "",
+      normalized.file_name || normalized.name || ""
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(normalized);
+  }
+  return merged;
+}
+
+function buildSignedLineImageProxyUrl({ driveFileId = "", fileName = "" } = {}) {
+  const base = cleanOptionalString(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL).replace(/\/+$/, "");
+  const signingSecret = cleanOptionalString(lineImageProxySecret);
+  const fileId = cleanOptionalString(driveFileId);
+  if (!safeHttpsUrl(base) || !signingSecret || !fileId) return "";
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+  const sig = createHmac("sha256", signingSecret)
+    .update(`${fileId}.${exp}`)
+    .digest("hex");
+  const params = new URLSearchParams({ exp: String(exp), sig });
+  if (fileName) params.set("name", fileName);
+  return `${base}/api/public/line-image/${encodeURIComponent(fileId)}?${params.toString()}`;
+}
+
+function firstArray(...values) {
+  return values.find((value) => Array.isArray(value) && value.length) || [];
+}
+
+function safeHttpsUrl(value = "") {
+  const url = String(value || "").trim();
+  return /^https:\/\//i.test(url) ? url : "";
 }
 
 async function maybeEnqueueHeroReviewAutomationTask({
