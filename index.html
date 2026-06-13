@@ -99,9 +99,9 @@
           </div>
         </header>
 
-        <section class="page-view active" id="page-create" data-page="create">
-        <section class="dashboard-grid">
-          <form class="panel request-panel" id="requestForm">
+        <section class="page-view active create-page" id="page-create" data-page="create">
+        <section class="dashboard-grid create-workbench">
+          <form class="panel request-panel intake-panel" id="requestForm">
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">Step 1</p>
@@ -110,15 +110,26 @@
               <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
             </div>
 
-            <div class="section-note">
-              เลือกข้อมูลเท่าที่จำเป็น ระบบจะล็อก prompt structure, crop, layering และช็อตที่เหมาะกับสินค้าให้เอง
+            <div class="create-brief">
+              <div class="section-note">
+                เลือกข้อมูลเท่าที่จำเป็น ระบบจะล็อก prompt structure, crop, layering และช็อตที่เหมาะกับสินค้าให้เอง
+              </div>
+              <div class="create-brief-steps" aria-label="Create workflow">
+                <span>Ref first</span>
+                <span>Hero only</span>
+                <span>QC gate</span>
+                <span>Support after approval</span>
+              </div>
             </div>
 
             <div class="control-stack">
               <section class="control-section">
                 <div class="control-section-header">
                   <span>01</span>
-                  <strong>Job Identity</strong>
+                  <div>
+                    <strong>Job Identity</strong>
+                    <small>ระบุผู้ทำงาน SKU และ brand logic ก่อนสร้างภาพ</small>
+                  </div>
                 </div>
                 <div class="form-grid">
                   <label>
@@ -146,7 +157,10 @@
               <section class="control-section">
                 <div class="control-section-header">
                   <span>02</span>
-                  <strong>Product Direction</strong>
+                  <div>
+                    <strong>Product Direction</strong>
+                    <small>กำหนดหมวด สี จุดเด่น และขนาด output</small>
+                  </div>
                 </div>
                 <div class="form-grid">
                   <label>
@@ -199,7 +213,10 @@
               <section class="control-section reference-dock">
                 <div class="control-section-header">
                   <span>03</span>
-                  <strong>Reference Assets</strong>
+                  <div>
+                    <strong>Reference Assets</strong>
+                    <small>ภาพจริงคือ source of truth โดยเฉพาะโลโก้ สี และทรงสินค้า</small>
+                  </div>
                 </div>
                 <label class="full-width">
                   ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
@@ -226,7 +243,10 @@
               <section class="control-section">
                 <div class="control-section-header">
                   <span>04</span>
-                  <strong>Operator Notes</strong>
+                  <div>
+                    <strong>Operator Notes</strong>
+                    <small>ใช้ล็อกข้อห้าม เช่น ห้ามเปลี่ยนโลโก้ ห้ามเปลี่ยนสี</small>
+                  </div>
                 </div>
                 <label class="full-width">
                   หมายเหตุเพิ่มเติม
@@ -236,12 +256,13 @@
             </div>
 
             <div class="actions action-bar">
+              <span>Generate เฉพาะ Hero ก่อน แล้วค่อยส่งเข้า QC</span>
               <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">Generate Hero</button>
               <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
             </div>
           </form>
 
-          <section class="panel preview-panel" id="hero">
+          <section class="panel preview-panel studio-panel" id="hero">
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">Step 2</p>

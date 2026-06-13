@@ -49,9 +49,19 @@ Hero Review uses a two-column comparison layout on desktop:
 - The action dock must not overlap the hero image.
 - Mobile stacks in this order: brief, reference set, hero candidate, checklist, actions.
 
+## Create Intake Pattern
+
+Create uses an intake workbench layout:
+
+- Left: job setup, product direction, reference assets, and operator notes.
+- Right: hero preview, generation state, and prompt preview.
+- The brief must show the flow clearly: reference first, hero only, QC gate, support after approval.
+- Reference uploads are treated as first-class cards because logo, color, and fit fidelity depend on them.
+- The primary action bar explains that only the Hero is generated first.
+- Mobile stacks in this order: setup brief, input groups, action bar, hero preview, QC, support set.
+
 ## Next UI Phases
 
-- Apply the same component rules to Create Job form.
-- Replace long forms with compact grouped sections and clearer upload states.
 - Improve Jobs/Assets tables with status-first rows and visible production state.
+- Add compact empty, loading, and error states for every operational page.
 - Add a Design System preview page only after components stabilize.
