@@ -80,7 +80,7 @@ test("reference match flex encodes postback data for URLSearchParams", () => {
   assert.deepEqual(actions, ["approve_sku", "needs_review", "reject_sku"]);
 });
 
-test("hero review flex shows hero plus references and encodes hero approval action", () => {
+test("hero review flex shows hero plus references without chat decision buttons", () => {
   const flex = buildHeroReviewFlex({
     batchId: "batch-hero-1",
     item: {
@@ -102,19 +102,14 @@ test("hero review flex shows hero plus references and encodes hero approval acti
   const text = JSON.stringify(flex);
   assert.match(text, /Hero Review/);
   assert.match(text, /ตรวจ ref \+ hero ก่อนสั่ง support/);
-  assert.match(text, /Approve hero/);
-  assert.match(text, /approve_hero/);
+  assert.match(text, /ตัดสินใจในหน้า Review/);
+  assert.doesNotMatch(text, /Approve hero/);
+  assert.doesNotMatch(text, /approve_hero/);
   assert.match(text, /2CT1600000_front/);
   assert.doesNotMatch(text, /undefined/);
-
-  const approveButton = flex.contents.contents[0].footer.contents[0];
-  const params = new URLSearchParams(approveButton.action.data);
-  assert.equal(params.get("action"), "approve_hero");
-  assert.equal(params.get("batch_id"), "batch-hero-1");
-  assert.equal(params.get("sku"), "2CT1600000");
 });
 
-test("hero review messages use full images and persistent action buttons", () => {
+test("hero review messages use full images and route decisions to review page", () => {
   const messages = buildHeroReviewMessages({
     batchId: "batch-hero-1",
     reviewBaseUrl: "https://image-workflow.onrender.com",
@@ -142,17 +137,13 @@ test("hero review messages use full images and persistent action buttons", () =>
   assert.equal(messages[1].originalContentUrl, "https://cdn.example.com/ref-front.jpg");
   assert.equal(messages[2].type, "image");
   assert.equal(messages[2].originalContentUrl, "https://cdn.example.com/hero.png");
-  assert.equal(messages[3].type, "template");
-  assert.equal(messages[3].template.type, "buttons");
-  assert.equal(messages[3].template.actions.length, 3);
-
-  const [approve, regenerate, review] = messages[3].template.actions;
-  assert.equal(approve.type, "postback");
-  assert.equal(new URLSearchParams(approve.data).get("generation_id"), "gen-hero-1");
-  assert.equal(regenerate.type, "postback");
-  assert.equal(review.type, "uri");
-  assert.match(review.uri, /^https:\/\/image-workflow\.onrender\.com\/#review\?/);
-  assert.match(review.uri, /generation_id=gen-hero-1/);
+  assert.equal(messages[3].type, "text");
+  assert.match(messages[3].text, /เปิดหน้า Review/);
+  assert.match(messages[3].text, /^https:\/\/image-workflow\.onrender\.com\/#review\?/m);
+  assert.match(messages[3].text, /generation_id=gen-hero-1/);
+  assert.doesNotMatch(JSON.stringify(messages), /"template"/);
+  assert.doesNotMatch(JSON.stringify(messages), /approve_hero/);
+  assert.doesNotMatch(JSON.stringify(messages), /regenerate_hero/);
 });
 
 test("hero review messages use signed proxy URLs for Drive reference images", () => {
@@ -184,7 +175,7 @@ test("hero review messages use signed proxy URLs for Drive reference images", ()
   assert.match(messages[1].originalContentUrl, /exp=/);
 });
 
-test("hero review messages omit review page link without generation id", () => {
+test("hero review messages explain missing review page without generation id", () => {
   const messages = buildHeroReviewMessages({
     batchId: "batch-hero-1",
     reviewBaseUrl: "https://image-workflow.onrender.com",
@@ -204,9 +195,9 @@ test("hero review messages omit review page link without generation id", () => {
     }]
   });
 
-  const actions = messages[3].template.actions;
-  assert.deepEqual(actions.map((action) => action.label), ["Approve hero", "Regenerate"]);
-  assert.equal(actions.some((action) => action.type === "uri"), false);
+  assert.equal(messages[3].type, "text");
+  assert.match(messages[3].text, /ยังเปิดหน้า Review/);
+  assert.doesNotMatch(messages[3].text, /#review\?/);
 });
 
 test("WordPress preflight flex summarizes read-only WooCommerce proposal", () => {

@@ -2992,8 +2992,8 @@ async function handleLineWebhookEvent(event, payload) {
       return;
     }
 
-    await recordLineAutomationAction({ action, baseEventJson, eventType });
-    await replyLinePostbackAcknowledgement(event.replyToken, action);
+    const actionResult = await recordLineAutomationAction({ action, baseEventJson, eventType });
+    await replyLinePostbackAcknowledgement(event.replyToken, action, actionResult);
     return;
   }
 
@@ -3045,6 +3045,7 @@ function isAuthorizedLinePostbackUser(lineUserId) {
 
 async function recordLineAutomationAction({ action, baseEventJson, eventType }) {
   if (!action.batchId && !action.sku) return;
+  let actionResult = { recorded: false, ignored: false };
 
   try {
     const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
@@ -3075,6 +3076,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           requires_final_confirmation: true
         }
       });
+      actionResult = { recorded: true, ignored: false };
     }
 
     if (action.action === "needs_review") {
@@ -3091,6 +3093,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           completed_reason: "Recorded review request from LINE"
         }
       });
+      actionResult = { recorded: true, ignored: false };
     }
 
     if (action.action === "reject_batch") {
@@ -3107,6 +3110,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           completed_reason: "Recorded rejection from LINE"
         }
       });
+      actionResult = { recorded: true, ignored: false };
     }
 
     if (action.action === "approve_hero" || action.action === "regenerate_hero") {
@@ -3116,7 +3120,15 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
         baseEventJson
       });
 
-      if (batchItem) {
+      if (batchItem?.ignored) {
+        actionResult = {
+          recorded: false,
+          ignored: true,
+          reason: batchItem.ignored_reason,
+          currentAction: batchItem.current_action,
+          status: batchItem.status
+        };
+      } else if (batchItem) {
         await enqueueAutomationTask({
           taskType: GENERATE_BATCH_TASK,
           batchId: batch?.id || null,
@@ -3141,6 +3153,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
                 : "Hero regeneration requested from LINE"
           }
         });
+        actionResult = { recorded: true, ignored: false, status: batchItem.status };
       }
     }
 
@@ -3170,6 +3183,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
                 : "Recorded SKU rejection from LINE"
           }
         });
+        actionResult = { recorded: true, ignored: false, status: batchItem.status };
       }
     }
 
@@ -3182,9 +3196,11 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
         batch_id: action.batchId,
         sku: action.sku,
         audit_event_type: eventType,
-        automation_batch_id: batch?.id || null
+        automation_batch_id: batch?.id || null,
+        action_result: actionResult
       }
     });
+    return actionResult;
   } catch (error) {
     console.warn("[line] automation action record failed:", readableError(error));
     await recordAuditEvent({
@@ -3198,6 +3214,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
         error: readableError(error)
       }
     });
+    return { recorded: false, ignored: false, error: readableError(error) };
   }
 }
 
@@ -3259,15 +3276,43 @@ async function updateAutomationBatchItemFromLineAction({ action, batchId, baseEv
   const status = batchItemStatusForLineAction(action.action);
   const existingResult = await supabaseAdmin
     .from("automation_batch_items")
-    .select("id, metadata")
+    .select("id, status, metadata")
     .eq("batch_id", batchId)
     .eq("sku", action.sku)
     .maybeSingle();
   if (existingResult.error) throw existingResult.error;
   if (!existingResult.data?.id) return null;
 
+  const existingMetadata = isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {};
+  const currentDecision = heroReviewDecisionActionForBatchItem({
+    status: existingResult.data.status,
+    metadata: existingMetadata
+  });
+  if (currentDecision) {
+    return {
+      id: existingResult.data.id,
+      sku: action.sku,
+      status: existingResult.data.status,
+      ignored: true,
+      ignored_reason: currentDecision === action.action ? "duplicate_hero_review_action" : "hero_review_already_decided",
+      current_action: currentDecision
+    };
+  }
+
+  const expectedGenerationId = cleanOptionalString(existingMetadata.hero_review_hero_asset?.generation_id);
+  if (expectedGenerationId && action.generationId && expectedGenerationId !== action.generationId) {
+    return {
+      id: existingResult.data.id,
+      sku: action.sku,
+      status: existingResult.data.status,
+      ignored: true,
+      ignored_reason: "stale_hero_review_action",
+      current_action: ""
+    };
+  }
+
   const metadata = {
-    ...(isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {}),
+    ...existingMetadata,
     line_action: {
       source: "line",
       last_action: action.action,
@@ -3286,6 +3331,23 @@ async function updateAutomationBatchItemFromLineAction({ action, batchId, baseEv
     .single();
   if (error) throw error;
   return data;
+}
+
+function heroReviewDecisionActionForBatchItem({ status, metadata = {} } = {}) {
+  const statusAction = heroReviewDecisionActionForStatus(status);
+  if (statusAction) return statusAction;
+  const lineAction = cleanOptionalString(metadata?.line_action?.last_action);
+  if (lineAction === "approve_hero" || lineAction === "regenerate_hero") return lineAction;
+  const webAction = cleanOptionalString(metadata?.web_review_action?.last_action);
+  if (webAction === "approve_hero" || webAction === "regenerate_hero") return webAction;
+  return "";
+}
+
+function heroReviewDecisionActionForStatus(status) {
+  const normalized = cleanOptionalString(status);
+  if (normalized === "hero_approved") return "approve_hero";
+  if (normalized === "needs_hero_regeneration") return "regenerate_hero";
+  return "";
 }
 
 function automationBatchStatusForAction(action) {
@@ -3338,7 +3400,7 @@ async function enqueueAutomationTask({
   return data?.[0] || null;
 }
 
-async function replyLinePostbackAcknowledgement(replyToken, action) {
+async function replyLinePostbackAcknowledgement(replyToken, action, actionResult = {}) {
   if (!replyToken || !lineChannelAccessToken) return;
   const labelByAction = {
     approve_batch: "Approve batch",
@@ -3350,14 +3412,25 @@ async function replyLinePostbackAcknowledgement(replyToken, action) {
     reject_sku: "Reject SKU"
   };
   const actionLabel = labelByAction[action.action] || action.action || "-";
+  const currentActionLabel = labelByAction[actionResult.currentAction] || actionResult.currentAction || "";
   const batchLine = action.batchId ? `Batch: ${action.batchId}` : "";
   const skuLine = action.sku ? `SKU: ${action.sku}` : "";
-  const text = [
-    `รับ action แล้ว: ${actionLabel}`,
-    batchLine,
-    skuLine,
-    "ตอนนี้ยังเป็น dry-run ยังไม่เจนภาพ/ไม่ลง WordPress"
-  ]
+  const text = actionResult.ignored
+    ? [
+      `ไม่เปลี่ยนสถานะ: ${actionLabel}`,
+      batchLine,
+      skuLine,
+      currentActionLabel ? `มีผลตัดสินใจแล้ว: ${currentActionLabel}` : "",
+      actionResult.reason === "stale_hero_review_action" ? "ปุ่มนี้มาจาก hero version เก่า" : "",
+      "ให้ใช้หน้า Review เป็นจุดตัดสินใจหลัก"
+    ]
+    : [
+      `รับ action แล้ว: ${actionLabel}`,
+      batchLine,
+      skuLine,
+      "ตอนนี้ยังเป็น dry-run ยังไม่เจนภาพ/ไม่ลง WordPress"
+    ];
+  const finalText = text
     .filter(Boolean)
     .join("\n");
 
@@ -3369,7 +3442,7 @@ async function replyLinePostbackAcknowledgement(replyToken, action) {
     },
     body: JSON.stringify({
       replyToken,
-      messages: [{ type: "text", text }]
+      messages: [{ type: "text", text: finalText }]
     })
   });
 
