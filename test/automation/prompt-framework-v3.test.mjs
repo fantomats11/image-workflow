@@ -40,6 +40,11 @@ test("Rent A Coat hero compiles to a natural provider brief for rental trust", (
   assert.match(prompt, /Only preserve real product labels/i);
   assert.match(prompt, /Brand mark fidelity/i);
   assert.match(prompt, /Do not copy barcode cards, SKU cards, hang tags/i);
+  assert.match(prompt, /Thai review output direction:/i);
+  assert.match(prompt, /สื่อถึงการใช้งานจริงของสินค้า/);
+  assert.match(prompt, /เหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา/);
+  assert.match(prompt, /ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด/);
+  assert.match(prompt, /Camera focus: สำหรับสินค้าชิ้นใหญ่/);
   assert.doesNotMatch(prompt, /Prompt Framework/i);
   assert.doesNotMatch(prompt, /Model fit companion policy/i);
   assert.doesNotMatch(prompt, /Visual variation plan/i);
@@ -372,6 +377,31 @@ test("hero prompt separates ecommerce product images from ad creative layouts", 
   assert.match(prompt, /UI elements/i);
   assert.match(prompt, /QR codes/i);
   assert.match(prompt, /Only preserve real product labels/i);
+});
+
+test("hero prompt uses close product focus for small accessories", () => {
+  const hatPrompt = buildHeroPromptV3({
+    sku: "GM-HAT-001",
+    product_type: "sale",
+    target_site: "gomall",
+    product_name: "หมวกไหมพรมกันหนาว",
+    category: "หมวกกันหนาว"
+  });
+  const glovePrompt = buildHeroPromptV3({
+    sku: "RAC-GLOVE-001",
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "ถุงมือกันหนาว",
+    category: "ถุงมือกันหนาว"
+  });
+
+  assert.match(hatPrompt, /Thai review output direction:/i);
+  assert.match(hatPrompt, /สำหรับหมวก/);
+  assert.match(hatPrompt, /close-up หรือ head-and-shoulders crop/);
+  assert.match(hatPrompt, /ให้หมวกกินพื้นที่หลักของเฟรม/);
+  assert.match(glovePrompt, /สำหรับถุงมือ/);
+  assert.match(glovePrompt, /tight product-focused crop/);
+  assert.match(glovePrompt, /ให้ถุงมือกินพื้นที่หลักของเฟรม/);
 });
 
 test("product identity extracts actual product brand from product name", () => {
