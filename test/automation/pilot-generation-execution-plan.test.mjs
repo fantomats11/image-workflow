@@ -41,13 +41,13 @@ test("buildPilotGenerationExecutionPlan creates hero first and blocks support un
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
   assert.equal(plan.items[0].generation_requests[0].prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
   assert.equal(plan.items[0].generation_requests[0].prompt, LEAN_HERO_PROMPT);
-  assert.equal(plan.items[0].generation_requests[0].visual_variation.variation_group, "A");
+  assert.equal(plan.items[0].generation_requests[0].visual_variation.variation_group, "lean_hero");
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น|ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ไม่เพิ่มโลโก้/);
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Visual variation plan/i);
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Brand image job/i);
   assert.equal(plan.items[0].generation_requests[0].model_policy.presence, "required");
   assert.equal(plan.items[0].generation_requests[0].model_policy.source, "generated_no_reference_required");
-  assert.match(plan.items[0].generation_requests[1].prompt, /มุมด้านหน้าที่ช่วยให้เห็นการเข้าทรง/);
+  assert.match(plan.items[0].generation_requests[1].prompt, /มุมด้านหน้า/);
   assert.deepEqual(plan.items[0].generation_requests[1].blockers, ["support_requires_approved_hero_anchor"]);
 });
 
@@ -76,10 +76,10 @@ test("buildPilotGenerationExecutionPlan rebuilds stale hero prompts from older f
   assert.doesNotMatch(hero.prompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด สมจริง สินค้าเด่น|ไม่เพิ่มโลโก้/);
   assert.doesNotMatch(hero.prompt, /Product slot output contract/);
   assert.equal(hero.model_policy.presence, "preferred");
-  assert.equal(hero.visual_variation.variation_group, "A");
+  assert.equal(hero.visual_variation.variation_group, "lean_hero");
 });
 
-test("buildPilotGenerationExecutionPlan assigns non-repeating hero visual variation groups by item order", () => {
+test("buildPilotGenerationExecutionPlan keeps hero visual variation lean instead of rotating A/B/C/D", () => {
   const batchItems = [0, 1, 2, 3].map((index) => ({
     sku: `SKU-${index + 1}`,
     brand_id: index < 2 ? "rent_a_coat" : "go_mall",
@@ -96,8 +96,8 @@ test("buildPilotGenerationExecutionPlan assigns non-repeating hero visual variat
   });
   const heroGroups = plan.items.map((item) => item.generation_requests.find((request) => request.kind === "hero").visual_variation.variation_group);
 
-  assert.deepEqual(heroGroups, ["A", "B", "C", "D"]);
-  assert.equal(new Set(heroGroups).size, 4);
+  assert.deepEqual(heroGroups, ["lean_hero", "lean_hero", "lean_hero", "lean_hero"]);
+  assert.equal(new Set(heroGroups).size, 1);
 });
 
 test("buildPilotGenerationExecutionPlan blocks Drive folder references before live generation", () => {
@@ -213,8 +213,10 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
   assert.equal(support.model_input_files[1].source_name, "GM-004_front.jpg");
   assert.equal(support.model_input_files[1].source_role, "product_reference");
   assert.equal(support.model_input_files[1].local_path, "/tmp/GM-004/front.jpg");
-  assert.match(support.prompt, /ใช้ภาพหลักที่อนุมัติแล้วเป็นภาพอ้างอิง/);
-  assert.match(support.prompt, /ถ้าขัดกับภาพต้นฉบับสินค้าให้ยึดภาพต้นฉบับสินค้าเป็นหลัก/);
+  assert.match(support.prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว/);
+  assert.match(support.prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
+  assert.match(support.prompt, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
+  assert.doesNotMatch(support.prompt, /approved hero/i);
   assert.doesNotMatch(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
 });
 

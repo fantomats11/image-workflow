@@ -18,8 +18,8 @@ const LEAN_HERO_PROMPT = [
   "ธุรกิจเช่า จำหน่ายชุดกันหนาวและอุปกรณ์กันหนาวครบวงจรในไทย เน้นกลุ่มเป้าหมายระดับกลางถึงสูง"
 ].join("\n");
 
-test("exports a v3 lean Thai hero version", () => {
-  assert.match(PROMPT_FRAMEWORK_V3_VERSION, /v3\.12-lean-thai-hero/);
+test("exports a v3 hero-led product marking lock version", () => {
+  assert.match(PROMPT_FRAMEWORK_V3_VERSION, /v3\.15-hero-led-product-marking-lock/);
 });
 
 test("hero prompt for large products sends only the user's lean Thai output", () => {
@@ -85,7 +85,7 @@ test("hero prompt uses close product focus for small accessories", () => {
   assert.doesNotMatch(glovePrompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด|ไม่เพิ่มโลโก้/);
 });
 
-test("support prompt stays Thai-only and uses approved hero as a soft anchor", () => {
+test("support prompt stays short Thai hero-led slot output", () => {
   const prompt = buildSupportPromptV3({
     sku: "2DJ0493000",
     product_type: "rental",
@@ -95,18 +95,18 @@ test("support prompt stays Thai-only and uses approved hero as a soft anchor", (
     approved_hero_anchor: {
       url: "https://cdn.example.com/hero.png"
     }
-  }, "front_fit_shape", 1, 6);
+  }, "side_fit_on_model", 1, 3);
 
-  assert.match(prompt, /อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวสินค้าที่ดูเรียล/);
-  assert.match(prompt, /เหมาะสำหรับหน้าสินค้าบนเว็บไซต์/);
-  assert.match(prompt, /ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง/);
-  assert.match(prompt, /ภาพเสริมช็อตที่ 1 จาก 6/);
-  assert.match(prompt, /มุมด้านหน้าที่ช่วยให้เห็นการเข้าทรง/);
-  assert.match(prompt, /ใช้ภาพหลักที่อนุมัติแล้วเป็นภาพอ้างอิง/);
-  assert.match(prompt, /ถ้าขัดกับภาพต้นฉบับสินค้าให้ยึดภาพต้นฉบับสินค้าเป็นหลัก/);
-  assert.match(prompt, /เปลี่ยนเฉพาะมุมภาพ ระยะครอป/);
+  assert.match(prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว\nสร้างภาพ/);
+  assert.match(prompt, /นางแบบสวมสินค้า/);
+  assert.match(prompt, /มุมด้านข้างหรือเฉียง 45 องศา/);
+  assert.match(prompt, /โลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขน/);
+  assert.match(prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
+  assert.match(prompt, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง/);
+  assert.doesNotMatch(prompt, /approved hero|hero anchor/i);
+  assert.ok(prompt.length < 500);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
-  assert.doesNotMatch(prompt, /approved hero image|Use-case guidance|Change only the angle/i);
+  assert.doesNotMatch(prompt, /Use-case guidance|Change only the angle|กลุ่มเป้าหมาย|บริบทธุรกิจ/i);
 });
 
 test("small accessory support prompts force tight product-focused crops", () => {
@@ -132,15 +132,11 @@ test("small accessory support prompts force tight product-focused crops", () => 
     category: "ถุงเท้า"
   }, "front_pair", 1, 3);
 
-  assert.match(glovePrompt, /สำหรับถุงมือ/);
-  assert.match(glovePrompt, /ภาพระยะใกล้/);
-  assert.match(glovePrompt, /ครอปแน่นขึ้นบนพื้นผิว รอยเย็บ/);
-  assert.match(scarfPrompt, /สำหรับผ้าพันคอหรืออุปกรณ์คลุมคอ/);
-  assert.match(scarfPrompt, /คอถึงอก/);
-  assert.match(sockPrompt, /สำหรับถุงเท้า/);
-  assert.match(sockPrompt, /น่องถึงเท้า/);
-  assert.match(sockPrompt, /อย่าให้กางเกง รองเท้า หรือฉากหลังแย่งความเด่น/);
-  assert.match(sockPrompt, /มุมถุงเท้าคู่ด้านหน้า/);
+  assert.match(glovePrompt, /close-up เดี่ยวของวัสดุ/);
+  assert.match(glovePrompt, /ภาพต้องเป็นภาพเดียว ไม่ใช่ collage/);
+  assert.match(scarfPrompt, /การใช้งานจริงของสินค้าในบริบทเมืองหนาว/);
+  assert.match(sockPrompt, /ถุงเท้าคู่แบบสินค้าเด่น/);
+  assert.match(sockPrompt, /ความยาว ขอบถุงเท้า ความหนา เนื้อผ้า/);
   assert.doesNotMatch(sockPrompt, /Show both socks clearly/i);
 });
 
@@ -159,15 +155,14 @@ test("support prompt includes Thai footwear and outerwear shot guidance", () => 
     product_name: "Canada Goose Expedition Parka",
     category: "เสื้อ",
     subcategory: "พาร์กา"
-  }, "lining_warmth", 5, 6);
+  }, "material_or_lining_closeup", 3, 3);
 
-  assert.match(footwearPrompt, /มุมด้านข้างของรองเท้า/);
+  assert.match(footwearPrompt, /รองเท้ามุมด้านข้าง/);
   assert.match(footwearPrompt, /ความสูง พื้นรองเท้า หัวรองเท้า/);
-  assert.match(footwearPrompt, /กางเกงกันหนาว เลกกิ้ง หรือกางเกงสกี/);
   assert.doesNotMatch(footwearPrompt, /lower-leg|shaft height|bare legs/i);
-  assert.match(coatPrompt, /มุมซับในและความอุ่น/);
-  assert.match(coatPrompt, /ซับใน ผ้าฟลีซ บุนวม ขนเฟอร์/);
-  assert.match(coatPrompt, /ห้ามประดิษฐ์ป้ายไซซ์/);
+  assert.match(coatPrompt, /extreme close-up เดี่ยว/);
+  assert.match(coatPrompt, /ซิป ขอบคอ ปลายแขน ซับใน ขนเฟอร์ งานเย็บ หรือตัวเลข\/ข้อความเทคนิคจริง/);
+  assert.match(coatPrompt, /ภาพต้องเป็นภาพเดียว ไม่ใช่ collage/);
   assert.doesNotMatch(coatPrompt, /Lining and warmth evidence|care labels/i);
 });
 
@@ -221,7 +216,7 @@ test("model policy does not misread Women's as men's", () => {
   assert.equal(policy.framing, "lower_body_or_on_foot");
 });
 
-test("visual variation planner assigns different hero patterns across adjacent SKUs", () => {
+test("visual variation planner keeps hero canonical lean across adjacent SKUs", () => {
   const item = {
     product_type: "rental",
     target_site: "rentacoat",
@@ -233,8 +228,8 @@ test("visual variation planner assigns different hero patterns across adjacent S
     itemIndex
   }));
 
-  assert.deepEqual(variations.map((variation) => variation.variation_group), ["A", "B", "C", "D"]);
-  assert.equal(new Set(variations.map((variation) => variation.composition)).size, 4);
+  assert.deepEqual(variations.map((variation) => variation.variation_group), ["lean_hero", "lean_hero", "lean_hero", "lean_hero"]);
+  assert.equal(new Set(variations.map((variation) => variation.composition)).size, 1);
   assert.equal(variations.every((variation) => variation.background), true);
 });
 
@@ -256,9 +251,26 @@ test("visual variation planner keeps detail support shots product-only", () => {
   assert.equal(variation.crop, "close_detail");
 });
 
+test("hero visual variation skips A/B/C/D canonical rotation", () => {
+  const variation = resolveVisualVariationV3({
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "The North Face White Cream Puffer Jacket",
+    category: "เสื้อ"
+  }, {
+    slotType: "hero",
+    itemIndex: 2,
+    sequence: 1
+  });
+
+  assert.equal(variation.variation_group, "lean_hero");
+  assert.equal(variation.composition, "natural_product_review_hero");
+  assert.doesNotMatch(variation.variation_group, /^[ABCD]$/);
+});
+
 test("support shots differ by category and brand priorities", () => {
   const coatShots = getSupportShotsV3({ category: "เสื้อ", target_site: "rentacoat", product_type: "rental" });
-  assert.deepEqual(coatShots.slice(0, 3), ["front_fit_shape", "side_thickness_length", "back_hood_closure"]);
+  assert.deepEqual(coatShots, ["side_fit_on_model", "back_fit_on_model", "material_or_lining_closeup"]);
   const hatShots = getSupportShotsV3({ category: "หมวกกันหนาว", target_site: "gomall", product_type: "sale" });
   assert.equal(hatShots.includes("wearing_scale_cue"), true);
 });

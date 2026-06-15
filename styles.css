@@ -2998,6 +2998,19 @@ tbody tr:hover {
   background: #fff;
 }
 
+.review-support-set {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.review-support-set[hidden] {
+  display: none;
+}
+
+.support-review-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
 .review-decision-dock {
   display: grid;
   gap: var(--space-3);

@@ -17,6 +17,9 @@ import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpre
 import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
 import { buildMonitoringWordPressPreflights } from "./lib/automation/wordpress-preflight-monitoring.mjs";
 import { buildWordPressPreflightFlex, pushLineMessage } from "./lib/automation/line-client.mjs";
+import { renderAiHubImageReviewPage } from "./lib/automation/ai-hub-review-page.mjs";
+import { buildAiHubReviewDecisionSubmission } from "./lib/automation/ai-hub-review-decision-workflow.mjs";
+import { renderAiHubReviewWorkspacePage } from "./lib/automation/ai-hub-review-workspace-page.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +36,7 @@ const uploadDir = path.join(__dirname, "uploads");
 const approvedDir = path.join(__dirname, "approved");
 const metricsDir = path.join(__dirname, "metrics");
 const metricsFile = path.join(metricsDir, "events.jsonl");
+const outputsDir = path.resolve(__dirname, "../../outputs");
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Bangkok";
 const driveOutputDir = process.env.DRIVE_OUTPUT_DIR?.trim();
 const googleDriveRootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID?.trim();
@@ -215,6 +219,136 @@ function sendApiError(res, status, code, error) {
   });
 }
 
+function isAiHubLocalReviewEnabled() {
+  if (process.env.AI_HUB_LOCAL_REVIEW_ENABLED === "true") return true;
+  if (process.env.AI_HUB_LOCAL_REVIEW_ENABLED === "false") return false;
+  return process.env.NODE_ENV !== "production" && !process.env.RENDER;
+}
+
+async function resolveAiHubReviewBundlePath(bundleName) {
+  const requestedName = String(bundleName || "").trim();
+  if (requestedName) {
+    if (!/^[A-Za-z0-9._-]+\.json$/.test(requestedName)) {
+      throw publicError(400, "invalid_bundle_name", "ชื่อ bundle ไม่ถูกต้อง");
+    }
+    return path.join(outputsDir, requestedName);
+  }
+
+  const envBundlePath = resolveProjectPath(process.env.AI_HUB_REVIEW_BUNDLE_PATH || "");
+  if (envBundlePath) return envBundlePath;
+
+  const latestBundle = await findLatestAiHubReviewBundle();
+  if (latestBundle) return latestBundle;
+  throw publicError(404, "ai_hub_review_bundle_not_found", "ไม่พบ AI HUB review bundle ใน outputs");
+}
+
+async function resolveAiHubReviewWorkspacePath() {
+  const envWorkspacePath = resolveProjectPath(process.env.AI_HUB_REVIEW_WORKSPACE_PATH || "");
+  if (envWorkspacePath) return envWorkspacePath;
+  const workspacePath = path.join(outputsDir, "ai-hub-review-workspace.json");
+  try {
+    const stat = await fs.stat(workspacePath);
+    if (stat.isFile()) return workspacePath;
+  } catch (_error) {
+    // Fall through to a clear user-facing error.
+  }
+  throw publicError(404, "ai_hub_review_workspace_not_found", "ยังไม่พบ AI HUB review workspace กรุณารัน npm run build:ai-hub-workspace ก่อน");
+}
+
+async function findLatestAiHubReviewBundle() {
+  let entries = [];
+  try {
+    entries = await fs.readdir(outputsDir, { withFileTypes: true });
+  } catch (_error) {
+    return "";
+  }
+
+  const bundleFiles = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!/^ai-hub-image-review-bundle.*\.json$/i.test(entry.name)) continue;
+    const filePath = path.join(outputsDir, entry.name);
+    const stat = await fs.stat(filePath).catch(() => null);
+    if (stat?.isFile()) bundleFiles.push({ filePath, mtimeMs: stat.mtimeMs });
+  }
+  bundleFiles.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return bundleFiles[0]?.filePath || "";
+}
+
+async function readJsonFile(filePath) {
+  const resolvedPath = path.resolve(filePath);
+  const text = await fs.readFile(resolvedPath, "utf8");
+  return JSON.parse(text);
+}
+
+async function writeAiHubReviewDecisionArtifacts({ bundlePath, submission }) {
+  const stem = buildAiHubDecisionArtifactStem(bundlePath, submission);
+  const decisionsPath = path.join(outputsDir, `${stem}-decisions.json`);
+  const actionPlanPath = path.join(outputsDir, `${stem}-action-plan.json`);
+  await fs.mkdir(outputsDir, { recursive: true });
+  await fs.writeFile(decisionsPath, `${JSON.stringify(submission.decisions, null, 2)}\n`, "utf8");
+  await fs.writeFile(actionPlanPath, `${JSON.stringify(submission.action_plan, null, 2)}\n`, "utf8");
+  return { decisionsPath, actionPlanPath };
+}
+
+function buildAiHubDecisionArtifactStem(bundlePath, submission) {
+  const bundleBase = path.basename(bundlePath, ".json")
+    .replace(/^ai-hub-image-review-bundle-?/i, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-|-$/g, "") || "review-bundle";
+  const primarySku = submission.action_plan?.items?.[0]?.sku || "multi-sku";
+  const timestamp = safeTimestampForFile(submission.created_at || new Date().toISOString());
+  return `ai-hub-review-${sanitizeFileName(primarySku)}-${bundleBase}-${timestamp}`;
+}
+
+function safeTimestampForFile(value) {
+  return String(value || "")
+    .replace(/[^0-9A-Za-z]+/g, "")
+    .slice(0, 15) || String(Date.now());
+}
+
+function resolveAllowedAiHubImagePath(value) {
+  const rawPath = String(value || "").trim();
+  if (!rawPath) throw publicError(400, "missing_image_path", "ไม่พบ path รูปภาพ");
+  const imagePath = path.resolve(rawPath);
+  const allowedRoots = [outputsDir, approvedDir, uploadDir].map((root) => path.resolve(root));
+  if (!allowedRoots.some((root) => isPathInside(imagePath, root))) {
+    throw publicError(403, "local_image_path_not_allowed", "ไม่อนุญาตให้อ่านไฟล์นอกพื้นที่ review outputs");
+  }
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(imagePath)) {
+    throw publicError(415, "unsupported_local_image_type", "รองรับเฉพาะไฟล์รูปภาพเท่านั้น");
+  }
+  return imagePath;
+}
+
+function isPathInside(childPath, parentPath) {
+  const relative = path.relative(parentPath, childPath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function contentTypeFromPath(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  return "image/jpeg";
+}
+
+function renderAiHubReviewErrorPage(error) {
+  const status = error.status || 500;
+  const message = error.publicMessage || "โหลด AI HUB review bundle ไม่สำเร็จ";
+  return `<!doctype html><html lang="th"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>AI HUB Review Error</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f4f1;color:#1f2421;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{width:min(100% - 32px,520px);border:1px solid #ded8ce;border-radius:10px;background:#fffdfa;padding:28px;box-shadow:0 14px 40px rgba(39,35,30,.08)}p{color:#5d6660;line-height:1.6}</style></head><body><main class="card"><p>AI HUB Review</p><h1>${status}</h1><p>${escapeInlineHtml(message)}</p></main></body></html>`;
+}
+
+function escapeInlineHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function safeRuntimeEnv() {
   if (process.env.RENDER) return "render";
   if (process.env.NODE_ENV === "production") return "production";
@@ -388,6 +522,155 @@ app.get("/api/health", async (_req, res) => {
     },
     jobs: generationJobs.size
   });
+});
+
+app.get("/ai-hub/review", async (req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return res.status(403).send("AI HUB local review is disabled in this environment.");
+  }
+
+  try {
+    const bundlePath = await resolveAiHubReviewBundlePath(req.query.bundle);
+    const bundle = await readJsonFile(bundlePath);
+    res.setHeader("Cache-Control", "no-store");
+    res.type("html").send(renderAiHubImageReviewPage(bundle, {
+      bundleName: path.basename(bundlePath)
+    }));
+  } catch (error) {
+    console.error("[ai-hub-review] page failed:", readableError(error));
+    res.status(error.status || 500).type("html").send(renderAiHubReviewErrorPage(error));
+  }
+});
+
+app.get("/ai-hub/workspace", async (_req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return res.status(403).send("AI HUB local workspace is disabled in this environment.");
+  }
+
+  try {
+    const workspacePath = await resolveAiHubReviewWorkspacePath();
+    const workspace = await readJsonFile(workspacePath);
+    res.setHeader("Cache-Control", "no-store");
+    res.type("html").send(renderAiHubReviewWorkspacePage(workspace, {
+      workspaceName: path.basename(workspacePath)
+    }));
+  } catch (error) {
+    console.error("[ai-hub-workspace] page failed:", readableError(error));
+    res.status(error.status || 500).type("html").send(renderAiHubReviewErrorPage(error));
+  }
+});
+
+app.get("/api/ai-hub/review-bundle", async (req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return sendApiError(res, 403, "ai_hub_review_disabled", "AI HUB local review is disabled.");
+  }
+
+  try {
+    const bundlePath = await resolveAiHubReviewBundlePath(req.query.bundle);
+    const bundle = await readJsonFile(bundlePath);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ok: true,
+      bundle_name: path.basename(bundlePath),
+      bundle
+    });
+  } catch (error) {
+    console.error("[ai-hub-review] bundle failed:", readableError(error));
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "ai_hub_review_bundle_failed",
+      error: error.publicMessage || "โหลด AI HUB review bundle ไม่สำเร็จ"
+    });
+  }
+});
+
+app.get("/api/ai-hub/workspace", async (_req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return sendApiError(res, 403, "ai_hub_review_disabled", "AI HUB local workspace is disabled.");
+  }
+
+  try {
+    const workspacePath = await resolveAiHubReviewWorkspacePath();
+    const workspace = await readJsonFile(workspacePath);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ok: true,
+      workspace_name: path.basename(workspacePath),
+      workspace
+    });
+  } catch (error) {
+    console.error("[ai-hub-workspace] api failed:", readableError(error));
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "ai_hub_workspace_failed",
+      error: error.publicMessage || "โหลด AI HUB review workspace ไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/ai-hub/review-decisions", async (req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return sendApiError(res, 403, "ai_hub_review_disabled", "AI HUB local review is disabled.");
+  }
+
+  try {
+    const bundlePath = await resolveAiHubReviewBundlePath(req.body?.bundle || req.query.bundle);
+    const bundle = await readJsonFile(bundlePath);
+    const reviewer = String(req.body?.reviewer || "").trim() || "local-reviewer";
+    const submission = buildAiHubReviewDecisionSubmission({
+      reviewBundle: bundle,
+      decisions: Array.isArray(req.body?.decisions) ? req.body.decisions : [],
+      reviewer,
+      source: "ai_hub_local_review_console"
+    });
+    const artifactPaths = await writeAiHubReviewDecisionArtifacts({
+      bundlePath,
+      submission
+    });
+
+    res.status(201).json({
+      ok: true,
+      dry_run: true,
+      live_write_allowed: false,
+      bundle_name: path.basename(bundlePath),
+      decisions_path: artifactPaths.decisionsPath,
+      action_plan_path: artifactPaths.actionPlanPath,
+      summary: submission.summary,
+      action_plan_summary: submission.action_plan.summary
+    });
+  } catch (error) {
+    console.error("[ai-hub-review] decisions failed:", readableError(error));
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "ai_hub_review_decisions_failed",
+      error: error.publicMessage || "บันทึก AI HUB review decisions ไม่สำเร็จ"
+    });
+  }
+});
+
+app.get("/api/ai-hub/local-image", async (req, res) => {
+  if (!isAiHubLocalReviewEnabled()) {
+    return sendApiError(res, 403, "ai_hub_review_disabled", "AI HUB local review is disabled.");
+  }
+
+  try {
+    const imagePath = resolveAllowedAiHubImagePath(req.query.path);
+    const stat = await fs.stat(imagePath);
+    if (!stat.isFile()) throw publicError(404, "local_image_not_found", "ไม่พบไฟล์รูปภาพนี้");
+    res.setHeader("Content-Type", contentTypeFromPath(imagePath));
+    res.setHeader("Content-Length", String(stat.size));
+    res.setHeader("Cache-Control", "private, max-age=60");
+    createReadStream(imagePath).pipe(res);
+  } catch (error) {
+    console.error("[ai-hub-review] image failed:", readableError(error));
+    if (!res.headersSent) {
+      res.status(error.status || 500).json({
+        ok: false,
+        code: error.code || "ai_hub_local_image_failed",
+        error: error.publicMessage || "โหลดรูปภาพ local ไม่สำเร็จ"
+      });
+    }
+  }
 });
 
 app.get("/api/supabase/config", (_req, res) => {
@@ -983,10 +1266,15 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
       .maybeSingle();
     if (jobError) throw jobError;
 
-    const [assetsResult, approvalsResult] = await Promise.all([
+    const [assetsResult, generationsResult, approvalsResult] = await Promise.all([
       supabaseAdmin
         .from("assets")
         .select("*")
+        .eq("job_id", generation.job_id)
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("generations")
+        .select("id, job_id, kind, request_id, status, image_asset_id, prompt, completed_at, created_at")
         .eq("job_id", generation.job_id)
         .order("created_at", { ascending: false }),
       supabaseAdmin
@@ -996,12 +1284,29 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         .order("approved_at", { ascending: false })
     ]);
     if (assetsResult.error) throw assetsResult.error;
+    if (generationsResult.error) throw generationsResult.error;
     if (approvalsResult.error) throw approvalsResult.error;
 
     const assets = assetsResult.data || [];
-    const heroAsset = assets.find((asset) => asset.generation_id === generationId) ||
+    const generations = generationsResult.data || [];
+    const reviewGeneration = generations.find((item) => item.id === generationId) || generation;
+    const generationByAssetId = new Map(generations
+      .filter((item) => item.image_asset_id)
+      .map((item) => [item.image_asset_id, item]));
+    const heroAsset = assets.find((asset) => asset.id === reviewGeneration.image_asset_id) ||
       assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
       null;
+    const supportAssets = assets
+      .filter((asset) => String(asset.type || "").toLowerCase() === "support_generated")
+      .map((asset) => {
+        const relatedGeneration = generationByAssetId.get(asset.id) || null;
+        return {
+          ...asset,
+          generation_id: relatedGeneration?.id || null,
+          generation_status: relatedGeneration?.status || null,
+          slot: extractSupportSlot({ asset, generation: relatedGeneration })
+        };
+      });
     const batchKey = cleanOptionalString(req.query.batch_id || req.query.batchId);
     const reviewSku = cleanOptionalString(req.query.sku) || job?.sku || "";
     let referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
@@ -1019,6 +1324,7 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
+        support_assets: supportAssets,
         reference_assets: referenceAssets,
         approved: Boolean(approvalsResult.data?.length),
         approvals: approvalsResult.data || []
@@ -2666,6 +2972,25 @@ function mergeReviewReferenceAssets(primary = [], fallback = []) {
     merged.push(normalized);
   }
   return merged;
+}
+
+function extractSupportSlot({ asset = {}, generation = {} } = {}) {
+  const haystack = [
+    asset.file_name,
+    asset.storage_key,
+    asset.public_url,
+    generation.request_id
+  ].join(" ");
+  const knownSlots = [
+    "side_fit_on_model",
+    "back_fit_on_model",
+    "material_or_lining_closeup",
+    "side_thickness_length",
+    "back_hood_closure",
+    "lining_warmth",
+    "texture_closeup"
+  ];
+  return knownSlots.find((slot) => haystack.includes(slot)) || "";
 }
 
 function buildSignedLineImageProxyUrl({ driveFileId = "", fileName = "" } = {}) {
@@ -5626,6 +5951,7 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
   const latestGeneration = sortedGenerations[0] || null;
   const heroGeneration = sortedGenerations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || sortedGenerations[0] || null;
   const supportGenerations = sortedGenerations.filter((generation) => String(generation.kind || "").toLowerCase() !== "hero");
+  const reviewGeneration = heroGeneration || latestGeneration;
   const approvedGeneration = sortedGenerations.find((generation) => approvalGenerationIds.has(generation.id));
   const approval = approvedGeneration ? approvalByGenerationId.get(approvedGeneration.id) : null;
   const exportAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "approved_export");
@@ -5663,11 +5989,13 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     updatedAt: job.updated_at || null,
     createdBy: serializeProductionUser(profile, job.created_by),
     generationStatus: latestGeneration?.status || "",
-    latestGenerationId: latestGeneration?.id || null,
+    latestGenerationId: reviewGeneration?.id || null,
+    latestOutputGenerationId: latestGeneration?.id || null,
     heroStatus: heroGeneration?.status || "",
     supportStatus: supportGenerations.length
       ? summarizeProductionStatuses(supportGenerations.map((generation) => generation.status))
       : "",
+    supportCount: supportGenerations.length,
     approvalStatus: approval ? "approved" : "pending",
     approvedAt: approval?.approved_at || null,
     exportStatus,

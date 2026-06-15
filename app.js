@@ -433,6 +433,9 @@ const els = {
   heroReviewGenerationId: document.getElementById("heroReviewGenerationId"),
   heroReviewRefs: document.getElementById("heroReviewRefs"),
   heroReviewHero: document.getElementById("heroReviewHero"),
+  heroReviewSupportSet: document.getElementById("heroReviewSupportSet"),
+  heroReviewSupportCount: document.getElementById("heroReviewSupportCount"),
+  heroReviewSupportAssets: document.getElementById("heroReviewSupportAssets"),
   heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
   heroReviewRegenerateButton: document.getElementById("heroReviewRegenerateButton"),
   heroReviewMessage: document.getElementById("heroReviewMessage"),
@@ -3737,6 +3740,9 @@ function getJobNextAction(job = {}) {
     return { tone: "ok", label: "รอ export", helper: "Hero approved แล้ว ขั้นถัดไปคือ media/export" };
   }
   if (isHeroReviewReady(job)) {
+    if (job.supportStatus && job.supportStatus !== "no_support") {
+      return { tone: "warning", label: "Review image set", helper: "ตรวจ hero และ support shots ในหน้าเดียว" };
+    }
     return { tone: "warning", label: "Review hero", helper: "เปิดหน้า review เพื่อ approve หรือ regenerate" };
   }
   if (/generating|queued|running/i.test([job.status, job.generationStatus].join(" "))) {
@@ -4959,13 +4965,20 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const job = review.job || {};
   const heroAsset = review.hero_asset || {};
   const refs = Array.isArray(review.reference_assets) ? review.reference_assets : [];
+  const supportAssets = Array.isArray(review.support_assets) ? review.support_assets : [];
   const generationId = review.generation_id || fallback.generationId || "";
   const sku = review.sku || fallback.sku || job.sku || heroAsset.sku || "-";
   const heroUrl = heroAsset.public_url || heroAsset.url || heroAsset.source_url || "";
+  const hasSupportAssets = supportAssets.length > 0;
 
-  els.heroReviewTitle.textContent = `Hero Review / ${sku}`;
+  els.heroReviewTitle.textContent = `${hasSupportAssets ? "Image Set Review" : "Hero Review"} / ${sku}`;
   els.heroReviewStatus.textContent = review.approved ? "approved" : "ready";
-  els.heroReviewMeta.textContent = [job.product_name, job.product_type, job.status].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
+  els.heroReviewMeta.textContent = [
+    job.product_name,
+    job.product_type,
+    job.status,
+    hasSupportAssets ? `${supportAssets.length} support shots` : ""
+  ].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
   els.heroReviewApproveButton.dataset.generationId = generationId;
@@ -4975,6 +4988,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewRegenerateButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
   els.heroReviewRegenerateButton.dataset.sku = sku;
   els.heroReviewApproveButton.disabled = Boolean(review.approved);
+  els.heroReviewApproveButton.textContent = hasSupportAssets ? "Approve image set" : "Approve hero";
 
   els.heroReviewHero.innerHTML = heroUrl
     ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="Hero candidate ${escapeHtml(sku)}" /></a>`
@@ -4995,6 +5009,23 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     }).join("");
   }
 
+  if (els.heroReviewSupportSet && els.heroReviewSupportAssets && els.heroReviewSupportCount) {
+    els.heroReviewSupportSet.hidden = !hasSupportAssets;
+    els.heroReviewSupportCount.textContent = `${supportAssets.length} ภาพ`;
+    els.heroReviewSupportAssets.innerHTML = hasSupportAssets
+      ? supportAssets.map((asset, index) => {
+        const url = asset.public_url || asset.url || asset.source_url || "";
+        const label = asset.slot || asset.file_name || `Support ${index + 1}`;
+        return `
+          <figure class="review-image-tile">
+            ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)} support shot" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
+            <figcaption>${escapeHtml(label)}</figcaption>
+          </figure>
+        `;
+      }).join("")
+      : `<p class="empty-state">ยังไม่มี support ใน review set นี้</p>`;
+  }
+
   setHeroReviewMessage(review.approved ? "Hero นี้ approve แล้ว" : "", review.approved ? "success" : "");
 }
 
@@ -5011,13 +5042,15 @@ async function approveHeroFromReviewPage() {
         generation_id: generationId,
         batch_id: els.heroReviewApproveButton.dataset.batchId || "",
         sku: els.heroReviewApproveButton.dataset.sku || "",
-        note: "Hero approved from web review page"
+        note: els.heroReviewApproveButton.textContent.includes("image set")
+          ? "Hero and support image set approved from web review page"
+          : "Hero approved from web review page"
       })
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "Approval was not recorded.");
     els.heroReviewStatus.textContent = "approved";
-    setHeroReviewMessage("Approve แล้ว: support planning ถูกปลดล็อกตาม flow", "success");
+    setHeroReviewMessage("Approve แล้ว: บันทึก decision ใน flow กลางเรียบร้อย", "success");
   } catch (error) {
     els.heroReviewApproveButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
