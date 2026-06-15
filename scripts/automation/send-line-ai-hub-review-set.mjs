@@ -40,19 +40,16 @@ export function buildAiHubReviewSetLineMessages(registration = {}) {
   const messages = [{
     type: "text",
     text: [
-      `AI HUB Review | SKU ${sku}`,
+      `Hero Review | SKU ${sku}`,
       productName,
-      `Hero + ${supportAssets.length} support shots`,
+      supportAssets.length ? `Support plan after approval: ${supportAssets.length} shots` : "",
       reviewUrl || "ยังไม่มี review URL ที่พร้อมใช้งาน",
-      "ให้กด Approve / Regenerate ในหน้า Review เท่านั้น"
+      "ขั้นตอนจริง: ตรวจ Hero ก่อน ถ้า Approve ระบบค่อยปล่อย support generation ถ้า Regenerate ระบบทำ Hero ใหม่"
     ].filter(Boolean).join("\n")
   }];
 
   const heroUrl = item.hero_asset?.source_url || "";
   if (heroUrl) messages.push(imageMessage(heroUrl));
-  supportAssets.slice(0, Math.max(0, 5 - messages.length)).forEach((asset) => {
-    if (asset.source_url) messages.push(imageMessage(asset.source_url));
-  });
   return messages.slice(0, 5);
 }
 

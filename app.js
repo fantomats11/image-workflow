@@ -4969,15 +4969,16 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const generationId = review.generation_id || fallback.generationId || "";
   const sku = review.sku || fallback.sku || job.sku || heroAsset.sku || "-";
   const heroUrl = heroAsset.public_url || heroAsset.url || heroAsset.source_url || "";
-  const hasSupportAssets = supportAssets.length > 0;
+  const supportReviewReady = review.review_stage === "support_review" || review.support_review_ready === true;
+  const hasSupportAssets = supportReviewReady && supportAssets.length > 0;
 
-  els.heroReviewTitle.textContent = `${hasSupportAssets ? "Image Set Review" : "Hero Review"} / ${sku}`;
+  els.heroReviewTitle.textContent = `Hero Review / ${sku}`;
   els.heroReviewStatus.textContent = review.approved ? "approved" : "ready";
   els.heroReviewMeta.textContent = [
     job.product_name,
     job.product_type,
     job.status,
-    hasSupportAssets ? `${supportAssets.length} support shots` : ""
+    hasSupportAssets ? `${supportAssets.length} support shots` : "support จะเริ่มหลัง approve hero"
   ].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
@@ -4988,7 +4989,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewRegenerateButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
   els.heroReviewRegenerateButton.dataset.sku = sku;
   els.heroReviewApproveButton.disabled = Boolean(review.approved);
-  els.heroReviewApproveButton.textContent = hasSupportAssets ? "Approve image set" : "Approve hero";
+  els.heroReviewApproveButton.textContent = "Approve hero";
 
   els.heroReviewHero.innerHTML = heroUrl
     ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="Hero candidate ${escapeHtml(sku)}" /></a>`
@@ -5042,9 +5043,7 @@ async function approveHeroFromReviewPage() {
         generation_id: generationId,
         batch_id: els.heroReviewApproveButton.dataset.batchId || "",
         sku: els.heroReviewApproveButton.dataset.sku || "",
-        note: els.heroReviewApproveButton.textContent.includes("image set")
-          ? "Hero and support image set approved from web review page"
-          : "Hero approved from web review page"
+        note: "Hero approved from web review page"
       })
     });
     const result = await response.json();

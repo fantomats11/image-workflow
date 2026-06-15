@@ -59,7 +59,7 @@ function reviewBundle() {
   };
 }
 
-test("buildAiHubProductionReviewRegistrationPlan keeps today's hero and support candidates together", () => {
+test("buildAiHubProductionReviewRegistrationPlan registers hero gate with pending support plan", () => {
   const plan = buildAiHubProductionReviewRegistrationPlan({
     reviewBundle: reviewBundle(),
     actorEmail: "champ082820@gmail.com",
@@ -75,6 +75,8 @@ test("buildAiHubProductionReviewRegistrationPlan keeps today's hero and support 
   assert.equal(plan.summary.ready_items, 1);
   assert.equal(plan.items[0].hero_asset.type, "hero_generated");
   assert.equal(plan.items[0].hero_asset.review_role, "today_hero_candidate");
+  assert.match(plan.guardrails.join("|"), /hero_review_gate_before_support_generation/);
+  assert.match(plan.guardrails.join("|"), /support_candidates_remain_pending_until_hero_approval/);
   assert.deepEqual(plan.items[0].support_assets.map((asset) => asset.slot), [
     "side_fit_on_model",
     "back_fit_on_model"
@@ -90,4 +92,20 @@ test("buildAiHubProductionReviewRegistrationPlan blocks production persist witho
 
   assert.equal(plan.live_write_allowed, true);
   assert.deepEqual(plan.blockers, ["missing_actor_id_or_email"]);
+});
+
+test("buildAiHubProductionReviewRegistrationPlan does not block hero review when support is not generated yet", () => {
+  const bundle = reviewBundle();
+  bundle.review_items[0].review_assets = [];
+
+  const plan = buildAiHubProductionReviewRegistrationPlan({
+    reviewBundle: bundle,
+    actorEmail: "champ082820@gmail.com",
+    reviewBaseUrl: "https://image-workflow.onrender.com",
+    now: new Date("2026-06-15T10:00:00.000Z")
+  });
+
+  assert.equal(plan.summary.support_candidates, 0);
+  assert.equal(plan.summary.ready_items, 1);
+  assert.deepEqual(plan.items[0].blockers, []);
 });

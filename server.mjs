@@ -1296,17 +1296,6 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
     const heroAsset = assets.find((asset) => asset.id === reviewGeneration.image_asset_id) ||
       assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
       null;
-    const supportAssets = assets
-      .filter((asset) => String(asset.type || "").toLowerCase() === "support_generated")
-      .map((asset) => {
-        const relatedGeneration = generationByAssetId.get(asset.id) || null;
-        return {
-          ...asset,
-          generation_id: relatedGeneration?.id || null,
-          generation_status: relatedGeneration?.status || null,
-          slot: extractSupportSlot({ asset, generation: relatedGeneration })
-        };
-      });
     const batchKey = cleanOptionalString(req.query.batch_id || req.query.batchId);
     const reviewSku = cleanOptionalString(req.query.sku) || job?.sku || "";
     let referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
@@ -1324,7 +1313,7 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
-        support_assets: supportAssets,
+        support_assets: [],
         reference_assets: referenceAssets,
         approved: Boolean(approvalsResult.data?.length),
         approvals: approvalsResult.data || []
@@ -3024,20 +3013,23 @@ async function maybeEnqueueHeroReviewAutomationTask({
   generationId,
   actorId
 } = {}) {
-  if (!batchId || !isValidUuid(batchId) || !sku) return null;
+  if (!batchId || !sku) return null;
+  const resolvedBatchId = await resolveAutomationBatchIdForReview(batchId);
+  if (!resolvedBatchId) return null;
   const taskType = GENERATE_BATCH_TASK;
   const approve = action === "approve_hero";
   const task = await enqueueAutomationTask({
     taskType,
-    batchId,
+    batchId: resolvedBatchId,
     jobId,
     generationId,
-    dedupeKey: `web-review:${action}:${batchId}:${sku}:${generationId}`,
+    dedupeKey: `web-review:${action}:${resolvedBatchId}:${sku}:${generationId}`,
     priority: approve ? 125 : 130,
     payload: {
       source: "web_review_page",
       action,
-      batch_id: batchId,
+      batch_id: resolvedBatchId,
+      batch_key: batchId === resolvedBatchId ? null : batchId,
       sku,
       generation_id: generationId,
       actor_id: actorId || null,
@@ -3052,9 +3044,22 @@ async function maybeEnqueueHeroReviewAutomationTask({
   });
 
   if (approve) {
-    await updateAutomationBatchItemFromReviewAction({ action, batchId, sku, actorId, generationId });
+    await updateAutomationBatchItemFromReviewAction({ action, batchId: resolvedBatchId, sku, actorId, generationId });
   }
   return task;
+}
+
+async function resolveAutomationBatchIdForReview(batchId) {
+  const value = cleanOptionalString(batchId);
+  if (!value) return "";
+  if (isValidUuid(value)) return value;
+  const { data, error } = await supabaseAdmin
+    .from("automation_batches")
+    .select("id")
+    .eq("batch_key", value)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id || "";
 }
 
 async function updateAutomationBatchItemFromReviewAction({ action, batchId, sku, actorId, generationId }) {
@@ -5954,6 +5959,7 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
   const reviewGeneration = heroGeneration || latestGeneration;
   const approvedGeneration = sortedGenerations.find((generation) => approvalGenerationIds.has(generation.id));
   const approval = approvedGeneration ? approvalByGenerationId.get(approvedGeneration.id) : null;
+  const visibleSupportGenerations = approval ? supportGenerations : [];
   const exportAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "approved_export");
   const exportUrl = safeUrl(approval?.export_path || exportAsset?.public_url || "");
   const hasValidExportLink = Boolean(exportUrl);
@@ -5992,10 +5998,10 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     latestGenerationId: reviewGeneration?.id || null,
     latestOutputGenerationId: latestGeneration?.id || null,
     heroStatus: heroGeneration?.status || "",
-    supportStatus: supportGenerations.length
-      ? summarizeProductionStatuses(supportGenerations.map((generation) => generation.status))
+    supportStatus: visibleSupportGenerations.length
+      ? summarizeProductionStatuses(visibleSupportGenerations.map((generation) => generation.status))
       : "",
-    supportCount: supportGenerations.length,
+    supportCount: visibleSupportGenerations.length,
     approvalStatus: approval ? "approved" : "pending",
     approvedAt: approval?.approved_at || null,
     exportStatus,
