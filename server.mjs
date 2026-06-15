@@ -2951,11 +2951,7 @@ function mergeReviewReferenceAssets(primary = [], fallback = []) {
   for (const asset of [...primary, ...fallback]) {
     const normalized = normalizeHeroReviewReferenceAsset(asset);
     if (!normalized) continue;
-    const key = [
-      normalized.drive_file_id || normalized.id || "",
-      normalized.public_url || normalized.url || "",
-      normalized.file_name || normalized.name || ""
-    ].join("|");
+    const key = normalized.drive_file_id || normalized.id || normalized.public_url || normalized.url || normalized.file_name || normalized.name || "";
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(normalized);

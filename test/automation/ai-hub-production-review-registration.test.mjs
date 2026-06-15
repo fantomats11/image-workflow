@@ -33,6 +33,13 @@ function reviewBundle() {
         slot: "side_fit_on_model",
         prompt_framework_version: "prompt-framework-v3.15",
         prompt: "อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว สร้างภาพด้านข้าง",
+        reference_assets: [{
+          drive_file_id: "drive-front",
+          file_name: "2DJ0493000_Front.jpg"
+        }, {
+          drive_file_id: "drive-front",
+          file_name: "01-2DJ0493000_Front.jpg"
+        }],
         generated: {
           status: "done",
           provider_request_id: "provider-side",
@@ -80,6 +87,9 @@ test("buildAiHubProductionReviewRegistrationPlan registers hero gate with pendin
   assert.deepEqual(plan.items[0].support_assets.map((asset) => asset.slot), [
     "side_fit_on_model",
     "back_fit_on_model"
+  ]);
+  assert.deepEqual(plan.items[0].reference_assets.map((asset) => asset.file_name), [
+    "2DJ0493000_Front.jpg"
   ]);
   assert.deepEqual(plan.blockers, []);
 });
