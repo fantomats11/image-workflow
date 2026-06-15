@@ -11,12 +11,18 @@ import {
 } from "../../lib/automation/prompt-framework-v3.mjs";
 
 const OLD_PROVIDER_BRIEF_RE = /Create one clean|Use case:|Reference priority:|Product truth lock:|Human realism:|Constraints:|Brand mark fidelity|Actual product brand|Do not add poster layout|source of truth/i;
+const LEAN_HERO_PROMPT = [
+  "อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล สื่อถึงการใช้งานจริงของสินค้า ให้ความรู้สึกเข้าถึงง่าย น่าเชื่อถือ พร้อมจัดองค์ประกอบภาพให้ดึงดูดและเหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด",
+  "",
+  "กลุ่มเป้าหมาย: ผู้เดินทางท่องเที่ยวต่างประเทศเป็นประจำ",
+  "ธุรกิจเช่า จำหน่ายชุดกันหนาวและอุปกรณ์กันหนาวครบวงจรในไทย เน้นกลุ่มเป้าหมายระดับกลางถึงสูง"
+].join("\n");
 
-test("exports a v3 Thai provider-output version", () => {
-  assert.match(PROMPT_FRAMEWORK_V3_VERSION, /v3\.11-thai-provider-output/);
+test("exports a v3 lean Thai hero version", () => {
+  assert.match(PROMPT_FRAMEWORK_V3_VERSION, /v3\.12-lean-thai-hero/);
 });
 
-test("hero prompt sends the user's Thai review output shape to the provider", () => {
+test("hero prompt for large products sends only the user's lean Thai output", () => {
   const prompt = buildHeroPromptV3({
     sku: "2DJ0493000",
     product_type: "rental",
@@ -26,24 +32,14 @@ test("hero prompt sends the user's Thai review output shape to the provider", ()
     reference_confidence: "high"
   });
 
-  assert.match(prompt, /อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล/);
-  assert.match(prompt, /สื่อถึงการใช้งานจริงของสินค้า/);
-  assert.match(prompt, /เหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา/);
-  assert.match(prompt, /กลุ่มเป้าหมาย: ผู้เดินทางท่องเที่ยวต่างประเทศเป็นประจำ/);
-  assert.match(prompt, /ธุรกิจเช่า จำหน่ายชุดกันหนาว/);
-  assert.match(prompt, /ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด/);
-  assert.match(prompt, /สำหรับสินค้าชิ้นใหญ่/);
-  assert.match(prompt, /การเข้าทรง สัดส่วนเมื่อใส่ รูปทรงภาพรวม/);
-  assert.match(prompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก/);
-  assert.match(prompt, /รักษา.*สี.*ทรงเสื้อ.*ซิป.*ตะเข็บ.*สัดส่วน/);
-  assert.match(prompt, /ไม่เพิ่มโลโก้ ป้าย แพตช์ ข้อความ/);
-  assert.match(prompt, /ไม่เกลี่ยผิวแบบเอไอมากเกินไป/);
+  assert.equal(prompt, LEAN_HERO_PROMPT);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
+  assert.doesNotMatch(prompt, /สำหรับสินค้าชิ้นใหญ่|ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|รักษา.*สี|ไม่เพิ่มโลโก้|ภาพต้องสะอาด|เอไอ/);
   assert.doesNotMatch(prompt, /porcelain skin/i);
   assert.doesNotMatch(prompt, /GO Mall|Rent A Coat/i);
 });
 
-test("GO Mall hero prompt uses Thai product clarity without exposing branch labels", () => {
+test("GO Mall hero prompt uses the same lean Thai output without branch labels", () => {
   const prompt = buildHeroPromptV3({
     sku: "2CT1600000",
     product_type: "rental",
@@ -54,9 +50,7 @@ test("GO Mall hero prompt uses Thai product clarity without exposing branch labe
     reference_confidence: "medium"
   });
 
-  assert.match(prompt, /สินค้าเด่น/);
-  assert.match(prompt, /หน้าสินค้า|สื่อโซเชียลหรือโฆษณา/);
-  assert.match(prompt, /ยึดภาพต้นฉบับ/);
+  assert.equal(prompt, LEAN_HERO_PROMPT);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(prompt, /GO Mall|Rent A Coat|Product type/i);
 });
@@ -77,14 +71,18 @@ test("hero prompt uses close product focus for small accessories", () => {
     category: "ถุงมือกันหนาว"
   });
 
+  assert.match(hatPrompt, new RegExp(escapeRegExp(LEAN_HERO_PROMPT)));
   assert.match(hatPrompt, /สำหรับหมวก/);
   assert.match(hatPrompt, /ภาพระยะใกล้หรือครอปช่วงศีรษะและไหล่/);
-  assert.match(hatPrompt, /ให้หมวกกินพื้นที่หลักของเฟรม/);
+  assert.match(hatPrompt, /ให้หมวกเด่นที่สุดในภาพ/);
+  assert.match(glovePrompt, new RegExp(escapeRegExp(LEAN_HERO_PROMPT)));
   assert.match(glovePrompt, /สำหรับถุงมือ/);
   assert.match(glovePrompt, /ครอปที่โฟกัสสินค้าเป็นหลัก/);
-  assert.match(glovePrompt, /ให้ถุงมือกินพื้นที่หลักของเฟรม/);
+  assert.match(glovePrompt, /ให้ถุงมือเด่นที่สุดในภาพ/);
   assert.doesNotMatch(hatPrompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(glovePrompt, OLD_PROVIDER_BRIEF_RE);
+  assert.doesNotMatch(hatPrompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด|ไม่เพิ่มโลโก้/);
+  assert.doesNotMatch(glovePrompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด|ไม่เพิ่มโลโก้/);
 });
 
 test("support prompt stays Thai-only and uses approved hero as a soft anchor", () => {
@@ -337,3 +335,7 @@ test("representative provider prompts do not include the old English framework",
     assert.doesNotMatch(buildSupportPromptV3(item, getSupportShotsV3(item)[0], 1, 3), OLD_PROVIDER_BRIEF_RE);
   }
 });
+
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

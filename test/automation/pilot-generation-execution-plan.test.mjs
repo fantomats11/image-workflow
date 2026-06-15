@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import { buildPilotGenerationExecutionPlan } from "../../lib/automation/pilot-generation-execution-plan.mjs";
 import { PROMPT_FRAMEWORK_V3_VERSION } from "../../lib/automation/prompt-framework-v3.mjs";
 
+const LEAN_HERO_PROMPT = [
+  "อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล สื่อถึงการใช้งานจริงของสินค้า ให้ความรู้สึกเข้าถึงง่าย น่าเชื่อถือ พร้อมจัดองค์ประกอบภาพให้ดึงดูดและเหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด",
+  "",
+  "กลุ่มเป้าหมาย: ผู้เดินทางท่องเที่ยวต่างประเทศเป็นประจำ",
+  "ธุรกิจเช่า จำหน่ายชุดกันหนาวและอุปกรณ์กันหนาวครบวงจรในไทย เน้นกลุ่มเป้าหมายระดับกลางถึงสูง"
+].join("\n");
+
 test("buildPilotGenerationExecutionPlan creates hero first and blocks support until hero approval", () => {
   const plan = buildPilotGenerationExecutionPlan({
     task: { id: "task-1", task_type: "generate_batch", batch_id: "batch-1" },
@@ -33,9 +40,9 @@ test("buildPilotGenerationExecutionPlan creates hero first and blocks support un
   assert.equal(plan.items[0].generation_requests[0].kind, "hero");
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
   assert.equal(plan.items[0].generation_requests[0].prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
-  assert.match(plan.items[0].generation_requests[0].prompt, /อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล/);
-  assert.match(plan.items[0].generation_requests[0].prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น/);
+  assert.equal(plan.items[0].generation_requests[0].prompt, LEAN_HERO_PROMPT);
   assert.equal(plan.items[0].generation_requests[0].visual_variation.variation_group, "A");
+  assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น|ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ไม่เพิ่มโลโก้/);
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Visual variation plan/i);
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Brand image job/i);
   assert.equal(plan.items[0].generation_requests[0].model_policy.presence, "required");
@@ -64,9 +71,9 @@ test("buildPilotGenerationExecutionPlan rebuilds stale hero prompts from older f
   const hero = plan.items[0].generation_requests[0];
   assert.equal(hero.prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
   assert.notEqual(hero.prompt, "Old hero prompt without product slot output contract.");
-  assert.match(hero.prompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก/);
-  assert.match(hero.prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น/);
+  assert.equal(hero.prompt, LEAN_HERO_PROMPT);
   assert.doesNotMatch(hero.prompt, /Use the reference images as the source of truth|Do not add poster layout/i);
+  assert.doesNotMatch(hero.prompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด สมจริง สินค้าเด่น|ไม่เพิ่มโลโก้/);
   assert.doesNotMatch(hero.prompt, /Product slot output contract/);
   assert.equal(hero.model_policy.presence, "preferred");
   assert.equal(hero.visual_variation.variation_group, "A");
