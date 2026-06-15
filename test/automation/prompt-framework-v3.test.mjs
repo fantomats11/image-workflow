@@ -238,6 +238,63 @@ test("support prompt uses approved hero as model and styling anchor when availab
   assert.match(prompt, /Use the reference images as the source of truth/i);
 });
 
+test("support prompt includes Thai review direction for product-page realism", () => {
+  const prompt = buildSupportPromptV3({
+    sku: "2DJ0493000",
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "The North Face white down jacket",
+    category: "เสื้อ"
+  }, "front_fit_shape", 1, 6);
+
+  assert.match(prompt, /Thai review output direction:/i);
+  assert.match(prompt, /อ้างอิงภาพต้นฉบับ/);
+  assert.match(prompt, /หน้าสินค้าบนเว็บไซต์/);
+  assert.match(prompt, /ผู้เดินทางท่องเที่ยวต่างประเทศเป็นประจำ/);
+  assert.match(prompt, /ธุรกิจเช่าและจำหน่ายชุดกันหนาว/);
+  assert.match(prompt, /ไม่ต้องใส่ข้อความ/);
+  assert.match(prompt, /ไม่ต้องแบ่งกริด/);
+  assert.match(prompt, /ไม่ต้องแบ่งช่อง/);
+  assert.match(prompt, /ไม่ต้องสร้างป้ายแบรนด์ใหม่/);
+  assert.match(prompt, /สินค้าชิ้นใหญ่/);
+  assert.match(prompt, /ไม่จำเป็นต้องบังคับ close-up ทุกภาพ/);
+});
+
+test("small accessory support prompts force close-up product focus", () => {
+  const glovePrompt = buildSupportPromptV3({
+    sku: "RAC-GLOVE-001",
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "ถุงมือกันหนาว",
+    category: "ถุงมือกันหนาว"
+  }, "texture_closeup", 4, 4);
+  const scarfPrompt = buildSupportPromptV3({
+    sku: "RAC-SCARF-001",
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "ผ้าพันคอ fleece neck warmer",
+    category: "ผ้าพันคอ"
+  }, "wearing_scale_cue", 2, 4);
+  const sockPrompt = buildSupportPromptV3({
+    sku: "RAC-SOCK-001",
+    product_type: "rental",
+    target_site: "rentacoat",
+    product_name: "ถุงเท้ากันหนาว",
+    category: "ถุงเท้า"
+  }, "front_pair", 1, 3);
+
+  assert.match(glovePrompt, /สำหรับถุงมือ/);
+  assert.match(glovePrompt, /close-up หรือ tight product-focused crop/);
+  assert.match(glovePrompt, /crop แน่นขึ้นบน texture/);
+  assert.match(scarfPrompt, /สำหรับผ้าพันคอหรืออุปกรณ์คลุมคอ/);
+  assert.match(scarfPrompt, /คอถึงอก/);
+  assert.match(sockPrompt, /สำหรับถุงเท้า/);
+  assert.match(sockPrompt, /น่องถึงเท้า/);
+  assert.match(sockPrompt, /อย่าให้กางเกง รองเท้า หรือฉากหลังแย่งความเด่น/);
+  assert.match(sockPrompt, /Show both socks clearly/);
+  assert.doesNotMatch(sockPrompt, /Show both shoes\/boots clearly/);
+});
+
 test("support prompt includes preserved footwear use-case crop guidance", () => {
   const prompt = buildSupportPromptV3({
     sku: "2BT0158000",
