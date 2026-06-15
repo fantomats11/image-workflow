@@ -33,14 +33,14 @@ test("buildPilotGenerationExecutionPlan creates hero first and blocks support un
   assert.equal(plan.items[0].generation_requests[0].kind, "hero");
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
   assert.equal(plan.items[0].generation_requests[0].prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
-  assert.match(plan.items[0].generation_requests[0].prompt, /clean photorealistic ecommerce product photo/i);
-  assert.match(plan.items[0].generation_requests[0].prompt, /Do not add poster layout/i);
+  assert.match(plan.items[0].generation_requests[0].prompt, /อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล/);
+  assert.match(plan.items[0].generation_requests[0].prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น/);
   assert.equal(plan.items[0].generation_requests[0].visual_variation.variation_group, "A");
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Visual variation plan/i);
   assert.doesNotMatch(plan.items[0].generation_requests[0].prompt, /Brand image job/i);
   assert.equal(plan.items[0].generation_requests[0].model_policy.presence, "required");
   assert.equal(plan.items[0].generation_requests[0].model_policy.source, "generated_no_reference_required");
-  assert.match(plan.items[0].generation_requests[1].prompt, /Front fit\/shape view/);
+  assert.match(plan.items[0].generation_requests[1].prompt, /มุมด้านหน้าที่ช่วยให้เห็นการเข้าทรง/);
   assert.deepEqual(plan.items[0].generation_requests[1].blockers, ["support_requires_approved_hero_anchor"]);
 });
 
@@ -64,8 +64,9 @@ test("buildPilotGenerationExecutionPlan rebuilds stale hero prompts from older f
   const hero = plan.items[0].generation_requests[0];
   assert.equal(hero.prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
   assert.notEqual(hero.prompt, "Old hero prompt without product slot output contract.");
-  assert.match(hero.prompt, /Use the reference images as the source of truth/);
-  assert.match(hero.prompt, /Do not add poster layout/);
+  assert.match(hero.prompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก/);
+  assert.match(hero.prompt, /ภาพต้องสะอาด สมจริง สินค้าเด่น/);
+  assert.doesNotMatch(hero.prompt, /Use the reference images as the source of truth|Do not add poster layout/i);
   assert.doesNotMatch(hero.prompt, /Product slot output contract/);
   assert.equal(hero.model_policy.presence, "preferred");
   assert.equal(hero.visual_variation.variation_group, "A");
@@ -205,7 +206,9 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
   assert.equal(support.model_input_files[1].source_name, "GM-004_front.jpg");
   assert.equal(support.model_input_files[1].source_role, "product_reference");
   assert.equal(support.model_input_files[1].local_path, "/tmp/GM-004/front.jpg");
-  assert.match(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
+  assert.match(support.prompt, /ใช้ภาพหลักที่อนุมัติแล้วเป็นภาพอ้างอิง/);
+  assert.match(support.prompt, /ถ้าขัดกับภาพต้นฉบับสินค้าให้ยึดภาพต้นฉบับสินค้าเป็นหลัก/);
+  assert.doesNotMatch(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
 });
 
 test("buildPilotGenerationExecutionPlan treats LINE-approved generated hero as support anchor", () => {
