@@ -12,6 +12,7 @@ import { google } from "googleapis";
 import { isDryRun } from "./lib/automation/env.mjs";
 import { getUserFromAccessToken, supabaseAdmin } from "./lib/supabase-admin.mjs";
 import { processAutomationTaskCore } from "./lib/automation/automation-worker-core.mjs";
+import { registerAutomationBatch } from "./lib/automation/batch-registry.mjs";
 import { buildSupabaseMediaAssetManifestForBatch } from "./lib/automation/supabase-media-asset-manifest.mjs";
 import { createFalImageProvider } from "./lib/automation/fal-image-provider.mjs";
 import { persistLiveGenerationExecution } from "./lib/automation/live-generation-persistence.mjs";
@@ -33,8 +34,15 @@ import {
   buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex,
+  buildPilotBatchFlex,
   pushLineMessage
 } from "./lib/automation/line-client.mjs";
+import {
+  buildLineKeywordBatchIntakeResult,
+  buildLineKeywordBatchTextMessages,
+  loadLineKeywordBatchCatalogSnapshot,
+  parseLineKeywordBatchCommand
+} from "./lib/automation/line-keyword-batch-intake.mjs";
 import { renderAiHubImageReviewPage } from "./lib/automation/ai-hub-review-page.mjs";
 import { buildAiHubReviewDecisionSubmission } from "./lib/automation/ai-hub-review-decision-workflow.mjs";
 import { renderAiHubReviewWorkspacePage } from "./lib/automation/ai-hub-review-workspace-page.mjs";
@@ -3529,16 +3537,136 @@ async function handleLineWebhookEvent(event, payload) {
   }
 
   if (event?.type === "message") {
+    const messageType = cleanOptionalString(event.message?.type);
+    const messageText = cleanOptionalString(event.message?.text);
     await recordAuditEvent({
       actorId: null,
       eventType: "line_message_received",
       eventJson: {
         ...baseEventJson,
-        message_type: cleanOptionalString(event.message?.type),
-        message_text: cleanOptionalString(event.message?.text)
+        message_type: messageType,
+        message_text: messageText
       }
     });
+    if (messageType === "text") {
+      await handleLineKeywordBatchMessage({ baseEventJson, messageText });
+    }
   }
+}
+
+async function handleLineKeywordBatchMessage({ baseEventJson, messageText }) {
+  const command = parseLineKeywordBatchCommand(messageText);
+  if (!command.recognized) return { handled: false };
+
+  await recordAuditEvent({
+    actorId: null,
+    eventType: "line_keyword_batch_command_received",
+    eventJson: {
+      ...baseEventJson,
+      command
+    }
+  });
+
+  if (!isAuthorizedLinePostbackUser(baseEventJson.line_user_id)) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "line_keyword_batch_unauthorized",
+      eventJson: {
+        ...baseEventJson,
+        expected_line_user_id_configured: Boolean(lineTargetUserId)
+      }
+    });
+    return { handled: true, ok: false, reason: "unauthorized_line_user" };
+  }
+
+  let result;
+  let registryResult = null;
+  try {
+    const snapshot = await loadLineKeywordBatchCatalogSnapshot({ outputsDir });
+    result = buildLineKeywordBatchIntakeResult({
+      text: messageText,
+      generationRows: snapshot.generationRows,
+      auditRows: snapshot.auditRows,
+      lineUserId: baseEventJson.line_user_id,
+      now: new Date()
+    });
+
+    if (result.ok) {
+      registryResult = await registerAutomationBatch(result.batch, {
+        source: "line_keyword_batch_intake",
+        lineUserId: baseEventJson.line_user_id
+      });
+      if (!registryResult?.ok) {
+        result = {
+          ...result,
+          ok: false,
+          blockers: [
+            ...(result.blockers || []),
+            {
+              code: "automation_registry_unavailable",
+              message: registryResult?.reason || "Supabase automation registry is unavailable."
+            }
+          ],
+          replyText: [
+            "ยังสร้าง batch จาก LINE keyword ไม่ได้",
+            `- ${registryResult?.reason || "Supabase automation registry is unavailable."}`,
+            "ตัวอย่าง: BATCH รองเท้า=5 เสื้อ=5"
+          ].join("\n")
+        };
+      }
+    }
+
+    await pushLineKeywordBatchIntakeMessages({ result, targetLineUserId: baseEventJson.line_user_id || lineTargetUserId });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: result.ok ? "line_keyword_batch_intake_completed" : "line_keyword_batch_intake_blocked",
+      eventJson: {
+        ...baseEventJson,
+        batch_id: result.batch?.batch_id || "",
+        item_count: result.batch?.items?.length || 0,
+        registry: registryResult || null,
+        blockers: result.blockers || [],
+        outputs_dir: outputsDir
+      }
+    });
+    return { handled: true, ok: result.ok, batchId: result.batch?.batch_id || "" };
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "line_keyword_batch_intake_failed",
+      eventJson: {
+        ...baseEventJson,
+        error: readableError(error),
+        outputs_dir: outputsDir
+      }
+    });
+    await pushLineKeywordBatchIntakeMessages({
+      result: {
+        recognized: true,
+        ok: false,
+        command,
+        batch: null,
+        blockers: [{ code: "intake_failed", message: readableError(error) }],
+        replyText: [
+          "ยังสร้าง batch จาก LINE keyword ไม่ได้",
+          `- ${readableError(error)}`,
+          "ตัวอย่าง: BATCH รองเท้า=5 เสื้อ=5"
+        ].join("\n")
+      },
+      targetLineUserId: baseEventJson.line_user_id || lineTargetUserId
+    });
+    return { handled: true, ok: false, error: readableError(error) };
+  }
+}
+
+async function pushLineKeywordBatchIntakeMessages({ result, targetLineUserId }) {
+  const to = cleanOptionalString(targetLineUserId);
+  if (!to || !lineChannelAccessToken) return;
+  const messages = result?.ok
+    ? [buildPilotBatchFlex(result.batch), ...buildLineKeywordBatchTextMessages({ result })]
+    : buildLineKeywordBatchTextMessages({ result });
+  if (!messages.length) return;
+  await pushLineMessage({ to, messages });
 }
 
 function parseLinePostbackAction(data) {
