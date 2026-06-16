@@ -301,6 +301,7 @@ test("worker core completes WordPress media attach execution plan without media 
   const auditEvents = [];
   const completed = [];
   const callbacks = [];
+  const queued = [];
   await processAutomationTaskCore({
     task: {
       id: "task-execution-plan",
@@ -309,6 +310,7 @@ test("worker core completes WordPress media attach execution plan without media 
       dedupe_key: "dedupe-execution-plan",
       payload: {
         dry_run: true,
+        auto_enqueue_remote_refetch_preflight: true,
         final_confirmation: {
           confirmed: true,
           actor_id: "admin-user",
@@ -336,7 +338,8 @@ test("worker core completes WordPress media attach execution plan without media 
     },
     recordAuditEvent: async (event) => auditEvents.push(event),
     completeTask: async (id, result) => completed.push({ id, result }),
-    onMediaAttachExecutionPlanCompleted: async (event) => callbacks.push(event)
+    onMediaAttachExecutionPlanCompleted: async (event) => callbacks.push(event),
+    enqueueTask: async (queuedTask) => queued.push(queuedTask)
   });
 
   assert.equal(auditEvents[0].eventType, "wordpress_media_attach_execution_plan_completed");
@@ -344,6 +347,57 @@ test("worker core completes WordPress media attach execution plan without media 
   assert.equal(completed[0].result.execution_plan.execution_allowed, false);
   assert.equal(completed[0].result.execution_plan.live_write_allowed, false);
   assert.equal(callbacks[0].executionPlan.summary.proposed_operations, 1);
+  assert.equal(queued[0].taskType, "wordpress_media_remote_refetch_preflight");
+  assert.equal(queued[0].payload.execution_plan.summary.proposed_operations, 1);
+  assert.equal(queued[0].payload.requires_remote_refetch, false);
+});
+
+test("worker core completes WordPress media remote refetch preflight without media writes", async () => {
+  const auditEvents = [];
+  const completed = [];
+  const callbacks = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-remote-refetch",
+      task_type: "wordpress_media_remote_refetch_preflight",
+      batch_id: "batch-1",
+      dedupe_key: "dedupe-remote-refetch",
+      payload: {
+        dry_run: true,
+        execution_plan: {
+          batch_id: "batch-1",
+          plan_status: "ready_for_live_write_phase",
+          operations: [{
+            sku: "SKU001",
+            target_site: "gomall",
+            role: "main_image",
+            operation_type: "set_product_main_image",
+            operation_status: "ready_for_live_write_phase",
+            idempotency_key: "media_attach:SKU001:batch-1:main",
+            source_asset: { id: "hero", url: "https://cdn.example.test/hero.png" }
+          }]
+        },
+        remote_results: {
+          items: [{
+            sku: "SKU001",
+            target_site: "gomall",
+            product_remote_status: "found",
+            product_id: 123,
+            current_gallery_image_ids: [11, 12]
+          }]
+        }
+      }
+    },
+    recordAuditEvent: async (event) => auditEvents.push(event),
+    completeTask: async (id, result) => completed.push({ id, result }),
+    onMediaRemoteRefetchPreflightCompleted: async (event) => callbacks.push(event)
+  });
+
+  assert.equal(auditEvents[0].eventType, "wordpress_media_remote_refetch_preflight_completed");
+  assert.equal(completed[0].result.remote_refetch_preflight.live_write_allowed, false);
+  assert.equal(completed[0].result.remote_refetch_preflight.media_attach_allowed, false);
+  assert.equal(completed[0].result.remote_refetch_preflight.summary.remote_products_found, 1);
+  assert.equal(callbacks[0].remoteRefetchPreflight.preflight_status, "ready_for_live_write_phase_review");
 });
 
 test("worker core completes live generation execution as a provider-free gate check", async () => {

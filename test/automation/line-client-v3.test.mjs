@@ -6,6 +6,7 @@ import {
   buildPilotBatchFlex,
   buildReferenceMatchFlex,
   buildWordPressMediaAttachExecutionPlanFlex,
+  buildWordPressMediaRemoteRefetchPreflightFlex,
   buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex
@@ -333,6 +334,39 @@ test("WordPress media attach execution plan flex summarizes readiness without li
   assert.match(text, /Operations: 3/);
   assert.match(text, /Ready for later live phase: 3/);
   assert.match(text, /Remote refetch required/);
+  assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
+  assert.doesNotMatch(text, /Attach now|Approve attach|Publish|POST|PUT|PATCH|DELETE/);
+  assert.doesNotMatch(text, /undefined/);
+});
+
+test("WordPress media remote refetch flex summarizes read-only final check", () => {
+  const flex = buildWordPressMediaRemoteRefetchPreflightFlex({
+    batch_id: "batch-refetch-1",
+    preflight_status: "ready_for_live_write_phase_review",
+    summary: {
+      item_count: 1,
+      operation_count: 3,
+      remote_products_found: 1,
+      remote_products_missing: 0,
+      ready_items: 1,
+      blocked: 0,
+      current_gallery_images: 4,
+      remote_media_matches: 2
+    },
+    items: [{
+      sku: "2DJ0493000",
+      target_site: "gomall",
+      product_remote_status: "found",
+      product_id: 123,
+      operations: [{ operation_status: "remote_checked_ready" }],
+      blockers: []
+    }]
+  });
+  const text = JSON.stringify(flex);
+  assert.match(text, /Media Remote Refetch Preflight/);
+  assert.match(text, /Products found: 1\/1/);
+  assert.match(text, /Operations checked: 3/);
+  assert.match(text, /Remote media matches: 2/);
   assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
   assert.doesNotMatch(text, /Attach now|Approve attach|Publish|POST|PUT|PATCH|DELETE/);
   assert.doesNotMatch(text, /undefined/);

@@ -243,3 +243,55 @@ test("buildMonitoringWordPressPreflights includes media attach execution plan la
   assert.equal(rows[0].executionAllowed, false);
   assert.equal(rows[0].requiresRemoteRefetch, true);
 });
+
+test("buildMonitoringWordPressPreflights includes media remote refetch preflight lane", () => {
+  const rows = buildMonitoringWordPressPreflights([
+    {
+      id: "task-remote-refetch",
+      task_type: "wordpress_media_remote_refetch_preflight",
+      batch_id: "batch-1",
+      dedupe_key: "line:remote-refetch:batch-1",
+      status: "completed",
+      completed_at: "2026-06-12T04:00:00.000Z",
+      payload: {
+        remote_refetch_preflight: {
+          dry_run: true,
+          live_write_allowed: false,
+          media_attach_allowed: false,
+          execution_allowed: false,
+          requires_final_confirmation: true,
+          requires_remote_refetch: false,
+          preflight_status: "ready_for_live_write_phase_review",
+          summary: {
+            item_count: 1,
+            operation_count: 3,
+            remote_products_found: 1,
+            remote_products_missing: 0,
+            ready_items: 1,
+            blocked: 0,
+            current_gallery_images: 4,
+            remote_media_matches: 2
+          },
+          items: [{
+            sku: "2DJ0493000",
+            target_site: "gomall",
+            product_remote_status: "found",
+            product_id: 123,
+            operations: [{ operation_status: "remote_checked_ready" }],
+            blockers: []
+          }]
+        }
+      }
+    }
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].phase, "media_remote_refetch");
+  assert.equal(rows[0].phaseLabel, "Media remote refetch preflight");
+  assert.equal(rows[0].summary.remoteProductsFound, 1);
+  assert.equal(rows[0].summary.operationCount, 3);
+  assert.equal(rows[0].items[0].remoteStatus, "found");
+  assert.equal(rows[0].items[0].productId, 123);
+  assert.equal(rows[0].mediaAttachAllowed, false);
+  assert.equal(rows[0].executionAllowed, false);
+});

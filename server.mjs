@@ -29,6 +29,7 @@ import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordp
 import { buildMonitoringWordPressPreflights } from "./lib/automation/wordpress-preflight-monitoring.mjs";
 import {
   buildWordPressMediaAttachExecutionPlanFlex,
+  buildWordPressMediaRemoteRefetchPreflightFlex,
   buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex,
@@ -4048,6 +4049,7 @@ async function processAutomationTask(task) {
       onMediaPreflightCompleted: handleWordPressMediaPreflightCompleted,
       onMediaAttachConfirmationCompleted: handleWordPressMediaAttachConfirmationCompleted,
       onMediaAttachExecutionPlanCompleted: handleWordPressMediaAttachExecutionPlanCompleted,
+      onMediaRemoteRefetchPreflightCompleted: handleWordPressMediaRemoteRefetchPreflightCompleted,
       readMediaManifest: readLiveGenerationMediaManifest,
       readModelInputStagingManifest: readLiveGenerationModelInputStagingManifest,
       enqueueTask: enqueueAutomationTask,
@@ -4244,6 +4246,10 @@ async function handleWordPressMediaAttachExecutionPlanCompleted({ task, executio
   await sendWordPressMediaAttachExecutionPlanLineSummary({ task, executionPlan });
 }
 
+async function handleWordPressMediaRemoteRefetchPreflightCompleted({ task, remoteRefetchPreflight }) {
+  await sendWordPressMediaRemoteRefetchPreflightLineSummary({ task, remoteRefetchPreflight });
+}
+
 async function sendWordPressPreflightLineSummary({ task, preflight }) {
   const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
   if (!target || !lineChannelAccessToken) return;
@@ -4377,6 +4383,42 @@ async function sendWordPressMediaAttachExecutionPlanLineSummary({ task, executio
     await recordAuditEvent({
       actorId: null,
       eventType: "wordpress_media_attach_execution_plan_line_summary_failed",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        error: readableError(error)
+      }
+    });
+  }
+}
+
+async function sendWordPressMediaRemoteRefetchPreflightLineSummary({ task, remoteRefetchPreflight }) {
+  const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
+  if (!target || !lineChannelAccessToken) return;
+
+  try {
+    await pushLineMessage({
+      to: target,
+      messages: [buildWordPressMediaRemoteRefetchPreflightFlex(remoteRefetchPreflight)]
+    });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_media_remote_refetch_preflight_line_summary_sent",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        line_target_configured: Boolean(lineTargetUserId),
+        summary: remoteRefetchPreflight.summary || {}
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_media_remote_refetch_preflight_line_summary_failed",
       eventJson: {
         task_id: task.id,
         task_type: task.task_type,

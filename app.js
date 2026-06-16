@@ -4763,6 +4763,7 @@ function renderMonitoringWordPressPreflightRow(item) {
   const isMedia = item.phase === "media_mapping";
   const isMediaAttachConfirmation = item.phase === "media_attach_confirmation";
   const isMediaAttachExecutionPlan = item.phase === "media_attach_execution_plan";
+  const isMediaRemoteRefetch = item.phase === "media_remote_refetch";
   const summary = item.summary || {};
   const firstItem = item.items?.[0] || {};
   const tone = item.liveWriteAllowed
@@ -4804,6 +4805,15 @@ function renderMonitoringWordPressPreflightRow(item) {
       summary.duplicateIdempotencyKeys ? `${formatThaiNumber(summary.duplicateIdempotencyKeys)} duplicate keys` : ""
     ];
   }
+  if (isMediaRemoteRefetch) {
+    headline = `${formatThaiNumber(summary.remoteProductsFound || 0)} products found · ${formatThaiNumber(summary.operationCount || 0)} operations checked`;
+    detail = [
+      item.preflightStatus || "",
+      `${formatThaiNumber(summary.currentGalleryImages || 0)} current gallery`,
+      `${formatThaiNumber(summary.remoteMediaMatches || 0)} media matches`,
+      summary.remoteProductsMissing ? `${formatThaiNumber(summary.remoteProductsMissing)} products missing` : ""
+    ];
+  }
   return `
     <article class="monitoring-row ${tone}">
       <div class="monitoring-row-main">
@@ -4823,6 +4833,14 @@ function renderMonitoringWordPressPreflightRow(item) {
 
 function getWordPressPreflightNextStep({ item, firstItem, isMedia }) {
   if (item.liveWriteAllowed) return "หยุดตรวจสอบทันที: live write flag เปิดอยู่ ทั้ง phase นี้ควรเป็น preflight เท่านั้น";
+  if (item.phase === "media_remote_refetch") {
+    if (item.executionAllowed || item.mediaAttachAllowed) return "หยุดตรวจสอบทันที: execution/media attach flag เปิดอยู่ใน remote refetch preflight";
+    if (firstItem?.remoteRefetchStatus === "ready_for_live_write_phase_review") {
+      return "อ่านสถานะ remote ล่าสุดแล้ว; ยังไม่มี upload/attach/publish และรอ live-write phase แยกต่างหาก";
+    }
+    if (firstItem?.blockers?.length) return `รอแก้ remote refetch: ${firstItem.blockers.join(", ")}`;
+    return "รอผล remote refetch หรือ review blocker ก่อนเข้า live media attach phase";
+  }
   if (item.phase === "media_attach_execution_plan") {
     if (item.executionAllowed || item.mediaAttachAllowed) return "หยุดตรวจสอบทันที: execution/media attach flag เปิดอยู่ก่อน live-write phase";
     if (firstItem?.operationStatus === "ready_for_live_write_phase") {
