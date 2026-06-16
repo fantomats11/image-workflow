@@ -22,6 +22,7 @@ import {
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
 import { buildLiveSupportCandidateManifest } from "./lib/automation/live-support-candidate-manifest.mjs";
+import { buildMediaExportPreflightGate } from "./lib/automation/media-export-preflight-gate.mjs";
 import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
 import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
 import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
@@ -1349,6 +1350,8 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
           ? batchItemMetadata.support_review_decisions
           : [],
         support_candidate_manifest: batchItemMetadata.support_candidate_manifest || batchItemMetadata.candidate_manifest || null,
+        media_export_preflight_gate: batchItemMetadata.media_export_preflight_gate || null,
+        media_assets: Array.isArray(batchItemMetadata.media_assets) ? batchItemMetadata.media_assets : [],
         reference_assets: referenceAssets,
         approved: Boolean(approvalsResult.data?.length),
         approvals: approvalsResult.data || []
@@ -1438,6 +1441,9 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
         decisionState
       })
       : null;
+    const mediaExportPreflightGate = candidateManifest
+      ? buildMediaExportPreflightGate({ candidateManifest })
+      : null;
     const { error: updateError } = await supabaseAdmin
       .from("automation_batch_items")
       .update({
@@ -1449,7 +1455,10 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
           support_review_decisions: decisionState.assets,
           support_candidate_manifest: candidateManifest,
           candidate_manifest: candidateManifest,
-          candidate_manifest_status: candidateManifest?.manifest_status || null
+          candidate_manifest_status: candidateManifest?.manifest_status || null,
+          media_export_preflight_gate: mediaExportPreflightGate,
+          media_export_preflight_status: mediaExportPreflightGate?.gate_status || null,
+          media_assets: mediaExportPreflightGate?.media_assets || []
         }
       })
       .eq("id", item.id);
@@ -1464,7 +1473,8 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
         review_status: decisionState.review_status,
         summary: decisionState.summary,
         candidate_manifest_ready: decisionState.candidate_manifest_ready,
-        candidate_manifest_status: candidateManifest?.manifest_status || null
+        candidate_manifest_status: candidateManifest?.manifest_status || null,
+        media_export_preflight_status: mediaExportPreflightGate?.gate_status || null
       }
     });
 
@@ -1482,7 +1492,26 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
       });
     }
 
-    res.json({ ok: true, decision_state: decisionState, candidate_manifest: candidateManifest });
+    if (mediaExportPreflightGate) {
+      await recordAuditEvent({
+        actorId: req.user.id,
+        eventType: "media_export_preflight_gate_built",
+        eventJson: {
+          batch_id: resolvedBatchId,
+          sku,
+          generation_id: generationId || null,
+          gate_status: mediaExportPreflightGate.gate_status,
+          summary: mediaExportPreflightGate.summary
+        }
+      });
+    }
+
+    res.json({
+      ok: true,
+      decision_state: decisionState,
+      candidate_manifest: candidateManifest,
+      media_export_preflight_gate: mediaExportPreflightGate
+    });
   } catch (error) {
     console.warn(error?.message || readableError(error));
     res.status(500).json({ ok: false, code: "support_review_decisions_failed", error: "บันทึก Support Review decisions ไม่สำเร็จ" });

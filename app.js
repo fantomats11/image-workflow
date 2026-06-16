@@ -4997,6 +4997,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const hasSupportAssets = supportReviewReady && supportAssets.length > 0;
   const supportDecisionMap = getSupportDecisionMap(review);
   const supportCandidateManifest = review.support_candidate_manifest || null;
+  const mediaExportPreflightGate = review.media_export_preflight_gate || null;
   const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
   els.heroReviewTitle.textContent = hasSupportAssets ? `Image Set Review / ${sku}` : `Hero Review / ${sku}`;
@@ -5080,15 +5081,18 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
       : `<p class="empty-state">ยังไม่มี support ใน review set นี้</p>`;
   }
 
-  setHeroReviewMessage(
-    supportCandidateManifest?.manifest_status
+  const reviewMessage = mediaExportPreflightGate?.gate_status
+    ? `Media export gate: ${mediaExportPreflightGate.gate_status}`
+    : supportCandidateManifest?.manifest_status
       ? `Candidate manifest: ${supportCandidateManifest.manifest_status}`
       : hasSupportAssets
         ? "Support candidates พร้อมตรวจใน flow เดียวกันแล้ว"
         : review.approved
           ? "Hero นี้ approve แล้ว"
-          : "",
-    supportCandidateManifest?.manifest_status || hasSupportAssets || review.approved ? "success" : ""
+          : "";
+  setHeroReviewMessage(
+    reviewMessage,
+    mediaExportPreflightGate?.gate_status || supportCandidateManifest?.manifest_status || hasSupportAssets || review.approved ? "success" : ""
   );
 }
 
@@ -5175,7 +5179,13 @@ async function saveSupportReviewDecisions() {
     els.heroReviewStatus.textContent = state.review_status || "support review saved";
     if (state.candidate_manifest_ready) {
       const manifestStatus = result.candidate_manifest?.manifest_status || "candidate_manifest_ready";
-      setHeroReviewMessage(`Support approved ครบแล้ว: ${manifestStatus}`, "success");
+      const mediaGateStatus = result.media_export_preflight_gate?.gate_status || "";
+      setHeroReviewMessage(
+        mediaGateStatus
+          ? `Support approved ครบแล้ว: ${mediaGateStatus}`
+          : `Support approved ครบแล้ว: ${manifestStatus}`,
+        "success"
+      );
     } else if (state.review_status === "support_regeneration_requested") {
       setHeroReviewMessage("รับคำขอ regenerate support แล้ว: flow จะยังไม่ไป Candidate Manifest", "success");
     } else {
