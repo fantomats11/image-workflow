@@ -157,6 +157,7 @@ test("worker core completes WordPress preflight with no live writes", async () =
 test("worker core completes WordPress media mapping preflight without media writes", async () => {
   const auditEvents = [];
   const completed = [];
+  const callbacks = [];
   await processAutomationTaskCore({
     task: {
       id: "task-3",
@@ -185,13 +186,16 @@ test("worker core completes WordPress media mapping preflight without media writ
     }],
     workerId: "test-worker",
     recordAuditEvent: async (event) => auditEvents.push(event),
-    completeTask: async (id, result) => completed.push({ id, result })
+    completeTask: async (id, result) => completed.push({ id, result }),
+    onMediaPreflightCompleted: async (event) => callbacks.push(event)
   });
 
   assert.equal(auditEvents[0].eventType, "wordpress_media_mapping_preflight_completed");
   assert.equal(completed[0].result.preflight.live_write_allowed, false);
   assert.equal(completed[0].result.preflight.summary.awaiting_media_assets, 1);
   assert.equal(completed[0].result.preflight.items[0].write_policy, "no_upload_or_attach_without_final_confirmation");
+  assert.equal(callbacks[0].task.id, "task-3");
+  assert.equal(callbacks[0].preflight.requires_final_confirmation, true);
 });
 
 test("worker core hydrates WordPress media mapping preflight from media export gate metadata", async () => {

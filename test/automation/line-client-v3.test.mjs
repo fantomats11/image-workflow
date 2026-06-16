@@ -5,6 +5,7 @@ import {
   buildHeroReviewMessages,
   buildPilotBatchFlex,
   buildReferenceMatchFlex,
+  buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex
 } from "../../lib/automation/line-client.mjs";
 
@@ -235,5 +236,35 @@ test("WordPress preflight flex summarizes read-only WooCommerce proposal", () =>
   assert.match(text, /read-only/);
   assert.match(text, /ยังไม่มีการ create\/update\/publish/);
   assert.doesNotMatch(text, /Approve publish/);
+  assert.doesNotMatch(text, /undefined/);
+});
+
+test("WordPress media preflight flex summarizes media handoff without attach buttons", () => {
+  const flex = buildWordPressMediaPreflightFlex({
+    batch_id: "batch-media-1",
+    summary: {
+      item_count: 1,
+      ready_for_media_proposal: 1,
+      awaiting_media_assets: 0,
+      media_assets_matched: 3,
+      proposed_main_images: 1,
+      proposed_gallery_images: 2
+    },
+    items: [{
+      sku: "2DJ0493000",
+      target_site: "gomall",
+      media_status: "ready_for_media_proposal",
+      proposed_action: "propose_media_attach_after_final_confirmation",
+      proposed_gallery_images: [{ url: "https://cdn.example.test/side.png" }, { url: "https://cdn.example.test/back.png" }],
+      blockers: []
+    }]
+  });
+  const text = JSON.stringify(flex);
+  assert.match(text, /Media Mapping Preflight/);
+  assert.match(text, /Ready: 1\/1/);
+  assert.match(text, /Assets: 3/);
+  assert.match(text, /main 1 · gallery 2/);
+  assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
+  assert.doesNotMatch(text, /Attach now|Approve attach|Publish/);
   assert.doesNotMatch(text, /undefined/);
 });
