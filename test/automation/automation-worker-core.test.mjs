@@ -194,6 +194,54 @@ test("worker core completes WordPress media mapping preflight without media writ
   assert.equal(completed[0].result.preflight.items[0].write_policy, "no_upload_or_attach_without_final_confirmation");
 });
 
+test("worker core hydrates WordPress media mapping preflight from media export gate metadata", async () => {
+  const completed = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-media-gate",
+      task_type: "wordpress_media_mapping_preflight",
+      batch_id: "batch-1",
+      dedupe_key: "dedupe-media-gate",
+      payload: {
+        dry_run: true,
+        product_preflight: {
+          items: [{
+            sku: "SKU001",
+            brand_id: "go_mall",
+            target_site: "gomall",
+            preflight_status: "ready_for_proposal",
+            proposed_action: "create_draft_product"
+          }]
+        }
+      }
+    },
+    batchItems: [{
+      id: "item-1",
+      sku: "SKU001",
+      target_site: "gomall",
+      prompt_json: { support_shots: "front_view|back_view" },
+      metadata: {
+        brand_id: "go_mall",
+        media_export_preflight_gate: {
+          gate_status: "ready_for_export_preflight",
+          media_assets: [
+            { sku: "SKU001", type: "hero_generated", shot_key: "hero", status: "approved", url: "https://cdn.example.test/hero.png" },
+            { sku: "SKU001", type: "support_generated", shot_key: "front_view", status: "approved", url: "https://cdn.example.test/front.png" },
+            { sku: "SKU001", type: "support_generated", shot_key: "back_view", status: "approved", url: "https://cdn.example.test/back.png" }
+          ]
+        }
+      }
+    }],
+    recordAuditEvent: async () => {},
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(completed[0].result.preflight.summary.ready_for_media_proposal, 1);
+  assert.equal(completed[0].result.preflight.summary.media_assets_matched, 3);
+  assert.equal(completed[0].result.preflight.items[0].media_status, "ready_for_media_proposal");
+  assert.equal(completed[0].result.preflight.items[0].proposed_gallery_images.length, 2);
+});
+
 test("worker core completes live generation execution as a provider-free gate check", async () => {
   const auditEvents = [];
   const completed = [];
