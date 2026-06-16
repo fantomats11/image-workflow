@@ -229,3 +229,197 @@ test("worker core completes live generation execution as a provider-free gate ch
   assert.equal(completed[0].result.execution.summary.skipped_requests, 1);
   assert.equal(completed[0].result.execution.live_generation_allowed, false);
 });
+
+test("worker core executes and persists armed live support generation", async () => {
+  const auditEvents = [];
+  const completed = [];
+  const providerRequests = [];
+  const persistenceCalls = [];
+  const supportCallbacks = [];
+  const task = {
+    id: "task-live-support-1",
+    task_type: "live_pilot_generation_execution",
+    batch_id: "batch-live-support",
+    payload: {
+      actor_id: "actor-1",
+      live_generation_requested: true,
+      live_generation_confirmed: true,
+      generation_plan: {
+        batch_id: "batch-live-support",
+        items: [{
+          sku: "2DJ0493000",
+          generation_requests: [{
+            request_id: "2DJ0493000:support:side_fit_on_model",
+            sku: "2DJ0493000",
+            kind: "support",
+            slot: "side_fit_on_model",
+            prompt: "support prompt",
+            request_status: "ready_for_live_generation",
+            model_input_files: [{
+              source_name: "approved_hero_anchor",
+              local_path: "/tmp/hero.png",
+              staging_status: "staged_local_file"
+            }]
+          }]
+        }]
+      },
+      live_generation_gate: {
+        batch_id: "batch-live-support",
+        gate_status: "live_generation_armed",
+        live_generation_allowed: true,
+        requests: [{
+          request_id: "2DJ0493000:support:side_fit_on_model",
+          sku: "2DJ0493000",
+          kind: "support",
+          slot: "side_fit_on_model",
+          prompt: "support prompt",
+          gate_status: "ready",
+          request_status: "ready_for_live_generation"
+        }]
+      }
+    }
+  };
+
+  const result = await processAutomationTaskCore({
+    task,
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "test-fal-key" },
+    batchItems: [],
+    workerId: "test-worker",
+    providerGenerate: async (request) => {
+      providerRequests.push(request);
+      return {
+        provider_request_id: "fal-side-1",
+        images: [{
+          url: "https://cdn.example.com/side.png",
+          file_name: "side.png",
+          contentType: "image/png",
+          file_size: 123
+        }]
+      };
+    },
+    persistLiveExecution: async (payload) => {
+      persistenceCalls.push(payload);
+      return {
+        persistence_status: "completed",
+        summary: { persisted: 1 },
+        items: [{
+          sku: "2DJ0493000",
+          kind: "support",
+          slot: "side_fit_on_model",
+          public_url: "https://cdn.example.com/side.png"
+        }]
+      };
+    },
+    onSupportGenerationCompleted: async (payload) => supportCallbacks.push(payload),
+    recordAuditEvent: async (event) => auditEvents.push(event),
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(result.action, "live_generation_execution_recorded");
+  assert.equal(providerRequests.length, 1);
+  assert.equal(providerRequests[0].request_id, "2DJ0493000:support:side_fit_on_model");
+  assert.equal(persistenceCalls.length, 1);
+  assert.equal(persistenceCalls[0].generationPlan.batch_id, "batch-live-support");
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].result.dry_run, false);
+  assert.equal(completed[0].result.execution.summary.executed_requests, 1);
+  assert.equal(completed[0].result.persistence.summary.persisted, 1);
+  assert.equal(supportCallbacks.length, 1);
+  assert.equal(supportCallbacks[0].persistence.summary.persisted, 1);
+  assert.equal(auditEvents[0].eventType, "live_pilot_generation_execution_completed");
+});
+
+test("worker core enqueues live support execution after approved hero plan", async () => {
+  const completed = [];
+  const enqueued = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-support-plan-1",
+      task_type: "generate_batch",
+      batch_id: "batch-live-support",
+      dedupe_key: "approve-hero:batch-live-support:2DJ0493000",
+      payload: {
+        action: "approve_hero",
+        actor_id: "actor-1",
+        sku: "2DJ0493000",
+        generation_id: "hero-gen-1",
+        generation_phase: "support_after_hero_approval",
+        request_mode: "support-only-after-approved-hero",
+        requires_approved_hero_anchor: true,
+        auto_enqueue_live_support: true,
+        live_generation_requested: true,
+        live_generation_confirmed: true
+      }
+    },
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "test-fal-key" },
+    batchItems: [{
+      id: "item-1",
+      sku: "2DJ0493000",
+      target_site: "gomall",
+      status: "hero_approved",
+      product_name: "The North Face White Cream Puffer Jacket, Down 600",
+      category: "เสื้อ",
+      metadata: {
+        brand_id: "go_mall",
+        product_name: "The North Face White Cream Puffer Jacket, Down 600",
+        product_type: "sale",
+        reference_url: "https://drive.google.com/drive/folders/ref-folder",
+        support_shots: "side_fit_on_model",
+        web_review_action: {
+          action: "approve_hero",
+          hero_asset_id: "hero-asset-1",
+          generation_id: "hero-gen-1"
+        },
+        image_assets: [{
+          id: "hero-asset-1",
+          kind: "hero",
+          generation_id: "hero-gen-1",
+          public_url: "https://cdn.example.com/hero.png"
+        }],
+        reference_images: [{
+          role: "front",
+          public_url: "https://cdn.example.com/front.jpg"
+        }]
+      }
+    }],
+    readMediaManifest: async () => ({
+      assets: [{
+        id: "hero-asset-1",
+        sku: "2DJ0493000",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "approved",
+        local_path: "/tmp/hero.png",
+        url: "https://cdn.example.com/hero.png",
+        file_name: "hero.png"
+      }]
+    }),
+    readModelInputStagingManifest: async () => ({
+      items: [{
+        sku: "2DJ0493000",
+        staged_reference_assets: [{
+          drive_file_id: "front-ref-1",
+          source_name: "2DJ0493000_Front_1779015437999.jpg",
+          source_mime_type: "image/jpeg",
+          local_path: "/tmp/front.jpg",
+          file_name: "front.jpg",
+          file_size: 456,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    }),
+    enqueueTask: async (taskPayload) => enqueued.push(taskPayload),
+    recordAuditEvent: async () => {},
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(completed.length, 1);
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0].taskType, "live_pilot_generation_execution");
+  assert.equal(enqueued[0].payload.action, "generate_support_after_hero_approval");
+  assert.equal(enqueued[0].payload.live_generation_gate.live_generation_allowed, true);
+  assert.equal(enqueued[0].payload.live_generation_gate.requests.length, 1);
+  assert.equal(enqueued[0].payload.generation_plan.items[0].generation_requests[0].kind, "support");
+});

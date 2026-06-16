@@ -220,6 +220,63 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
   assert.doesNotMatch(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
 });
 
+test("buildPilotGenerationExecutionPlan accepts metadata reference images as reference source", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: { id: "task-metadata-ref", task_type: "generate_batch", batch_id: "batch-1" },
+    batchItems: [{
+      sku: "GM-005",
+      status: "hero_approved",
+      metadata: {
+        brand_id: "go_mall",
+        target_site: "gomall",
+        product_name: "The North Face White Cream Puffer Jacket, Down 600",
+        product_type: "sale",
+        category: "เสื้อ",
+        support_shots: "side_fit_on_model",
+        line_action: { last_action: "approve_hero" },
+        reference_images: [{
+          drive_file_id: "front-ref-1",
+          name: "GM-005_front.jpg",
+          public_url: "https://cdn.example.com/front.jpg"
+        }]
+      }
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "GM-005",
+        staged_reference_assets: [{
+          drive_file_id: "front-ref-1",
+          source_name: "GM-005_front.jpg",
+          local_path: "/tmp/GM-005/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    },
+    mediaManifest: {
+      assets: [{
+        id: "asset-hero-approved",
+        sku: "GM-005",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "approved",
+        url: "https://cdn.example.com/hero.png",
+        local_path: "/tmp/GM-005/hero.png",
+        file_name: "hero.png",
+        file_size: 20,
+        approval_id: "approval-1"
+      }]
+    }
+  });
+
+  assert.equal(plan.items[0].reference_url, "https://cdn.example.com/front.jpg");
+  assert.equal(plan.summary.blocked_generation_requests, 0);
+  assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
+});
+
 test("buildPilotGenerationExecutionPlan treats LINE-approved generated hero as support anchor", () => {
   const plan = buildPilotGenerationExecutionPlan({
     task: { id: "task-line-anchor", task_type: "generate_batch", batch_id: "batch-1" },

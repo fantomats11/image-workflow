@@ -436,6 +436,7 @@ const els = {
   heroReviewSupportSet: document.getElementById("heroReviewSupportSet"),
   heroReviewSupportCount: document.getElementById("heroReviewSupportCount"),
   heroReviewSupportAssets: document.getElementById("heroReviewSupportAssets"),
+  supportReviewSaveButton: document.getElementById("supportReviewSaveButton"),
   heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
   heroReviewRegenerateButton: document.getElementById("heroReviewRegenerateButton"),
   heroReviewMessage: document.getElementById("heroReviewMessage"),
@@ -1351,6 +1352,7 @@ function bindEvents() {
   });
   if (els.heroReviewApproveButton) els.heroReviewApproveButton.addEventListener("click", approveHeroFromReviewPage);
   if (els.heroReviewRegenerateButton) els.heroReviewRegenerateButton.addEventListener("click", regenerateHeroFromReviewPage);
+  if (els.supportReviewSaveButton) els.supportReviewSaveButton.addEventListener("click", saveSupportReviewDecisions);
 
   els.copyButton.addEventListener("click", async () => {
     if (!currentPrompt) buildPrompt();
@@ -4961,6 +4963,28 @@ async function loadHeroReviewPage() {
   }
 }
 
+function getSupportAssetKey(asset = {}) {
+  return String(
+    asset.asset_key ||
+    asset.asset_id ||
+    asset.id ||
+    asset.generation_id ||
+    asset.request_id ||
+    asset.public_url ||
+    asset.source_url ||
+    asset.url ||
+    ""
+  ).trim();
+}
+
+function getSupportDecisionMap(review = {}) {
+  const stateAssets = Array.isArray(review.support_review_decision_state?.assets)
+    ? review.support_review_decision_state.assets
+    : [];
+  const legacyAssets = Array.isArray(review.support_review_decisions) ? review.support_review_decisions : [];
+  return new Map([...legacyAssets, ...stateAssets].map((item) => [getSupportAssetKey(item), item.decision || ""]));
+}
+
 function renderHeroReviewPage(review = {}, fallback = {}) {
   const job = review.job || {};
   const heroAsset = review.hero_asset || {};
@@ -4971,9 +4995,11 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const heroUrl = heroAsset.public_url || heroAsset.url || heroAsset.source_url || "";
   const supportReviewReady = review.review_stage === "support_review" || review.support_review_ready === true;
   const hasSupportAssets = supportReviewReady && supportAssets.length > 0;
+  const supportDecisionMap = getSupportDecisionMap(review);
+  const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
-  els.heroReviewTitle.textContent = `Hero Review / ${sku}`;
-  els.heroReviewStatus.textContent = review.approved ? "approved" : "ready";
+  els.heroReviewTitle.textContent = hasSupportAssets ? `Image Set Review / ${sku}` : `Hero Review / ${sku}`;
+  els.heroReviewStatus.textContent = hasSupportAssets ? "support ready" : review.approved ? "approved" : "ready";
   els.heroReviewMeta.textContent = [
     job.product_name,
     job.product_type,
@@ -4983,13 +5009,18 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
   els.heroReviewApproveButton.dataset.generationId = generationId;
-  els.heroReviewApproveButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
+  els.heroReviewApproveButton.dataset.batchId = batchId;
   els.heroReviewApproveButton.dataset.sku = sku;
   els.heroReviewRegenerateButton.dataset.generationId = generationId;
-  els.heroReviewRegenerateButton.dataset.batchId = review.batch_id || getHashParams().get("batch_id") || "";
+  els.heroReviewRegenerateButton.dataset.batchId = batchId;
   els.heroReviewRegenerateButton.dataset.sku = sku;
   els.heroReviewApproveButton.disabled = Boolean(review.approved);
-  els.heroReviewApproveButton.textContent = "Approve hero";
+  els.heroReviewApproveButton.textContent = hasSupportAssets ? "Hero approved" : "Approve hero";
+  if (els.supportReviewSaveButton) {
+    els.supportReviewSaveButton.dataset.batchId = batchId;
+    els.supportReviewSaveButton.dataset.sku = sku;
+    els.supportReviewSaveButton.hidden = !hasSupportAssets;
+  }
 
   els.heroReviewHero.innerHTML = heroUrl
     ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="Hero candidate ${escapeHtml(sku)}" /></a>`
@@ -5017,17 +5048,40 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
       ? supportAssets.map((asset, index) => {
         const url = asset.public_url || asset.url || asset.source_url || "";
         const label = asset.slot || asset.file_name || `Support ${index + 1}`;
+        const assetKey = getSupportAssetKey(asset) || `${sku}:support:${index + 1}`;
+        const decision = supportDecisionMap.get(assetKey) || "pending_support_qc";
         return `
           <figure class="review-image-tile">
             ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)} support shot" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
             <figcaption>${escapeHtml(label)}</figcaption>
+            <label class="support-decision-control">
+              <span>Decision</span>
+              <select
+                data-support-decision
+                data-asset-key="${escapeHtml(assetKey)}"
+                data-asset-id="${escapeHtml(asset.asset_id || asset.id || "")}"
+                data-generation-id="${escapeHtml(asset.generation_id || "")}"
+                data-request-id="${escapeHtml(asset.request_id || "")}"
+                data-public-url="${escapeHtml(url)}"
+                data-slot="${escapeHtml(asset.slot || asset.shot_key || label)}"
+              >
+                <option value="pending_support_qc"${decision === "pending_support_qc" ? " selected" : ""}>Pending QC</option>
+                <option value="approve_support"${decision === "approve_support" ? " selected" : ""}>Approve support</option>
+                <option value="regenerate_support"${decision === "regenerate_support" ? " selected" : ""}>Regenerate</option>
+                <option value="reject_support"${decision === "reject_support" ? " selected" : ""}>Reject</option>
+                <option value="needs_manual_review"${decision === "needs_manual_review" ? " selected" : ""}>Needs manual review</option>
+              </select>
+            </label>
           </figure>
         `;
       }).join("")
       : `<p class="empty-state">ยังไม่มี support ใน review set นี้</p>`;
   }
 
-  setHeroReviewMessage(review.approved ? "Hero นี้ approve แล้ว" : "", review.approved ? "success" : "");
+  setHeroReviewMessage(
+    hasSupportAssets ? "Support candidates พร้อมตรวจใน flow เดียวกันแล้ว" : review.approved ? "Hero นี้ approve แล้ว" : "",
+    hasSupportAssets || review.approved ? "success" : ""
+  );
 }
 
 async function approveHeroFromReviewPage() {
@@ -5078,6 +5132,49 @@ async function regenerateHeroFromReviewPage() {
   } catch (error) {
     els.heroReviewRegenerateButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
+  }
+}
+
+async function saveSupportReviewDecisions() {
+  const batchId = els.supportReviewSaveButton?.dataset.batchId || getHashParams().get("batch_id") || "";
+  const sku = els.supportReviewSaveButton?.dataset.sku || getHashParams().get("sku") || "";
+  const decisionInputs = Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-decision]") || []);
+  if (!batchId || !sku) return setHeroReviewMessage("ไม่มี batch_id หรือ sku สำหรับบันทึก Support Review", "danger");
+  if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มี support candidates ให้บันทึก", "danger");
+
+  const decisions = decisionInputs.map((input) => ({
+    asset_key: input.dataset.assetKey || "",
+    asset_id: input.dataset.assetId || "",
+    generation_id: input.dataset.generationId || "",
+    request_id: input.dataset.requestId || "",
+    public_url: input.dataset.publicUrl || "",
+    slot: input.dataset.slot || "",
+    decision: input.value || "pending_support_qc"
+  }));
+
+  els.supportReviewSaveButton.disabled = true;
+  setHeroReviewMessage("กำลังบันทึก Support Review decisions...", "");
+  try {
+    const response = await authFetch("/api/review/support-decisions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch_id: batchId, sku, decisions })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึก Support Review decisions ไม่สำเร็จ");
+    const state = result.decision_state || {};
+    els.heroReviewStatus.textContent = state.review_status || "support review saved";
+    if (state.candidate_manifest_ready) {
+      setHeroReviewMessage("Support approved ครบแล้ว: พร้อมเข้าสู่ Candidate Manifest Phase", "success");
+    } else if (state.review_status === "support_regeneration_requested") {
+      setHeroReviewMessage("รับคำขอ regenerate support แล้ว: flow จะยังไม่ไป Candidate Manifest", "success");
+    } else {
+      setHeroReviewMessage("บันทึก Support Review decisions แล้ว", "success");
+    }
+  } catch (error) {
+    setHeroReviewMessage(error.message, "danger");
+  } finally {
+    els.supportReviewSaveButton.disabled = false;
   }
 }
 

@@ -12,6 +12,15 @@ import { google } from "googleapis";
 import { isDryRun } from "./lib/automation/env.mjs";
 import { getUserFromAccessToken, supabaseAdmin } from "./lib/supabase-admin.mjs";
 import { processAutomationTaskCore } from "./lib/automation/automation-worker-core.mjs";
+import { buildSupabaseMediaAssetManifestForBatch } from "./lib/automation/supabase-media-asset-manifest.mjs";
+import { createFalImageProvider } from "./lib/automation/fal-image-provider.mjs";
+import { persistLiveGenerationExecution } from "./lib/automation/live-generation-persistence.mjs";
+import {
+  buildReferenceStagingManifestFromBatchItems,
+  stageMediaManifestAssetsForLiveGeneration
+} from "./lib/automation/live-generation-input-staging.mjs";
+import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
+import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
 import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
 import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
 import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
@@ -37,6 +46,10 @@ const approvedDir = path.join(__dirname, "approved");
 const metricsDir = path.join(__dirname, "metrics");
 const metricsFile = path.join(metricsDir, "events.jsonl");
 const outputsDir = path.resolve(__dirname, "../../outputs");
+const liveInputStagingDir = process.env.AI_GENERATION_INPUT_STAGING_DIR?.trim() ||
+  path.join("/tmp", "image-workflow-live-inputs");
+const liveGeneratedDir = process.env.AI_GENERATION_GENERATED_DIR?.trim() ||
+  path.join("/tmp", "image-workflow-generated");
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Bangkok";
 const driveOutputDir = process.env.DRIVE_OUTPUT_DIR?.trim();
 const googleDriveRootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID?.trim();
@@ -76,6 +89,7 @@ let automationEmbeddedWorkerRunning = false;
 let automationEmbeddedWorkerLastRunAt = null;
 let automationEmbeddedWorkerLastError = null;
 let automationEmbeddedWorkerProcessedTasks = 0;
+let falImageProviderPromise = null;
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -1299,11 +1313,24 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
     const batchKey = cleanOptionalString(req.query.batch_id || req.query.batchId);
     const reviewSku = cleanOptionalString(req.query.sku) || job?.sku || "";
     let referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
-    const batchReferenceAssets = await readHeroReviewReferenceAssetsFromBatch({
+    const batchItemMetadata = await readHeroReviewBatchItemMetadata({
       batchKey,
       sku: reviewSku
     });
+    const batchReferenceAssets = await readHeroReviewReferenceAssetsFromBatch({
+      batchKey,
+      sku: reviewSku,
+      metadata: batchItemMetadata
+    });
     referenceAssets = mergeReviewReferenceAssets(referenceAssets, batchReferenceAssets);
+    const supportAssets = buildHeroReviewSupportAssets({
+      assets,
+      generations,
+      batchMetadata: batchItemMetadata
+    });
+    const supportReviewReady = supportAssets.length > 0 ||
+      batchItemMetadata.review_set_status === "awaiting_support_review" ||
+      batchItemMetadata.support_generation?.status === "support_ready_for_review";
 
     res.json({
       ok: true,
@@ -1313,7 +1340,13 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
-        support_assets: [],
+        support_assets: supportAssets,
+        support_review_ready: supportReviewReady,
+        review_stage: supportReviewReady ? "support_review" : "hero_review",
+        support_review_decision_state: batchItemMetadata.support_review_decision_state || null,
+        support_review_decisions: Array.isArray(batchItemMetadata.support_review_decisions)
+          ? batchItemMetadata.support_review_decisions
+          : [],
         reference_assets: referenceAssets,
         approved: Boolean(approvalsResult.data?.length),
         approvals: approvalsResult.data || []
@@ -1356,6 +1389,69 @@ app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
   } catch (error) {
     console.warn(error?.message || readableError(error));
     res.status(500).json({ ok: false, code: "hero_regenerate_failed", error: "บันทึกคำขอ regenerate ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/review/support-decisions", requireUser, async (req, res) => {
+  const batchId = cleanOptionalString(req.body.batch_id || req.body.batchId);
+  const sku = sanitizeSku(req.body.sku || "");
+  const decisions = Array.isArray(req.body.decisions) ? req.body.decisions : [];
+  if (!batchId || !sku) return sendApiError(res, 400, "batch_sku_required", "Missing batch_id or sku.");
+
+  try {
+    const resolvedBatchId = await resolveAutomationBatchIdForReview(batchId);
+    if (!resolvedBatchId) return sendApiError(res, 404, "batch_not_found", "Batch not found.");
+    const { data: item, error: itemError } = await supabaseAdmin
+      .from("automation_batch_items")
+      .select("id, metadata")
+      .eq("batch_id", resolvedBatchId)
+      .eq("sku", sku)
+      .maybeSingle();
+    if (itemError) throw itemError;
+    if (!item?.id) return sendApiError(res, 404, "batch_item_not_found", "Batch item not found.");
+
+    const metadata = isPlainObject(item.metadata) ? item.metadata : {};
+    const supportAssets = buildHeroReviewSupportAssets({
+      assets: [],
+      generations: [],
+      batchMetadata: metadata
+    });
+    const decisionState = buildSupportReviewDecisionState({
+      sku,
+      supportAssets,
+      decisions,
+      reviewer: req.user.email || req.user.id || ""
+    });
+    const { error: updateError } = await supabaseAdmin
+      .from("automation_batch_items")
+      .update({
+        status: decisionState.review_status,
+        metadata: {
+          ...metadata,
+          review_set_status: decisionState.review_status,
+          support_review_decision_state: decisionState,
+          support_review_decisions: decisionState.assets
+        }
+      })
+      .eq("id", item.id);
+    if (updateError) throw updateError;
+
+    await recordAuditEvent({
+      actorId: req.user.id,
+      eventType: "support_review_decisions_recorded",
+      eventJson: {
+        batch_id: resolvedBatchId,
+        sku,
+        review_status: decisionState.review_status,
+        summary: decisionState.summary,
+        candidate_manifest_ready: decisionState.candidate_manifest_ready
+      }
+    });
+
+    res.json({ ok: true, decision_state: decisionState });
+  } catch (error) {
+    console.warn(error?.message || readableError(error));
+    res.status(500).json({ ok: false, code: "support_review_decisions_failed", error: "บันทึก Support Review decisions ไม่สำเร็จ" });
   }
 });
 
@@ -2881,10 +2977,10 @@ function isReferenceReviewAsset(asset = {}) {
   return type.includes("reference") || type.includes("upload") || type.includes("source") || type.includes("product");
 }
 
-async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "" } = {}) {
+async function readHeroReviewBatchItemMetadata({ batchKey = "", sku = "" } = {}) {
   const normalizedBatchKey = cleanOptionalString(batchKey);
   const normalizedSku = sanitizeSku(sku);
-  if (!normalizedBatchKey || !normalizedSku) return [];
+  if (!normalizedBatchKey || !normalizedSku) return {};
 
   let batchQuery = supabaseAdmin
     .from("automation_batches")
@@ -2897,7 +2993,7 @@ async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "" 
   const { data: batches, error: batchError } = await batchQuery;
   if (batchError) throw batchError;
   const batch = (batches || [])[0];
-  if (!batch?.id) return [];
+  if (!batch?.id) return {};
 
   const { data: item, error: itemError } = await supabaseAdmin
     .from("automation_batch_items")
@@ -2907,12 +3003,19 @@ async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "" 
     .maybeSingle();
   if (itemError) throw itemError;
 
-  const metadata = isPlainObject(item?.metadata) ? item.metadata : {};
+  return isPlainObject(item?.metadata) ? item.metadata : {};
+}
+
+async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "", metadata = null } = {}) {
+  const resolvedMetadata = isPlainObject(metadata)
+    ? metadata
+    : await readHeroReviewBatchItemMetadata({ batchKey, sku });
   const referenceAssets = firstArray(
-    metadata.hero_review_reference_assets,
-    metadata.selected_reference_assets,
-    metadata.reference_assets,
-    metadata.reference_resolution?.selected_reference_assets
+    resolvedMetadata.hero_review_reference_assets,
+    resolvedMetadata.selected_reference_assets,
+    resolvedMetadata.reference_assets,
+    resolvedMetadata.reference_images,
+    resolvedMetadata.reference_resolution?.selected_reference_assets
   );
   return referenceAssets.map(normalizeHeroReviewReferenceAsset).filter(Boolean);
 }
@@ -3014,6 +3117,11 @@ async function maybeEnqueueHeroReviewAutomationTask({
   if (!resolvedBatchId) return null;
   const taskType = GENERATE_BATCH_TASK;
   const approve = action === "approve_hero";
+  const liveSupportRequested = approve &&
+    isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
+    !isDryRun("AI_GENERATION_DRY_RUN", true);
+  const liveSupportConfirmed = approve &&
+    isBooleanEnvEnabled("AI_GENERATION_CONFIRM_SUPPORT_AFTER_HERO_APPROVAL");
   const task = await enqueueAutomationTask({
     taskType,
     batchId: resolvedBatchId,
@@ -3032,6 +3140,9 @@ async function maybeEnqueueHeroReviewAutomationTask({
       generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration",
       request_mode: approve ? "support-only-after-approved-hero" : "hero-only",
       requires_approved_hero_anchor: approve,
+      auto_enqueue_live_support: approve,
+      live_generation_requested: liveSupportRequested,
+      live_generation_confirmed: liveSupportConfirmed,
       dry_run: true,
       completed_reason: approve
         ? "Hero approved from web review page; support generation plan can now attach reference plus approved hero anchor"
@@ -3840,11 +3951,184 @@ async function processAutomationTask(task) {
       embeddedWorker: true,
       recordAuditEvent: ({ eventType, eventJson }) => recordAuditEvent({ actorId: null, eventType, eventJson }),
       completeTask: completeAutomationTask,
-      onPreflightCompleted: handleWordPressProductPreflightCompleted
+      onPreflightCompleted: handleWordPressProductPreflightCompleted,
+      readMediaManifest: readLiveGenerationMediaManifest,
+      readModelInputStagingManifest: readLiveGenerationModelInputStagingManifest,
+      enqueueTask: enqueueAutomationTask,
+      providerGenerate: async (request) => {
+        const provider = await getFalImageProvider();
+        return provider(request);
+      },
+      persistLiveExecution: ({ execution, generationPlan, batch, actorId, dryRun }) => persistLiveGenerationExecution({
+        supabaseAdmin,
+        execution,
+        generationPlan,
+        batch,
+        actorId,
+        dryRun
+      }),
+      updateBatchItemsAfterSupportGeneration,
+      onSupportGenerationCompleted: handleSupportGenerationCompleted
     });
   } catch (error) {
     await failOrRetryAutomationTask(task, error);
   }
+}
+
+async function readLiveGenerationMediaManifest({ task, batchItems }) {
+  const mediaManifest = await buildSupabaseMediaAssetManifestForBatch({
+    supabaseAdmin,
+    batch: {
+      batch_id: task.batch_id || null,
+      items: batchItems
+    },
+    batchItems
+  });
+  return stageMediaManifestAssetsForLiveGeneration({
+    mediaManifest,
+    stagingDir: liveInputStagingDir
+  });
+}
+
+async function readLiveGenerationModelInputStagingManifest({ batchItems }) {
+  return buildReferenceStagingManifestFromBatchItems({
+    batchItems,
+    stagingDir: liveInputStagingDir
+  });
+}
+
+async function getFalImageProvider() {
+  if (!falImageProviderPromise) {
+    falImageProviderPromise = createFalImageProvider({
+      generatedDir: liveGeneratedDir,
+      timeoutMs: Number(process.env.FAL_TIMEOUT_MS || 30000),
+      verbose: isBooleanEnvEnabled("AI_GENERATION_VERBOSE")
+    });
+  }
+  return falImageProviderPromise;
+}
+
+async function updateBatchItemsAfterSupportGeneration({ task, persistence, batchItems = [] }) {
+  const supportSkus = new Set((persistence?.items || [])
+    .filter((item) => item.kind === "support" || item.type === "support_generated")
+    .map((item) => item.sku)
+    .filter(Boolean));
+  if (!supportSkus.size) return;
+  for (const item of batchItems) {
+    if (!supportSkus.has(item.sku)) continue;
+    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    const supportAssets = buildPersistedSupportAssetsForSku({ persistence, sku: item.sku });
+    const { error } = await supabaseAdmin
+      .from("automation_batch_items")
+      .update({
+        status: "support_ready_for_review",
+        metadata: {
+          ...metadata,
+          review_set_status: "awaiting_support_review",
+          support_assets: mergeSupportAssets(metadata.support_assets, supportAssets),
+          support_generation: {
+            status: "support_ready_for_review",
+            task_id: task.id,
+            generated_at: new Date().toISOString(),
+            persistence_summary: persistence.summary || {},
+            support_assets: supportAssets
+          }
+        }
+      })
+      .eq("id", item.id);
+    if (error) throw error;
+  }
+}
+
+async function handleSupportGenerationCompleted({ task, persistence, batchItems = [] }) {
+  const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
+  if (!target || !lineChannelAccessToken) return;
+  const supportSkus = Array.from(new Set((persistence?.items || [])
+    .filter((entry) => entry.kind === "support" || entry.type === "support_generated")
+    .map((entry) => entry.sku)
+    .filter(Boolean)));
+  const sku = task?.payload?.sku || supportSkus[0] || batchItems[0]?.sku || "";
+  const batchId = task?.payload?.batch_id || task?.batch_id || "";
+  const generationId = task?.payload?.generation_id || task?.generation_id || "";
+  const reviewUrl = buildWorkflowReviewUrl({ batchId, sku, generationId });
+  const supportCount = (persistence?.items || []).filter((entry) => entry.sku === sku).length || persistence?.summary?.persisted || 0;
+  try {
+    await pushLineMessage({
+      to: target,
+      messages: [{
+        type: "text",
+        text: [
+          `Support Review พร้อมตรวจ | SKU ${sku || "-"}`,
+          supportCount ? `${supportCount} support shots generated` : "",
+          reviewUrl || "เปิดจาก Automation Inbox ได้",
+          "ขั้นตอนถัดไป: ตรวจ support candidates ก่อน export / WordPress"
+        ].filter(Boolean).join("\n")
+      }]
+    });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "support_generation_review_handoff_sent",
+      eventJson: {
+        task_id: task.id,
+        batch_id: batchId,
+        sku,
+        support_count: supportCount,
+        review_url: reviewUrl
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "support_generation_review_handoff_failed",
+      eventJson: {
+        task_id: task.id,
+        batch_id: batchId,
+        sku,
+        error: readableError(error)
+      }
+    });
+  }
+}
+
+function buildWorkflowReviewUrl({ batchId = "", sku = "", generationId = "" } = {}) {
+  const base = cleanOptionalString(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL).replace(/\/+$/, "");
+  if (!safeHttpsUrl(base) || !generationId) return "";
+  const params = new URLSearchParams();
+  if (batchId) params.set("batch_id", batchId);
+  if (sku) params.set("sku", sku);
+  params.set("generation_id", generationId);
+  return `${base}/#review?${params.toString()}`;
+}
+
+function buildPersistedSupportAssetsForSku({ persistence, sku }) {
+  return (persistence?.items || [])
+    .filter((entry) => entry.sku === sku)
+    .filter((entry) => entry.kind === "support" || entry.type === "support_generated")
+    .filter((entry) => entry.public_url || entry.source_url)
+    .map((entry) => ({
+      asset_id: entry.asset_id || null,
+      generation_id: entry.generation_id || null,
+      request_id: entry.request_id || null,
+      kind: "support",
+      slot: entry.slot || "",
+      type: entry.type || "support_generated",
+      public_url: entry.public_url || entry.source_url || "",
+      source_url: entry.public_url || entry.source_url || "",
+      file_name: entry.file_name || "",
+      mime_type: entry.mime_type || "",
+      file_size: entry.file_size || 0,
+      prompt: entry.prompt || ""
+    }));
+}
+
+function mergeSupportAssets(existing = [], next = []) {
+  const seen = new Set();
+  return [...(Array.isArray(existing) ? existing : []), ...next].filter((asset) => {
+    const key = asset.asset_id || asset.generation_id || asset.public_url || asset.source_url || asset.request_id || "";
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function handleWordPressProductPreflightCompleted({ task, preflight }) {
