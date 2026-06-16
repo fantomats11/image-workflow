@@ -387,6 +387,7 @@ const els = {
   monitoringIntegrationHealth: document.getElementById("monitoringIntegrationHealth"),
   monitoringStuckJobs: document.getElementById("monitoringStuckJobs"),
   monitoringFailedItems: document.getElementById("monitoringFailedItems"),
+  monitoringWordPressPreflights: document.getElementById("monitoringWordPressPreflights"),
   monitoringRecentEvents: document.getElementById("monitoringRecentEvents"),
   refreshCostsButton: document.getElementById("refreshCostsButton"),
   costRangeControls: document.getElementById("costRangeControls"),
@@ -4571,6 +4572,7 @@ function renderMonitoringFromCache() {
   renderMonitoringIntegrationHealth(latestMonitoringData.integrationHealth?.googleDrive);
   renderMonitoringStuckJobs(latestMonitoringData.stuckJobs || []);
   renderMonitoringFailedItems(latestMonitoringData.failedItems || []);
+  renderMonitoringWordPressPreflights(latestMonitoringData.wordpressPreflights || []);
   renderMonitoringRecentEvents(latestMonitoringData.recentSystemEvents || []);
 }
 
@@ -4595,6 +4597,7 @@ function renderMonitoringError(error) {
     els.monitoringIntegrationHealth,
     els.monitoringStuckJobs,
     els.monitoringFailedItems,
+    els.monitoringWordPressPreflights,
     els.monitoringRecentEvents
   ].forEach((target) => {
     if (target) target.innerHTML = "";
@@ -4660,6 +4663,7 @@ function renderMonitoringSummaryCards(data) {
     ["Storage warnings", summary.storageWarnings, "Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว", summary.storageWarnings ? "warning" : "ok"],
     ["Stuck jobs", summary.stuckJobs, "queued/running/generating เกิน 30 นาที", summary.stuckJobs ? "warning" : "ok"],
     ["Pending approvals", summary.pendingApprovals, "generate สำเร็จแต่ยังไม่ approve", summary.pendingApprovals ? "warning" : "ok"],
+    ["Preflight gates", summary.wordpressPreflights, "WordPress product/media preflight ที่รอหรือเสร็จในช่วงนี้", summary.wordpressPreflights ? "warning" : "ok"],
     ["Google Drive", drive.connected ? "Connected" : "Disconnected", drive.updatedAt ? `อัปเดตล่าสุด ${formatDateTime(drive.updatedAt)}` : "ยังไม่มีเวลาอัปเดตล่าสุด", drive.connected ? "ok" : "warning"],
     ["Latest error", summary.latestErrorTime ? formatDateTime(summary.latestErrorTime) : "ไม่มี", "เวลาของ failure ล่าสุดในช่วงนี้", summary.latestErrorTime ? "danger" : "ok"]
   ];
@@ -4744,6 +4748,73 @@ function renderMonitoringFailureRow(item) {
       ${renderRecoveryActions(item, "monitoring")}
     </article>
   `;
+}
+
+function renderMonitoringWordPressPreflights(items) {
+  if (!els.monitoringWordPressPreflights) return;
+  if (!items.length) {
+    els.monitoringWordPressPreflights.innerHTML = '<div class="empty-state">ยังไม่มี preflight ในช่วงเวลานี้</div>';
+    return;
+  }
+  els.monitoringWordPressPreflights.innerHTML = `<div class="monitoring-list">${items.map(renderMonitoringWordPressPreflightRow).join("")}</div>`;
+}
+
+function renderMonitoringWordPressPreflightRow(item) {
+  const isMedia = item.phase === "media_mapping";
+  const summary = item.summary || {};
+  const firstItem = item.items?.[0] || {};
+  const tone = item.liveWriteAllowed
+    ? "danger"
+    : summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia
+      ? "warning"
+      : "neutral";
+  const headline = isMedia
+    ? `${formatThaiNumber(summary.readyForMediaProposal || 0)} ready media proposal · ${formatThaiNumber(summary.mediaAssetsMatched || 0)} assets`
+    : `${formatThaiNumber(summary.readyForProposal || 0)} ready product proposal · ${formatThaiNumber(summary.blocked || 0)} blocked`;
+  const detail = isMedia
+    ? [
+      `${formatThaiNumber(summary.proposedMainImages || 0)} main`,
+      `${formatThaiNumber(summary.proposedGalleryImages || 0)} gallery`,
+      summary.awaitingMediaAssets ? `${formatThaiNumber(summary.awaitingMediaAssets)} awaiting media` : "",
+      summary.productPreflightBlocked ? `${formatThaiNumber(summary.productPreflightBlocked)} product blocked` : ""
+    ]
+    : [
+      `${formatThaiNumber(summary.createDraftProduct || 0)} draft proposal`,
+      `${formatThaiNumber(summary.skipExistingSku || 0)} skip existing`,
+      `${formatThaiNumber(summary.remoteChecked || 0)} remote checked`,
+      summary.remoteErrors ? `${formatThaiNumber(summary.remoteErrors)} remote errors` : ""
+    ];
+  return `
+    <article class="monitoring-row ${tone}">
+      <div class="monitoring-row-main">
+        <time>${escapeHtml(formatDateTime(item.completedAt))}</time>
+        <strong>${escapeHtml(item.phaseLabel || item.phase || "WordPress preflight")}</strong>
+        <span>${escapeHtml(headline)}</span>
+      </div>
+      <div class="monitoring-row-detail">
+        <span>Batch ${escapeHtml(shortId(item.batchId))}</span>
+        <span>Task ${escapeHtml(shortId(item.taskId))}</span>
+        <span>${escapeHtml(detail.filter(Boolean).join(" / "))}</span>
+      </div>
+      <p>${escapeHtml(getWordPressPreflightNextStep({ item, firstItem, isMedia }))}</p>
+    </article>
+  `;
+}
+
+function getWordPressPreflightNextStep({ item, firstItem, isMedia }) {
+  if (item.liveWriteAllowed) return "หยุดตรวจสอบทันที: live write flag เปิดอยู่ ทั้ง phase นี้ควรเป็น preflight เท่านั้น";
+  if (isMedia) {
+    if (firstItem?.mediaStatus === "ready_for_media_proposal") {
+      return "พร้อมทำ media attach proposal หลัง final confirmation; ยังไม่มี upload/attach/publish ในขั้นนี้";
+    }
+    if (firstItem?.blockers?.length) return `รอแก้ media gate: ${firstItem.blockers.join(", ")}`;
+    return "รอ media assets จาก support approval หรือ media export preflight gate";
+  }
+  if (firstItem?.preflightStatus === "ready_for_proposal") {
+    return "พร้อมใช้เป็น product proposal input สำหรับ media mapping preflight; ยังไม่สร้างสินค้า WordPress";
+  }
+  if (firstItem?.blockers?.length) return `รอแก้ product preflight: ${firstItem.blockers.join(", ")}`;
+  return item.requiresFinalConfirmation ? "รอ final confirmation ก่อน live WordPress action" : "ตรวจสอบ guardrail ก่อนดำเนินการต่อ";
 }
 
 function renderMonitoringRecentEvents(items) {
