@@ -4761,29 +4761,39 @@ function renderMonitoringWordPressPreflights(items) {
 
 function renderMonitoringWordPressPreflightRow(item) {
   const isMedia = item.phase === "media_mapping";
+  const isMediaAttachConfirmation = item.phase === "media_attach_confirmation";
   const summary = item.summary || {};
   const firstItem = item.items?.[0] || {};
   const tone = item.liveWriteAllowed
     ? "danger"
-    : summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia
+    : item.mediaAttachAllowed || summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia
       ? "warning"
       : "neutral";
-  const headline = isMedia
-    ? `${formatThaiNumber(summary.readyForMediaProposal || 0)} ready media proposal · ${formatThaiNumber(summary.mediaAssetsMatched || 0)} assets`
-    : `${formatThaiNumber(summary.readyForProposal || 0)} ready product proposal · ${formatThaiNumber(summary.blocked || 0)} blocked`;
-  const detail = isMedia
-    ? [
+  let headline = `${formatThaiNumber(summary.readyForProposal || 0)} ready product proposal · ${formatThaiNumber(summary.blocked || 0)} blocked`;
+  let detail = [
+    `${formatThaiNumber(summary.createDraftProduct || 0)} draft proposal`,
+    `${formatThaiNumber(summary.skipExistingSku || 0)} skip existing`,
+    `${formatThaiNumber(summary.remoteChecked || 0)} remote checked`,
+    summary.remoteErrors ? `${formatThaiNumber(summary.remoteErrors)} remote errors` : ""
+  ];
+  if (isMedia) {
+    headline = `${formatThaiNumber(summary.readyForMediaProposal || 0)} ready media proposal · ${formatThaiNumber(summary.mediaAssetsMatched || 0)} assets`;
+    detail = [
       `${formatThaiNumber(summary.proposedMainImages || 0)} main`,
       `${formatThaiNumber(summary.proposedGalleryImages || 0)} gallery`,
       summary.awaitingMediaAssets ? `${formatThaiNumber(summary.awaitingMediaAssets)} awaiting media` : "",
       summary.productPreflightBlocked ? `${formatThaiNumber(summary.productPreflightBlocked)} product blocked` : ""
-    ]
-    : [
-      `${formatThaiNumber(summary.createDraftProduct || 0)} draft proposal`,
-      `${formatThaiNumber(summary.skipExistingSku || 0)} skip existing`,
-      `${formatThaiNumber(summary.remoteChecked || 0)} remote checked`,
-      summary.remoteErrors ? `${formatThaiNumber(summary.remoteErrors)} remote errors` : ""
     ];
+  }
+  if (isMediaAttachConfirmation) {
+    headline = `${formatThaiNumber(summary.readyForConfirmation || 0)} ready confirmation · ${formatThaiNumber(summary.proposedOperations || 0)} operations`;
+    detail = [
+      `${formatThaiNumber(summary.proposedMainImages || 0)} main`,
+      `${formatThaiNumber(summary.proposedGalleryImages || 0)} gallery`,
+      item.gateStatus || "",
+      item.mediaAttachAllowed ? "media attach allowed" : "no media attach"
+    ];
+  }
   return `
     <article class="monitoring-row ${tone}">
       <div class="monitoring-row-main">
@@ -4803,6 +4813,14 @@ function renderMonitoringWordPressPreflightRow(item) {
 
 function getWordPressPreflightNextStep({ item, firstItem, isMedia }) {
   if (item.liveWriteAllowed) return "หยุดตรวจสอบทันที: live write flag เปิดอยู่ ทั้ง phase นี้ควรเป็น preflight เท่านั้น";
+  if (item.phase === "media_attach_confirmation") {
+    if (item.mediaAttachAllowed) return "หยุดตรวจสอบทันที: media attach flag เปิดอยู่ก่อน final confirmation";
+    if (firstItem?.confirmationStatus === "ready_for_final_confirmation") {
+      return "พร้อมเป็น final confirmation package สำหรับ media attach ในเฟสถัดไป; ยังไม่มี upload/attach/publish ในขั้นนี้";
+    }
+    if (firstItem?.blockers?.length) return `รอแก้ confirmation gate: ${firstItem.blockers.join(", ")}`;
+    return "รอ final confirmation ก่อน media attach execution phase";
+  }
   if (isMedia) {
     if (firstItem?.mediaStatus === "ready_for_media_proposal") {
       return "พร้อมทำ media attach proposal หลัง final confirmation; ยังไม่มี upload/attach/publish ในขั้นนี้";

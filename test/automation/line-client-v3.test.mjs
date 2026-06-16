@@ -5,6 +5,7 @@ import {
   buildHeroReviewMessages,
   buildPilotBatchFlex,
   buildReferenceMatchFlex,
+  buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex
 } from "../../lib/automation/line-client.mjs";
@@ -266,5 +267,39 @@ test("WordPress media preflight flex summarizes media handoff without attach but
   assert.match(text, /main 1 · gallery 2/);
   assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
   assert.doesNotMatch(text, /Attach now|Approve attach|Publish/);
+  assert.doesNotMatch(text, /undefined/);
+});
+
+test("WordPress media attach confirmation flex summarizes final gate without live action buttons", () => {
+  const flex = buildWordPressMediaAttachConfirmationFlex({
+    batch_id: "batch-confirm-1",
+    gate_status: "awaiting_final_confirmation",
+    summary: {
+      item_count: 1,
+      ready_for_confirmation: 1,
+      blocked: 0,
+      proposed_operations: 3,
+      proposed_main_image_updates: 1,
+      proposed_gallery_image_updates: 2
+    },
+    items: [{
+      sku: "2DJ0493000",
+      target_site: "gomall",
+      confirmation_status: "ready_for_final_confirmation",
+      proposed_operations: [
+        { role: "main_image", operation_type: "set_product_main_image" },
+        { role: "gallery_image", operation_type: "append_gallery_image" },
+        { role: "gallery_image", operation_type: "append_gallery_image" }
+      ],
+      blockers: []
+    }]
+  });
+  const text = JSON.stringify(flex);
+  assert.match(text, /Media Attach Confirmation Gate/);
+  assert.match(text, /Ready: 1\/1/);
+  assert.match(text, /Operations: 3/);
+  assert.match(text, /main 1 · gallery 2/);
+  assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
+  assert.doesNotMatch(text, /Attach now|Approve attach|Publish|Create product/);
   assert.doesNotMatch(text, /undefined/);
 });

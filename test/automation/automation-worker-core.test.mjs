@@ -256,6 +256,7 @@ test("worker core hydrates WordPress media mapping preflight from media export g
 test("worker core completes WordPress media attach confirmation gate without media writes", async () => {
   const auditEvents = [];
   const completed = [];
+  const callbacks = [];
   await processAutomationTaskCore({
     task: {
       id: "task-confirm",
@@ -278,13 +279,16 @@ test("worker core completes WordPress media attach confirmation gate without med
       }
     },
     recordAuditEvent: async (event) => auditEvents.push(event),
-    completeTask: async (id, result) => completed.push({ id, result })
+    completeTask: async (id, result) => completed.push({ id, result }),
+    onMediaAttachConfirmationCompleted: async (event) => callbacks.push(event)
   });
 
   assert.equal(auditEvents[0].eventType, "wordpress_media_attach_confirmation_gate_completed");
   assert.equal(completed[0].result.confirmation_gate.live_write_allowed, false);
   assert.equal(completed[0].result.confirmation_gate.media_attach_allowed, false);
   assert.equal(completed[0].result.confirmation_gate.summary.proposed_operations, 2);
+  assert.equal(callbacks[0].task.id, "task-confirm");
+  assert.equal(callbacks[0].confirmationGate.summary.proposed_operations, 2);
 });
 
 test("worker core completes live generation execution as a provider-free gate check", async () => {

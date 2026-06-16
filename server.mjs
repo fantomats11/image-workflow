@@ -27,7 +27,12 @@ import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution
 import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
 import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
 import { buildMonitoringWordPressPreflights } from "./lib/automation/wordpress-preflight-monitoring.mjs";
-import { buildWordPressMediaPreflightFlex, buildWordPressPreflightFlex, pushLineMessage } from "./lib/automation/line-client.mjs";
+import {
+  buildWordPressMediaAttachConfirmationFlex,
+  buildWordPressMediaPreflightFlex,
+  buildWordPressPreflightFlex,
+  pushLineMessage
+} from "./lib/automation/line-client.mjs";
 import { renderAiHubImageReviewPage } from "./lib/automation/ai-hub-review-page.mjs";
 import { buildAiHubReviewDecisionSubmission } from "./lib/automation/ai-hub-review-decision-workflow.mjs";
 import { renderAiHubReviewWorkspacePage } from "./lib/automation/ai-hub-review-workspace-page.mjs";
@@ -4040,6 +4045,7 @@ async function processAutomationTask(task) {
       completeTask: completeAutomationTask,
       onPreflightCompleted: handleWordPressProductPreflightCompleted,
       onMediaPreflightCompleted: handleWordPressMediaPreflightCompleted,
+      onMediaAttachConfirmationCompleted: handleWordPressMediaAttachConfirmationCompleted,
       readMediaManifest: readLiveGenerationMediaManifest,
       readModelInputStagingManifest: readLiveGenerationModelInputStagingManifest,
       enqueueTask: enqueueAutomationTask,
@@ -4228,6 +4234,10 @@ async function handleWordPressMediaPreflightCompleted({ task, preflight }) {
   await sendWordPressMediaPreflightLineSummary({ task, preflight });
 }
 
+async function handleWordPressMediaAttachConfirmationCompleted({ task, confirmationGate }) {
+  await sendWordPressMediaAttachConfirmationLineSummary({ task, confirmationGate });
+}
+
 async function sendWordPressPreflightLineSummary({ task, preflight }) {
   const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
   if (!target || !lineChannelAccessToken) return;
@@ -4289,6 +4299,42 @@ async function sendWordPressMediaPreflightLineSummary({ task, preflight }) {
     await recordAuditEvent({
       actorId: null,
       eventType: "wordpress_media_mapping_preflight_line_summary_failed",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        error: readableError(error)
+      }
+    });
+  }
+}
+
+async function sendWordPressMediaAttachConfirmationLineSummary({ task, confirmationGate }) {
+  const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
+  if (!target || !lineChannelAccessToken) return;
+
+  try {
+    await pushLineMessage({
+      to: target,
+      messages: [buildWordPressMediaAttachConfirmationFlex(confirmationGate)]
+    });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_media_attach_confirmation_gate_line_summary_sent",
+      eventJson: {
+        task_id: task.id,
+        task_type: task.task_type,
+        batch_id: task.batch_id,
+        dedupe_key: task.dedupe_key,
+        line_target_configured: Boolean(lineTargetUserId),
+        summary: confirmationGate.summary || {}
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "wordpress_media_attach_confirmation_gate_line_summary_failed",
       eventJson: {
         task_id: task.id,
         task_type: task.task_type,
