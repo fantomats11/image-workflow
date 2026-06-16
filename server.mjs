@@ -4315,6 +4315,7 @@ async function enqueueWordPressMediaMappingPreflight({ task, preflight }) {
         line_user_id: task.payload?.line_user_id || null,
         dry_run: true,
         requires_final_confirmation: true,
+        auto_enqueue_final_confirmation_gate: true,
         product_preflight: preflight
       }
     });

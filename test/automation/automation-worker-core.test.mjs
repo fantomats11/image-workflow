@@ -200,6 +200,7 @@ test("worker core completes WordPress media mapping preflight without media writ
 
 test("worker core hydrates WordPress media mapping preflight from media export gate metadata", async () => {
   const completed = [];
+  const queued = [];
   await processAutomationTaskCore({
     task: {
       id: "task-media-gate",
@@ -208,6 +209,8 @@ test("worker core hydrates WordPress media mapping preflight from media export g
       dedupe_key: "dedupe-media-gate",
       payload: {
         dry_run: true,
+        auto_enqueue_final_confirmation_gate: true,
+        line_user_id: "line-target",
         product_preflight: {
           items: [{
             sku: "SKU001",
@@ -237,13 +240,51 @@ test("worker core hydrates WordPress media mapping preflight from media export g
       }
     }],
     recordAuditEvent: async () => {},
-    completeTask: async (id, result) => completed.push({ id, result })
+    completeTask: async (id, result) => completed.push({ id, result }),
+    enqueueTask: async (queuedTask) => queued.push(queuedTask)
   });
 
   assert.equal(completed[0].result.preflight.summary.ready_for_media_proposal, 1);
   assert.equal(completed[0].result.preflight.summary.media_assets_matched, 3);
   assert.equal(completed[0].result.preflight.items[0].media_status, "ready_for_media_proposal");
   assert.equal(completed[0].result.preflight.items[0].proposed_gallery_images.length, 2);
+  assert.equal(queued[0].taskType, "wordpress_media_attach_confirmation_gate");
+  assert.equal(queued[0].payload.media_preflight.summary.ready_for_media_proposal, 1);
+  assert.equal(queued[0].payload.requires_final_confirmation, true);
+});
+
+test("worker core completes WordPress media attach confirmation gate without media writes", async () => {
+  const auditEvents = [];
+  const completed = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-confirm",
+      task_type: "wordpress_media_attach_confirmation_gate",
+      batch_id: "batch-1",
+      dedupe_key: "dedupe-confirm",
+      payload: {
+        dry_run: true,
+        media_preflight: {
+          batch_id: "batch-1",
+          items: [{
+            sku: "SKU001",
+            target_site: "gomall",
+            media_status: "ready_for_media_proposal",
+            proposed_main_image: { id: "hero", url: "https://cdn.example.test/hero.png", type: "hero_generated", shot_key: "hero" },
+            proposed_gallery_images: [{ id: "front", url: "https://cdn.example.test/front.png", type: "support_generated", shot_key: "front_view" }],
+            blockers: []
+          }]
+        }
+      }
+    },
+    recordAuditEvent: async (event) => auditEvents.push(event),
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(auditEvents[0].eventType, "wordpress_media_attach_confirmation_gate_completed");
+  assert.equal(completed[0].result.confirmation_gate.live_write_allowed, false);
+  assert.equal(completed[0].result.confirmation_gate.media_attach_allowed, false);
+  assert.equal(completed[0].result.confirmation_gate.summary.proposed_operations, 2);
 });
 
 test("worker core completes live generation execution as a provider-free gate check", async () => {
