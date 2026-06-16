@@ -257,6 +257,7 @@ test("worker core completes WordPress media attach confirmation gate without med
   const auditEvents = [];
   const completed = [];
   const callbacks = [];
+  const queued = [];
   await processAutomationTaskCore({
     task: {
       id: "task-confirm",
@@ -265,6 +266,7 @@ test("worker core completes WordPress media attach confirmation gate without med
       dedupe_key: "dedupe-confirm",
       payload: {
         dry_run: true,
+        auto_enqueue_execution_plan: true,
         media_preflight: {
           batch_id: "batch-1",
           items: [{
@@ -280,7 +282,8 @@ test("worker core completes WordPress media attach confirmation gate without med
     },
     recordAuditEvent: async (event) => auditEvents.push(event),
     completeTask: async (id, result) => completed.push({ id, result }),
-    onMediaAttachConfirmationCompleted: async (event) => callbacks.push(event)
+    onMediaAttachConfirmationCompleted: async (event) => callbacks.push(event),
+    enqueueTask: async (queuedTask) => queued.push(queuedTask)
   });
 
   assert.equal(auditEvents[0].eventType, "wordpress_media_attach_confirmation_gate_completed");
@@ -289,6 +292,58 @@ test("worker core completes WordPress media attach confirmation gate without med
   assert.equal(completed[0].result.confirmation_gate.summary.proposed_operations, 2);
   assert.equal(callbacks[0].task.id, "task-confirm");
   assert.equal(callbacks[0].confirmationGate.summary.proposed_operations, 2);
+  assert.equal(queued[0].taskType, "wordpress_media_attach_execution_plan");
+  assert.equal(queued[0].payload.confirmation_gate.summary.proposed_operations, 2);
+  assert.equal(queued[0].payload.requires_remote_refetch, true);
+});
+
+test("worker core completes WordPress media attach execution plan without media writes", async () => {
+  const auditEvents = [];
+  const completed = [];
+  const callbacks = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-execution-plan",
+      task_type: "wordpress_media_attach_execution_plan",
+      batch_id: "batch-1",
+      dedupe_key: "dedupe-execution-plan",
+      payload: {
+        dry_run: true,
+        final_confirmation: {
+          confirmed: true,
+          actor_id: "admin-user",
+          confirmed_at: "2026-06-16T01:00:00.000Z"
+        },
+        confirmation_gate: {
+          batch_id: "batch-1",
+          gate_status: "awaiting_final_confirmation",
+          items: [{
+            sku: "SKU001",
+            target_site: "gomall",
+            confirmation_status: "ready_for_final_confirmation",
+            proposed_operations: [{
+              operation_type: "set_product_main_image",
+              role: "main_image",
+              sku: "SKU001",
+              target_site: "gomall",
+              idempotency_key: "media_attach:SKU001:batch-1:main_image",
+              source_asset: { id: "hero", url: "https://cdn.example.test/hero.png" }
+            }],
+            blockers: []
+          }]
+        }
+      }
+    },
+    recordAuditEvent: async (event) => auditEvents.push(event),
+    completeTask: async (id, result) => completed.push({ id, result }),
+    onMediaAttachExecutionPlanCompleted: async (event) => callbacks.push(event)
+  });
+
+  assert.equal(auditEvents[0].eventType, "wordpress_media_attach_execution_plan_completed");
+  assert.equal(completed[0].result.execution_plan.plan_status, "ready_for_live_write_phase");
+  assert.equal(completed[0].result.execution_plan.execution_allowed, false);
+  assert.equal(completed[0].result.execution_plan.live_write_allowed, false);
+  assert.equal(callbacks[0].executionPlan.summary.proposed_operations, 1);
 });
 
 test("worker core completes live generation execution as a provider-free gate check", async () => {

@@ -191,3 +191,55 @@ test("buildMonitoringWordPressPreflights includes media attach confirmation gate
   assert.equal(rows[0].mediaAttachAllowed, false);
   assert.equal(rows[0].liveWriteAllowed, false);
 });
+
+test("buildMonitoringWordPressPreflights includes media attach execution plan lane", () => {
+  const rows = buildMonitoringWordPressPreflights([
+    {
+      id: "task-execution-plan",
+      task_type: "wordpress_media_attach_execution_plan",
+      batch_id: "batch-1",
+      dedupe_key: "line:execution-plan:batch-1",
+      status: "completed",
+      completed_at: "2026-06-12T03:00:00.000Z",
+      payload: {
+        execution_plan: {
+          dry_run: true,
+          live_write_allowed: false,
+          media_attach_allowed: false,
+          execution_allowed: false,
+          requires_final_confirmation: true,
+          requires_remote_refetch: true,
+          plan_status: "ready_for_live_write_phase",
+          summary: {
+            item_count: 1,
+            proposed_operations: 3,
+            ready_for_live_write_phase: 3,
+            awaiting_final_confirmation: 0,
+            blocked: 0,
+            duplicate_idempotency_keys: 0
+          },
+          operations: [{
+            sku: "2DJ0493000",
+            target_site: "gomall",
+            role: "main_image",
+            operation_type: "set_product_main_image",
+            operation_status: "ready_for_live_write_phase",
+            idempotency_key: "media_attach:2DJ0493000:batch-1:main_image",
+            blockers: []
+          }]
+        }
+      }
+    }
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].phase, "media_attach_execution_plan");
+  assert.equal(rows[0].phaseLabel, "Media attach execution plan");
+  assert.equal(rows[0].summary.proposedOperations, 3);
+  assert.equal(rows[0].summary.readyForLiveWritePhase, 3);
+  assert.equal(rows[0].summary.duplicateIdempotencyKeys, 0);
+  assert.equal(rows[0].items[0].operationStatus, "ready_for_live_write_phase");
+  assert.equal(rows[0].items[0].idempotencyKey, "media_attach:2DJ0493000:batch-1:main_image");
+  assert.equal(rows[0].executionAllowed, false);
+  assert.equal(rows[0].requiresRemoteRefetch, true);
+});

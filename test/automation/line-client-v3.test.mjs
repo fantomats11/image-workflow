@@ -5,6 +5,7 @@ import {
   buildHeroReviewMessages,
   buildPilotBatchFlex,
   buildReferenceMatchFlex,
+  buildWordPressMediaAttachExecutionPlanFlex,
   buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex
@@ -301,5 +302,38 @@ test("WordPress media attach confirmation flex summarizes final gate without liv
   assert.match(text, /main 1 · gallery 2/);
   assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
   assert.doesNotMatch(text, /Attach now|Approve attach|Publish|Create product/);
+  assert.doesNotMatch(text, /undefined/);
+});
+
+test("WordPress media attach execution plan flex summarizes readiness without live action buttons", () => {
+  const flex = buildWordPressMediaAttachExecutionPlanFlex({
+    batch_id: "batch-plan-1",
+    plan_status: "ready_for_live_write_phase",
+    execution_allowed: false,
+    requires_remote_refetch: true,
+    summary: {
+      item_count: 1,
+      proposed_operations: 3,
+      ready_for_live_write_phase: 3,
+      awaiting_final_confirmation: 0,
+      blocked: 0,
+      duplicate_idempotency_keys: 0
+    },
+    operations: [{
+      sku: "2DJ0493000",
+      role: "main_image",
+      operation_type: "set_product_main_image",
+      operation_status: "ready_for_live_write_phase",
+      idempotency_key: "media_attach:2DJ0493000:batch-plan-1:main_image",
+      blockers: []
+    }]
+  });
+  const text = JSON.stringify(flex);
+  assert.match(text, /Media Attach Execution Plan/);
+  assert.match(text, /Operations: 3/);
+  assert.match(text, /Ready for later live phase: 3/);
+  assert.match(text, /Remote refetch required/);
+  assert.match(text, /ยังไม่มีการ upload\/attach\/replace media/);
+  assert.doesNotMatch(text, /Attach now|Approve attach|Publish|POST|PUT|PATCH|DELETE/);
   assert.doesNotMatch(text, /undefined/);
 });

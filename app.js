@@ -4762,11 +4762,12 @@ function renderMonitoringWordPressPreflights(items) {
 function renderMonitoringWordPressPreflightRow(item) {
   const isMedia = item.phase === "media_mapping";
   const isMediaAttachConfirmation = item.phase === "media_attach_confirmation";
+  const isMediaAttachExecutionPlan = item.phase === "media_attach_execution_plan";
   const summary = item.summary || {};
   const firstItem = item.items?.[0] || {};
   const tone = item.liveWriteAllowed
     ? "danger"
-    : item.mediaAttachAllowed || summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia
+    : item.mediaAttachAllowed || item.executionAllowed || summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia || summary.duplicateIdempotencyKeys
       ? "warning"
       : "neutral";
   let headline = `${formatThaiNumber(summary.readyForProposal || 0)} ready product proposal · ${formatThaiNumber(summary.blocked || 0)} blocked`;
@@ -4794,6 +4795,15 @@ function renderMonitoringWordPressPreflightRow(item) {
       item.mediaAttachAllowed ? "media attach allowed" : "no media attach"
     ];
   }
+  if (isMediaAttachExecutionPlan) {
+    headline = `${formatThaiNumber(summary.readyForLiveWritePhase || 0)} ready for later live phase · ${formatThaiNumber(summary.proposedOperations || 0)} operations`;
+    detail = [
+      item.planStatus || "",
+      item.requiresRemoteRefetch ? "remote refetch required" : "",
+      summary.awaitingFinalConfirmation ? `${formatThaiNumber(summary.awaitingFinalConfirmation)} awaiting confirmation` : "",
+      summary.duplicateIdempotencyKeys ? `${formatThaiNumber(summary.duplicateIdempotencyKeys)} duplicate keys` : ""
+    ];
+  }
   return `
     <article class="monitoring-row ${tone}">
       <div class="monitoring-row-main">
@@ -4813,6 +4823,14 @@ function renderMonitoringWordPressPreflightRow(item) {
 
 function getWordPressPreflightNextStep({ item, firstItem, isMedia }) {
   if (item.liveWriteAllowed) return "หยุดตรวจสอบทันที: live write flag เปิดอยู่ ทั้ง phase นี้ควรเป็น preflight เท่านั้น";
+  if (item.phase === "media_attach_execution_plan") {
+    if (item.executionAllowed || item.mediaAttachAllowed) return "หยุดตรวจสอบทันที: execution/media attach flag เปิดอยู่ก่อน live-write phase";
+    if (firstItem?.operationStatus === "ready_for_live_write_phase") {
+      return "พร้อมเป็น execution plan สำหรับเฟส live-write ในอนาคต; ยังต้อง refetch remote และยังไม่มี upload/attach/publish";
+    }
+    if (firstItem?.blockers?.length) return `รอแก้ execution plan: ${firstItem.blockers.join(", ")}`;
+    return "รอ final confirmation และ remote refetch ก่อน live media attach phase";
+  }
   if (item.phase === "media_attach_confirmation") {
     if (item.mediaAttachAllowed) return "หยุดตรวจสอบทันที: media attach flag เปิดอยู่ก่อน final confirmation";
     if (firstItem?.confirmationStatus === "ready_for_final_confirmation") {
