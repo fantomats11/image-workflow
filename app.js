@@ -4996,6 +4996,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const supportReviewReady = review.review_stage === "support_review" || review.support_review_ready === true;
   const hasSupportAssets = supportReviewReady && supportAssets.length > 0;
   const supportDecisionMap = getSupportDecisionMap(review);
+  const supportCandidateManifest = review.support_candidate_manifest || null;
   const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
   els.heroReviewTitle.textContent = hasSupportAssets ? `Image Set Review / ${sku}` : `Hero Review / ${sku}`;
@@ -5019,6 +5020,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   if (els.supportReviewSaveButton) {
     els.supportReviewSaveButton.dataset.batchId = batchId;
     els.supportReviewSaveButton.dataset.sku = sku;
+    els.supportReviewSaveButton.dataset.generationId = generationId;
     els.supportReviewSaveButton.hidden = !hasSupportAssets;
   }
 
@@ -5079,8 +5081,14 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   }
 
   setHeroReviewMessage(
-    hasSupportAssets ? "Support candidates พร้อมตรวจใน flow เดียวกันแล้ว" : review.approved ? "Hero นี้ approve แล้ว" : "",
-    hasSupportAssets || review.approved ? "success" : ""
+    supportCandidateManifest?.manifest_status
+      ? `Candidate manifest: ${supportCandidateManifest.manifest_status}`
+      : hasSupportAssets
+        ? "Support candidates พร้อมตรวจใน flow เดียวกันแล้ว"
+        : review.approved
+          ? "Hero นี้ approve แล้ว"
+          : "",
+    supportCandidateManifest?.manifest_status || hasSupportAssets || review.approved ? "success" : ""
   );
 }
 
@@ -5138,6 +5146,7 @@ async function regenerateHeroFromReviewPage() {
 async function saveSupportReviewDecisions() {
   const batchId = els.supportReviewSaveButton?.dataset.batchId || getHashParams().get("batch_id") || "";
   const sku = els.supportReviewSaveButton?.dataset.sku || getHashParams().get("sku") || "";
+  const generationId = els.supportReviewSaveButton?.dataset.generationId || getHashParams().get("generation_id") || "";
   const decisionInputs = Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-decision]") || []);
   if (!batchId || !sku) return setHeroReviewMessage("ไม่มี batch_id หรือ sku สำหรับบันทึก Support Review", "danger");
   if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มี support candidates ให้บันทึก", "danger");
@@ -5158,14 +5167,15 @@ async function saveSupportReviewDecisions() {
     const response = await authFetch("/api/review/support-decisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ batch_id: batchId, sku, decisions })
+      body: JSON.stringify({ batch_id: batchId, sku, generation_id: generationId, decisions })
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "บันทึก Support Review decisions ไม่สำเร็จ");
     const state = result.decision_state || {};
     els.heroReviewStatus.textContent = state.review_status || "support review saved";
     if (state.candidate_manifest_ready) {
-      setHeroReviewMessage("Support approved ครบแล้ว: พร้อมเข้าสู่ Candidate Manifest Phase", "success");
+      const manifestStatus = result.candidate_manifest?.manifest_status || "candidate_manifest_ready";
+      setHeroReviewMessage(`Support approved ครบแล้ว: ${manifestStatus}`, "success");
     } else if (state.review_status === "support_regeneration_requested") {
       setHeroReviewMessage("รับคำขอ regenerate support แล้ว: flow จะยังไม่ไป Candidate Manifest", "success");
     } else {

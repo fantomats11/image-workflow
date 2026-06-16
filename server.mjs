@@ -21,6 +21,7 @@ import {
 } from "./lib/automation/live-generation-input-staging.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
+import { buildLiveSupportCandidateManifest } from "./lib/automation/live-support-candidate-manifest.mjs";
 import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
 import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
 import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
@@ -1347,6 +1348,7 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         support_review_decisions: Array.isArray(batchItemMetadata.support_review_decisions)
           ? batchItemMetadata.support_review_decisions
           : [],
+        support_candidate_manifest: batchItemMetadata.support_candidate_manifest || batchItemMetadata.candidate_manifest || null,
         reference_assets: referenceAssets,
         approved: Boolean(approvalsResult.data?.length),
         approvals: approvalsResult.data || []
@@ -1395,6 +1397,7 @@ app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
 app.post("/api/review/support-decisions", requireUser, async (req, res) => {
   const batchId = cleanOptionalString(req.body.batch_id || req.body.batchId);
   const sku = sanitizeSku(req.body.sku || "");
+  const generationId = cleanOptionalString(req.body.generation_id || req.body.generationId);
   const decisions = Array.isArray(req.body.decisions) ? req.body.decisions : [];
   if (!batchId || !sku) return sendApiError(res, 400, "batch_sku_required", "Missing batch_id or sku.");
 
@@ -1422,6 +1425,19 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
       decisions,
       reviewer: req.user.email || req.user.id || ""
     });
+    const manifestContext = decisionState.candidate_manifest_ready
+      ? await readSupportCandidateManifestContext({ generationId, userId: req.user.id })
+      : {};
+    const candidateManifest = decisionState.candidate_manifest_ready
+      ? buildLiveSupportCandidateManifest({
+        batchId: resolvedBatchId,
+        sku,
+        job: manifestContext.job || {},
+        heroAsset: manifestContext.heroAsset || {},
+        supportAssets,
+        decisionState
+      })
+      : null;
     const { error: updateError } = await supabaseAdmin
       .from("automation_batch_items")
       .update({
@@ -1430,7 +1446,10 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
           ...metadata,
           review_set_status: decisionState.review_status,
           support_review_decision_state: decisionState,
-          support_review_decisions: decisionState.assets
+          support_review_decisions: decisionState.assets,
+          support_candidate_manifest: candidateManifest,
+          candidate_manifest: candidateManifest,
+          candidate_manifest_status: candidateManifest?.manifest_status || null
         }
       })
       .eq("id", item.id);
@@ -1444,16 +1463,55 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
         sku,
         review_status: decisionState.review_status,
         summary: decisionState.summary,
-        candidate_manifest_ready: decisionState.candidate_manifest_ready
+        candidate_manifest_ready: decisionState.candidate_manifest_ready,
+        candidate_manifest_status: candidateManifest?.manifest_status || null
       }
     });
 
-    res.json({ ok: true, decision_state: decisionState });
+    if (candidateManifest) {
+      await recordAuditEvent({
+        actorId: req.user.id,
+        eventType: "support_candidate_manifest_built",
+        eventJson: {
+          batch_id: resolvedBatchId,
+          sku,
+          generation_id: generationId || null,
+          manifest_status: candidateManifest.manifest_status,
+          summary: candidateManifest.summary
+        }
+      });
+    }
+
+    res.json({ ok: true, decision_state: decisionState, candidate_manifest: candidateManifest });
   } catch (error) {
     console.warn(error?.message || readableError(error));
     res.status(500).json({ ok: false, code: "support_review_decisions_failed", error: "บันทึก Support Review decisions ไม่สำเร็จ" });
   }
 });
+
+async function readSupportCandidateManifestContext({ generationId, userId }) {
+  if (!generationId) return {};
+  const generation = await getOwnedGeneration(generationId, userId);
+  if (!generation) return {};
+  const [jobResult, assetsResult] = await Promise.all([
+    supabaseAdmin
+      .from("jobs")
+      .select("*")
+      .eq("id", generation.job_id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("assets")
+      .select("*")
+      .eq("job_id", generation.job_id)
+  ]);
+  if (jobResult.error) throw jobResult.error;
+  if (assetsResult.error) throw assetsResult.error;
+  const assets = assetsResult.data || [];
+  const heroAsset = assets.find((asset) => asset.id === generation.image_asset_id) ||
+    assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
+    {};
+  return { generation, job: jobResult.data || {}, heroAsset };
+}
 
 app.post("/api/approvals", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
