@@ -26,8 +26,8 @@ import { buildLiveSupportCandidateManifest } from "./lib/automation/live-support
 import { buildMediaExportPreflightGate } from "./lib/automation/media-export-preflight-gate.mjs";
 import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
 import { WORDPRESS_MEDIA_MAPPING_PREFLIGHT_TASK } from "./lib/automation/wordpress-media-preflight.mjs";
-import { WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK } from "./lib/automation/wordpress-publish-preflight.mjs";
 import { buildMonitoringWordPressPreflights } from "./lib/automation/wordpress-preflight-monitoring.mjs";
+import { buildLineBatchApprovalTaskRequests } from "./lib/automation/line-batch-approval-plan.mjs";
 import {
   buildWordPressMediaAttachExecutionPlanFlex,
   buildWordPressMediaRemoteRefetchPreflightFlex,
@@ -3735,32 +3735,13 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
 
     const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
     if (action.action === "approve_batch") {
-      await enqueueAutomationTask({
-        taskType: "generate_batch",
-        batchId: batch?.id || null,
-        dedupeKey: `line:approve_batch:${action.batchId}`,
-        payload: {
-          source: "line",
-          action: action.action,
-          batch_id: action.batchId,
-          line_user_id: baseEventJson.line_user_id,
-          dry_run: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
-        }
+      const taskRequests = buildLineBatchApprovalTaskRequests({
+        action,
+        automationBatchId: batch?.id || null,
+        lineUserId: baseEventJson.line_user_id,
+        dryRun: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
       });
-      await enqueueAutomationTask({
-        taskType: WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK,
-        batchId: batch?.id || null,
-        dedupeKey: `line:${WORDPRESS_PRODUCT_PUBLISH_PREFLIGHT_TASK}:${action.batchId}`,
-        priority: 120,
-        payload: {
-          source: "line",
-          action: action.action,
-          batch_id: action.batchId,
-          line_user_id: baseEventJson.line_user_id,
-          dry_run: true,
-          requires_final_confirmation: true
-        }
-      });
+      for (const taskRequest of taskRequests) await enqueueAutomationTask(taskRequest);
       actionResult = { recorded: true, ignored: false };
     }
 
