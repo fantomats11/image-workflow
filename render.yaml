@@ -12,10 +12,16 @@ services:
         value: 20
       - key: PUBLIC_BASE_URL
         value: https://image-workflow.onrender.com
+      - key: AI_GENERATION_LIVE_ENABLED
+        value: true
       - key: AI_GENERATION_DRY_RUN
+        value: false
+      - key: AI_GENERATION_CONFIRM_SUPPORT_AFTER_HERO_APPROVAL
         value: true
       - key: WORDPRESS_DRY_RUN
         value: true
+      - key: SUPABASE_AUTOMATION_ACTOR_ID
+        value: 8aa5dfb5-605d-4072-83e2-ec443e86295f
       - key: AUTOMATION_EMBEDDED_WORKER
         value: true
       - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
@@ -57,10 +63,19 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: AI_GENERATION_LIVE_ENABLED
+        value: true
       - key: AI_GENERATION_DRY_RUN
+        value: false
+      - key: AI_GENERATION_CONFIRM_SUPPORT_AFTER_HERO_APPROVAL
         value: true
       - key: WORDPRESS_DRY_RUN
         value: true
+      - key: SUPABASE_AUTOMATION_ACTOR_ID
+        fromService:
+          type: web
+          name: image-workflow
+          envVarKey: SUPABASE_AUTOMATION_ACTOR_ID
       - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
         value: 5000
       - key: SUPABASE_URL
