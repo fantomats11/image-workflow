@@ -6,7 +6,7 @@ import fs from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { fal } from "@fal-ai/client";
 import { google } from "googleapis";
 import { isDryRun } from "./lib/automation/env.mjs";
@@ -20,6 +20,9 @@ import {
   buildReferenceStagingManifestFromBatchItems,
   stageMediaManifestAssetsForLiveGeneration
 } from "./lib/automation/live-generation-input-staging.mjs";
+import { buildModelInputStagingManifest } from "./lib/automation/model-input-staging.mjs";
+import { buildReferenceAssetResolution } from "./lib/automation/reference-asset-resolution.mjs";
+import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
 import { buildLiveSupportCandidateManifest } from "./lib/automation/live-support-candidate-manifest.mjs";
@@ -3736,9 +3739,15 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
     const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
     if (action.action === "approve_batch") {
       const lineAutomationActorId = resolveLineAutomationActorId();
+      const liveBlockers = [];
+      if (!lineAutomationActorId) liveBlockers.push("missing_automation_actor_id");
+      if (!isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED")) liveBlockers.push("AI_GENERATION_LIVE_ENABLED_not_true");
+      if (isDryRun("AI_GENERATION_DRY_RUN", true)) liveBlockers.push("AI_GENERATION_DRY_RUN_true");
+      if (!cleanOptionalString(process.env.FAL_KEY)) liveBlockers.push("missing_FAL_KEY");
       const liveHeroRequested = Boolean(lineAutomationActorId) &&
         isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
-        !isDryRun("AI_GENERATION_DRY_RUN", true);
+        !isDryRun("AI_GENERATION_DRY_RUN", true) &&
+        Boolean(cleanOptionalString(process.env.FAL_KEY));
       const taskRequests = buildLineBatchApprovalTaskRequests({
         action,
         automationBatchId: batch?.id || null,
@@ -3749,7 +3758,15 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
         dryRun: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
       });
       for (const taskRequest of taskRequests) await enqueueAutomationTask(taskRequest);
-      actionResult = { recorded: true, ignored: false };
+      actionResult = {
+        recorded: true,
+        ignored: false,
+        nextStage: "hero_generation",
+        liveGenerationRequested: liveHeroRequested,
+        liveGenerationConfirmed: liveHeroRequested,
+        liveBlockers: Array.from(new Set(liveBlockers)),
+        wordpressDryRun: isDryRun("WORDPRESS_DRY_RUN", true)
+      };
     }
 
     if (action.action === "needs_review") {
@@ -4054,12 +4071,7 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
       actionResult.reason === "stale_hero_review_action" ? "ปุ่มนี้มาจาก hero version เก่า" : "",
       "ให้ใช้หน้า Review เป็นจุดตัดสินใจหลัก"
     ]
-    : [
-      `รับ action แล้ว: ${actionLabel}`,
-      batchLine,
-      skuLine,
-      "ตอนนี้ยังเป็น dry-run ยังไม่เจนภาพ/ไม่ลง WordPress"
-    ];
+    : buildLinePostbackAcknowledgementLines({ action, actionLabel, batchLine, skuLine, actionResult });
   const finalText = text
     .filter(Boolean)
     .join("\n");
@@ -4079,6 +4091,33 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
   if (!response.ok) {
     console.warn(`[line] reply failed ${response.status}: ${await response.text()}`);
   }
+}
+
+function buildLinePostbackAcknowledgementLines({ action, actionLabel, batchLine, skuLine, actionResult = {} }) {
+  const lines = [
+    `รับ action แล้ว: ${actionLabel}`,
+    batchLine,
+    skuLine
+  ];
+
+  if (action.action === "approve_batch") {
+    if (actionResult.liveGenerationRequested) {
+      lines.push("เริ่มสร้าง Hero จริงแล้ว");
+      lines.push("ถ้าสร้างสำเร็จ ระบบจะส่ง Hero Review กลับมาให้ตรวจ");
+    } else {
+      const blockers = Array.isArray(actionResult.liveBlockers) ? actionResult.liveBlockers.filter(Boolean) : [];
+      lines.push(blockers.length
+        ? `ยังไม่ยิงภาพจริง: ${blockers.join(", ")}`
+        : "ยังไม่ยิงภาพจริง: live generation ยังไม่พร้อม");
+    }
+    lines.push(actionResult.wordpressDryRun === false
+      ? "WordPress live write เปิดอยู่"
+      : "WordPress ยัง dry-run: ยังไม่ publish");
+    return lines;
+  }
+
+  lines.push("บันทึก action แล้ว");
+  return lines;
 }
 
 function startEmbeddedAutomationWorker() {
@@ -4170,6 +4209,7 @@ async function processAutomationTask(task) {
       onMediaAttachExecutionPlanCompleted: handleWordPressMediaAttachExecutionPlanCompleted,
       onMediaRemoteRefetchPreflightCompleted: handleWordPressMediaRemoteRefetchPreflightCompleted,
       readMediaManifest: readLiveGenerationMediaManifest,
+      readReferenceResolutionManifest: readLiveGenerationReferenceResolutionManifest,
       readModelInputStagingManifest: readLiveGenerationModelInputStagingManifest,
       enqueueTask: enqueueAutomationTask,
       providerGenerate: async (request) => {
@@ -4208,11 +4248,110 @@ async function readLiveGenerationMediaManifest({ task, batchItems }) {
   });
 }
 
-async function readLiveGenerationModelInputStagingManifest({ batchItems }) {
+async function readLiveGenerationReferenceResolutionManifest({ task, batchItems }) {
+  const folderIds = Array.from(new Set((batchItems || [])
+    .map((item) => cleanOptionalString(item.reference_drive_id || item.metadata?.reference_drive_id || extractDriveIdFromUrl(item.reference_url || item.metadata?.reference_url || "")))
+    .filter(Boolean)));
+  if (!folderIds.length) return null;
+
+  const filesByFolderId = {};
+  const drive = await getGoogleDriveClient();
+  if (!drive) {
+    return buildReferenceAssetResolution({
+      batch: { batch_id: task.batch_id || null },
+      batchItems,
+      filesByFolderId
+    });
+  }
+
+  for (const folderId of folderIds) {
+    filesByFolderId[folderId] = await listGoogleDriveReferenceFiles(drive, folderId);
+  }
+
+  return buildReferenceAssetResolution({
+    batch: { batch_id: task.batch_id || null },
+    batchItems,
+    filesByFolderId
+  });
+}
+
+async function readLiveGenerationModelInputStagingManifest({ batchItems, referenceResolutionManifest }) {
+  if (Array.isArray(referenceResolutionManifest?.items) && referenceResolutionManifest.items.length) {
+    return stageGoogleDriveReferenceResolutionForLiveGeneration(referenceResolutionManifest);
+  }
   return buildReferenceStagingManifestFromBatchItems({
     batchItems,
     stagingDir: liveInputStagingDir
   });
+}
+
+async function listGoogleDriveReferenceFiles(drive, folderId) {
+  const files = [];
+  let pageToken;
+  do {
+    const response = await drive.files.list({
+      q: `'${escapeGoogleDriveQueryValue(folderId)}' in parents and trashed = false`,
+      fields: "nextPageToken, files(id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink, imageMediaMetadata(width,height), createdTime, modifiedTime)",
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+    files.push(...(response.data.files || []));
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+  return files;
+}
+
+async function stageGoogleDriveReferenceResolutionForLiveGeneration(referenceResolution) {
+  const stagedFilesByDriveId = {};
+  const drive = await getGoogleDriveClient();
+  if (!drive) return buildModelInputStagingManifest({ referenceResolution, stagedFilesByDriveId });
+
+  for (const item of referenceResolution.items || []) {
+    const skuDir = path.join(liveInputStagingDir, safeLivePathSegment(item.sku || "unknown-sku"), "reference");
+    await fs.mkdir(skuDir, { recursive: true });
+    const selectedAssets = (item.selected_reference_assets || []).slice(0, 6);
+    for (let index = 0; index < selectedAssets.length; index += 1) {
+      const asset = selectedAssets[index];
+      const driveFileId = asset.drive_file_id || asset.id || "";
+      if (!driveFileId) continue;
+      const fileName = `${String(index + 1).padStart(2, "0")}-${safeLivePathSegment(asset.name || driveFileId)}${extensionForDriveAsset(asset)}`;
+      const localPath = path.join(skuDir, fileName);
+      const response = await drive.files.get(
+        {
+          fileId: driveFileId,
+          alt: "media",
+          supportsAllDrives: true
+        },
+        { responseType: "arraybuffer" }
+      );
+      const buffer = Buffer.from(response.data);
+      await fs.writeFile(localPath, buffer);
+      stagedFilesByDriveId[driveFileId] = {
+        local_path: localPath,
+        file_name: path.basename(localPath),
+        file_size: buffer.length,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+        staged_at: new Date().toISOString()
+      };
+    }
+  }
+
+  return buildModelInputStagingManifest({ referenceResolution, stagedFilesByDriveId });
+}
+
+function extensionForDriveAsset(asset = {}) {
+  const existing = path.extname(String(asset.name || ""));
+  if (existing) return "";
+  if (asset.mimeType === "image/png") return ".png";
+  if (asset.mimeType === "image/webp") return ".webp";
+  if (asset.mimeType === "image/gif") return ".gif";
+  return ".jpg";
+}
+
+function safeLivePathSegment(value = "") {
+  return String(value || "file").normalize("NFKC").trim().replace(/[\/\\:*?"<>|]+/g, "-").replace(/\s+/g, "_").slice(0, 120) || "file";
 }
 
 async function getFalImageProvider() {

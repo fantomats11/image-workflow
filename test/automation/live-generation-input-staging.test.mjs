@@ -62,3 +62,47 @@ test("buildReferenceStagingManifestFromBatchItems stages reference image urls", 
   assert.equal(manifest.items[0].staged_reference_assets[0].source_name, "front.jpg");
   assert.equal(fs.existsSync(manifest.items[0].staged_reference_assets[0].local_path), true);
 });
+
+test("buildReferenceStagingManifestFromBatchItems does not stage Drive folder pages as images", async () => {
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "live-ref-stage-folder-"));
+  const manifest = await buildReferenceStagingManifestFromBatchItems({
+    batchItems: [{
+      sku: "R24CBF0013",
+      reference_url: "https://drive.google.com/drive/folders/folder-id"
+    }],
+    stagingDir,
+    fetchImpl: async () => {
+      throw new Error("folder URL should not be fetched directly");
+    }
+  });
+
+  assert.equal(manifest.summary.selected_reference_assets, 0);
+  assert.equal(manifest.summary.staged_reference_assets, 0);
+  assert.equal(manifest.summary.needs_model_input_staging, 1);
+  assert.deepEqual(manifest.items[0].blockers, ["missing_staged_reference_file"]);
+});
+
+test("buildReferenceStagingManifestFromBatchItems rejects non-image reference responses", async () => {
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "live-ref-stage-html-"));
+  const manifest = await buildReferenceStagingManifestFromBatchItems({
+    batchItems: [{
+      sku: "R24CBF0013",
+      metadata: {
+        reference_images: [{
+          drive_file_id: "front-ref-1",
+          name: "front.jpg",
+          public_url: "https://cdn.example.com/front.jpg"
+        }]
+      }
+    }],
+    stagingDir,
+    fetchImpl: async () => new Response("<html>not an image</html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+
+  assert.equal(manifest.summary.selected_reference_assets, 1);
+  assert.equal(manifest.summary.staged_reference_assets, 0);
+  assert.match(manifest.items[0].staged_reference_assets[0].staging_error, /non_image_reference_response:text\/html/);
+});
