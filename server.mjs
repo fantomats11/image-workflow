@@ -3735,10 +3735,17 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
 
     const batch = await upsertAutomationBatchFromLineAction({ action, baseEventJson });
     if (action.action === "approve_batch") {
+      const lineAutomationActorId = resolveLineAutomationActorId();
+      const liveHeroRequested = Boolean(lineAutomationActorId) &&
+        isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
+        !isDryRun("AI_GENERATION_DRY_RUN", true);
       const taskRequests = buildLineBatchApprovalTaskRequests({
         action,
         automationBatchId: batch?.id || null,
         lineUserId: baseEventJson.line_user_id,
+        actorId: lineAutomationActorId,
+        liveGenerationRequested: liveHeroRequested,
+        liveGenerationConfirmed: liveHeroRequested,
         dryRun: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
       });
       for (const taskRequest of taskRequests) await enqueueAutomationTask(taskRequest);
@@ -4174,10 +4181,11 @@ async function processAutomationTask(task) {
         execution,
         generationPlan,
         batch,
-        actorId,
+        actorId: actorId || resolveLineAutomationActorId(),
         dryRun
       }),
       updateBatchItemsAfterSupportGeneration,
+      onHeroGenerationCompleted: handleHeroGenerationCompleted,
       onSupportGenerationCompleted: handleSupportGenerationCompleted
     });
   } catch (error) {
@@ -4218,6 +4226,10 @@ async function getFalImageProvider() {
   return falImageProviderPromise;
 }
 
+function resolveLineAutomationActorId() {
+  return cleanOptionalString(process.env.AUTOMATION_ACTOR_ID || process.env.SUPABASE_AUTOMATION_ACTOR_ID);
+}
+
 async function updateBatchItemsAfterSupportGeneration({ task, persistence, batchItems = [] }) {
   const supportSkus = new Set((persistence?.items || [])
     .filter((item) => item.kind === "support" || item.type === "support_generated")
@@ -4247,6 +4259,54 @@ async function updateBatchItemsAfterSupportGeneration({ task, persistence, batch
       })
       .eq("id", item.id);
     if (error) throw error;
+  }
+}
+
+async function handleHeroGenerationCompleted({ task, persistence, batchItems = [] }) {
+  const target = cleanOptionalString(task?.payload?.line_user_id) || lineTargetUserId;
+  if (!target || !lineChannelAccessToken) return;
+  const heroItems = (persistence?.items || [])
+    .filter((entry) => entry.kind === "hero" || entry.type === "hero_generated")
+    .filter((entry) => entry.persistence_status === "persisted");
+  if (!heroItems.length) return;
+
+  const batchId = task?.payload?.batch_id || task?.batch_id || "";
+  const lines = ["Hero Review พร้อมตรวจ"];
+  for (const item of heroItems.slice(0, 5)) {
+    const matchingBatchItem = batchItems.find((batchItem) => batchItem.sku === item.sku) || {};
+    const reviewUrl = buildWorkflowReviewUrl({
+      batchId,
+      sku: item.sku || matchingBatchItem.sku || "",
+      generationId: item.generation_id || ""
+    });
+    lines.push([item.sku || "-", reviewUrl || "เปิดจาก Automation Inbox ได้"].filter(Boolean).join(" | "));
+  }
+  lines.push("ขั้นตอนถัดไป: ตรวจ Hero แล้ว Approve เพื่อเริ่ม support");
+
+  try {
+    await pushLineMessage({
+      to: target,
+      messages: [{ type: "text", text: lines.join("\n") }]
+    });
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "hero_generation_review_handoff_sent",
+      eventJson: {
+        task_id: task.id,
+        batch_id: batchId,
+        hero_count: heroItems.length
+      }
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorId: null,
+      eventType: "hero_generation_review_handoff_failed",
+      eventJson: {
+        task_id: task.id,
+        batch_id: batchId,
+        error: readableError(error)
+      }
+    });
   }
 }
 

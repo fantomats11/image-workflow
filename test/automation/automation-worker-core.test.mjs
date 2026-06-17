@@ -535,6 +535,148 @@ test("worker core executes and persists armed live support generation", async ()
   assert.equal(auditEvents[0].eventType, "live_pilot_generation_execution_completed");
 });
 
+test("worker core executes and persists armed live hero generation without support callback", async () => {
+  const completed = [];
+  const providerRequests = [];
+  const heroCallbacks = [];
+  const supportCallbacks = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-live-hero-1",
+      task_type: "live_pilot_generation_execution",
+      batch_id: "batch-live-hero",
+      payload: {
+        actor_id: "actor-1",
+        live_generation_requested: true,
+        live_generation_confirmed: true,
+        generation_plan: {
+          batch_id: "batch-live-hero",
+          items: [{
+            sku: "R24CBF0013",
+            generation_requests: [{
+              request_id: "R24CBF0013:hero",
+              sku: "R24CBF0013",
+              kind: "hero",
+              slot: "hero",
+              prompt: "hero prompt",
+              request_status: "ready_for_live_generation",
+              model_input_files: [{
+                source_name: "front_reference",
+                local_path: "/tmp/front.jpg",
+                staging_status: "staged_local_file"
+              }]
+            }]
+          }]
+        },
+        live_generation_gate: {
+          batch_id: "batch-live-hero",
+          gate_status: "live_generation_armed",
+          live_generation_allowed: true,
+          requests: [{
+            request_id: "R24CBF0013:hero",
+            sku: "R24CBF0013",
+            kind: "hero",
+            slot: "hero",
+            prompt: "hero prompt",
+            gate_status: "ready",
+            request_status: "ready_for_live_generation"
+          }]
+        }
+      }
+    },
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "test-fal-key" },
+    providerGenerate: async (request) => {
+      providerRequests.push(request);
+      return {
+        provider_request_id: "fal-hero-1",
+        images: [{ url: "https://cdn.example.com/hero.png", file_name: "hero.png" }]
+      };
+    },
+    persistLiveExecution: async () => ({
+      persistence_status: "completed",
+      summary: { persisted: 1 },
+      items: [{
+        sku: "R24CBF0013",
+        kind: "hero",
+        type: "hero_generated",
+        persistence_status: "persisted",
+        generation_id: "hero-generation-1",
+        public_url: "https://cdn.example.com/hero.png"
+      }]
+    }),
+    onHeroGenerationCompleted: async (payload) => heroCallbacks.push(payload),
+    onSupportGenerationCompleted: async (payload) => supportCallbacks.push(payload),
+    recordAuditEvent: async () => {},
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(providerRequests.length, 1);
+  assert.equal(providerRequests[0].kind, "hero");
+  assert.equal(completed[0].result.dry_run, false);
+  assert.equal(heroCallbacks.length, 1);
+  assert.equal(supportCallbacks.length, 0);
+});
+
+test("worker core enqueues live hero execution after LINE batch approval plan", async () => {
+  const completed = [];
+  const enqueued = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-hero-plan-1",
+      task_type: "generate_batch",
+      batch_id: "batch-live-hero",
+      dedupe_key: "line:approve_batch:line-keyword-test",
+      payload: {
+        action: "approve_batch",
+        actor_id: "actor-1",
+        generation_phase: "hero_after_batch_approval",
+        request_mode: "hero-only-after-batch-approval",
+        auto_enqueue_live_hero: true,
+        live_generation_requested: true,
+        live_generation_confirmed: true
+      }
+    },
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "test-fal-key" },
+    batchItems: [{
+      id: "item-hero-1",
+      sku: "R24CBF0013",
+      target_site: "rentacoat",
+      status: "approved",
+      product_name: "Women's Slopeside Peak Luxe Waterproof Snow Boot",
+      category: "รองเท้า",
+      metadata: {
+        brand_id: "rent_a_coat",
+        product_name: "Women's Slopeside Peak Luxe Waterproof Snow Boot",
+        product_type: "rental",
+        reference_url: "https://drive.google.com/drive/folders/ref-folder",
+        support_shots: "side_profile"
+      }
+    }],
+    readModelInputStagingManifest: async () => ({
+      items: [{
+        sku: "R24CBF0013",
+        staged_reference_assets: [{
+          source_name: "R24CBF0013_Front.jpg",
+          local_path: "/tmp/r24-front.jpg",
+          file_name: "front.jpg",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    }),
+    enqueueTask: async (taskPayload) => enqueued.push(taskPayload),
+    recordAuditEvent: async () => {},
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(completed.length, 1);
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0].taskType, "live_pilot_generation_execution");
+  assert.equal(enqueued[0].payload.action, "generate_hero_after_batch_approval");
+  assert.equal(enqueued[0].payload.live_generation_gate.live_generation_allowed, true);
+  assert.equal(enqueued[0].payload.live_generation_gate.requests.length, 1);
+  assert.equal(enqueued[0].payload.live_generation_gate.requests[0].kind, "hero");
+});
+
 test("worker core enqueues live support execution after approved hero plan", async () => {
   const completed = [];
   const enqueued = [];
