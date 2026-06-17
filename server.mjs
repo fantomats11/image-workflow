@@ -3588,7 +3588,8 @@ async function handleLineKeywordBatchMessage({ baseEventJson, messageText }) {
       generationRows: snapshot.generationRows,
       auditRows: snapshot.auditRows,
       lineUserId: baseEventJson.line_user_id,
-      now: new Date()
+      now: new Date(),
+      snapshotSource: snapshot.source
     });
 
     if (result.ok) {
@@ -3626,7 +3627,9 @@ async function handleLineKeywordBatchMessage({ baseEventJson, messageText }) {
         item_count: result.batch?.items?.length || 0,
         registry: registryResult || null,
         blockers: result.blockers || [],
-        outputs_dir: outputsDir
+        outputs_dir: outputsDir,
+        snapshot_source: result.batch?.selection?.snapshot_source || snapshot.source,
+        fallback_generation_path: snapshot.fallbackGenerationPath || ""
       }
     });
     return { handled: true, ok: result.ok, batchId: result.batch?.batch_id || "" };

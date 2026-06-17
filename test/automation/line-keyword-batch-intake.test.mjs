@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   buildLineKeywordBatchFromCatalog,
   buildLineKeywordBatchIntakeResult,
+  loadLineKeywordBatchCatalogSnapshot,
   parseLineKeywordBatchCommand
 } from "../../lib/automation/line-keyword-batch-intake.mjs";
 
@@ -98,6 +102,24 @@ test("intake result turns a recognized LINE message into a registerable batch", 
   assert.equal(result.batch.items.length, 2);
   assert.equal(result.batch.selection.line_user_id, "U-line-user");
   assert.match(result.replyText, /สร้าง batch จาก LINE keyword แล้ว/);
+});
+
+test("catalog snapshot loader falls back to packaged keyword catalog when outputs are absent", async () => {
+  const emptyOutputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "line-keyword-empty-"));
+  const snapshot = await loadLineKeywordBatchCatalogSnapshot({ outputsDir: emptyOutputsDir });
+  const result = buildLineKeywordBatchIntakeResult({
+    text: "BATCH รองเท้า=1 เสื้อ=1",
+    generationRows: snapshot.generationRows,
+    auditRows: snapshot.auditRows,
+    now: NOW,
+    lineUserId: "U-line-user",
+    snapshotSource: snapshot.source
+  });
+
+  assert.equal(snapshot.source, "packaged_fallback");
+  assert.equal(result.ok, true);
+  assert.equal(result.batch.items.length, 2);
+  assert.equal(result.batch.selection.snapshot_source, "packaged_fallback");
 });
 
 function catalogRow({
