@@ -127,7 +127,7 @@ async function getFalProvider() {
   if (!falProviderPromise) {
     falProviderPromise = createFalImageProvider({
       generatedDir,
-      timeoutMs: Number(process.env.FAL_TIMEOUT_MS || 30000),
+      timeoutMs: Number(process.env.FAL_TIMEOUT_MS || 180000),
       verbose: ["1", "true", "yes"].includes(String(process.env.AI_GENERATION_VERBOSE || "").toLowerCase())
     });
   }

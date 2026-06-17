@@ -4358,7 +4358,7 @@ async function getFalImageProvider() {
   if (!falImageProviderPromise) {
     falImageProviderPromise = createFalImageProvider({
       generatedDir: liveGeneratedDir,
-      timeoutMs: Number(process.env.FAL_TIMEOUT_MS || 30000),
+      timeoutMs: Number(process.env.FAL_TIMEOUT_MS || 180000),
       verbose: isBooleanEnvEnabled("AI_GENERATION_VERBOSE")
     });
   }
