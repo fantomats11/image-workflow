@@ -3267,11 +3267,16 @@ async function maybeEnqueueHeroReviewAutomationTask({
   if (!resolvedBatchId) return null;
   const taskType = GENERATE_BATCH_TASK;
   const approve = action === "approve_hero";
+  const regenerate = action === "regenerate_hero";
   const liveSupportRequested = approve &&
     isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
     !isDryRun("AI_GENERATION_DRY_RUN", true);
   const liveSupportConfirmed = approve &&
     isBooleanEnvEnabled("AI_GENERATION_CONFIRM_SUPPORT_AFTER_HERO_APPROVAL");
+  const liveHeroRequested = regenerate &&
+    isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
+    !isDryRun("AI_GENERATION_DRY_RUN", true);
+  const liveHeroConfirmed = liveHeroRequested;
   const task = await enqueueAutomationTask({
     taskType,
     batchId: resolvedBatchId,
@@ -3287,12 +3292,13 @@ async function maybeEnqueueHeroReviewAutomationTask({
       sku,
       generation_id: generationId,
       actor_id: actorId || null,
-      generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration",
-      request_mode: approve ? "support-only-after-approved-hero" : "hero-only",
+      generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration_after_review",
+      request_mode: approve ? "support-only-after-approved-hero" : "hero-regeneration-only",
       requires_approved_hero_anchor: approve,
       auto_enqueue_live_support: approve,
-      live_generation_requested: liveSupportRequested,
-      live_generation_confirmed: liveSupportConfirmed,
+      auto_enqueue_live_hero: regenerate,
+      live_generation_requested: liveSupportRequested || liveHeroRequested,
+      live_generation_confirmed: liveSupportConfirmed || liveHeroConfirmed,
       dry_run: true,
       completed_reason: approve
         ? "Hero approved from web review page; support generation plan can now attach reference plus approved hero anchor"
@@ -3300,7 +3306,7 @@ async function maybeEnqueueHeroReviewAutomationTask({
     }
   });
 
-  if (approve) {
+  if (approve || regenerate) {
     await updateAutomationBatchItemFromReviewAction({ action, batchId: resolvedBatchId, sku, actorId, generationId });
   }
   return task;
