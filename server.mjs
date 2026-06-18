@@ -3122,7 +3122,55 @@ async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "",
     resolvedMetadata.reference_images,
     resolvedMetadata.reference_resolution?.selected_reference_assets
   );
-  return referenceAssets.map(normalizeHeroReviewReferenceAsset).filter(Boolean);
+  if (referenceAssets.length) {
+    return referenceAssets.map(normalizeHeroReviewReferenceAsset).filter(Boolean);
+  }
+
+  return readHeroReviewReferenceAssetsFromDriveFolder(resolvedMetadata);
+}
+
+async function readHeroReviewReferenceAssetsFromDriveFolder(metadata = {}) {
+  if (!isPlainObject(metadata)) return [];
+  const folderId = cleanOptionalString(
+    metadata.reference_drive_id ||
+    metadata.metadata?.reference_drive_id ||
+    metadata.reference_manifest?.drive_file_id ||
+    extractDriveIdFromUrl(metadata.reference_url || metadata.metadata?.reference_url || metadata.reference_manifest?.source_url || "")
+  );
+  if (!folderId) return [];
+
+  const drive = await getGoogleDriveClient();
+  if (!drive) return [];
+
+  let files = [];
+  try {
+    files = await listGoogleDriveReferenceFiles(drive, folderId);
+  } catch (error) {
+    console.warn(`Hero review reference folder read failed: ${readableError(error)}`);
+    return [];
+  }
+  return files
+    .filter((file) => isGoogleDriveImageReferenceFile(file))
+    .slice(0, 12)
+    .map((file, index) => normalizeHeroReviewReferenceAsset({
+      id: file.id,
+      drive_file_id: file.id,
+      name: file.name || `reference-${index + 1}`,
+      file_name: `${String(index + 1).padStart(2, "0")}-${file.name || file.id}`,
+      mimeType: file.mimeType || "",
+      width: file.imageMediaMetadata?.width || null,
+      height: file.imageMediaMetadata?.height || null,
+      webViewLink: file.webViewLink || "",
+      webContentLink: file.webContentLink || "",
+      thumbnailLink: file.thumbnailLink || "",
+      source_role: "product_reference",
+      type: "product_reference"
+    }))
+    .filter(Boolean);
+}
+
+function isGoogleDriveImageReferenceFile(file = {}) {
+  return String(file.mimeType || "").toLowerCase().startsWith("image/");
 }
 
 function normalizeHeroReviewReferenceAsset(asset = {}) {
