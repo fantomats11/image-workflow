@@ -411,7 +411,7 @@
                     <button class="primary-button" type="button" id="supportReviewSaveButton">Save support decisions</button>
                   </div>
                 </div>
-                <div class="review-decision-dock">
+                <div class="review-decision-dock" id="heroReviewDecisionDock">
                   <div class="review-checklist">
                     <label><input type="checkbox" data-hero-review-check="product" /> สินค้าตรงกับ ref</label>
                     <label><input type="checkbox" data-hero-review-check="logo" /> โลโก้/ป้ายไม่เพี้ยน</label>
@@ -437,7 +437,39 @@
               </div>
               <button class="ghost-button compact" type="button" id="refreshJobsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">ดูงานที่ระบบสร้างจาก Product Catalog / LINE / automation พร้อมสถานะ Hero, approval, export และ action ถัดไป</div>
+            <div class="section-note">ดูงานที่ระบบสร้างจาก LINE / Product Catalog พร้อมสถานะ Hero, Support, Media Preflight และ action ถัดไป</div>
+            <div class="production-flow-board" id="productionFlowBoard" aria-label="Production flow">
+              <article class="production-flow-card">
+                <strong>LINE Intake</strong>
+                <span>0</span>
+                <small>รอคำสั่ง BATCH</small>
+              </article>
+              <article class="production-flow-card">
+                <strong>Hero Review</strong>
+                <span>0</span>
+                <small>approve หรือ regenerate hero</small>
+              </article>
+              <article class="production-flow-card">
+                <strong>Support Generation</strong>
+                <span>0</span>
+                <small>สร้าง support หลัง hero approved</small>
+              </article>
+              <article class="production-flow-card">
+                <strong>Support Review</strong>
+                <span>0</span>
+                <small>เลือกภาพพร้อมใช้ก่อน export</small>
+              </article>
+              <article class="production-flow-card">
+                <strong>Media Preflight</strong>
+                <span>0</span>
+                <small>ตรวจ manifest/media blockers</small>
+              </article>
+              <article class="production-flow-card">
+                <strong>WordPress</strong>
+                <span>0</span>
+                <small>พร้อมส่งออกสินค้า</small>
+              </article>
+            </div>
             <div class="kpi-range-tabs" id="jobsRangeControls" aria-label="เลือกช่วงเวลา Jobs">
               <button class="active" type="button" data-jobs-range="today">Today</button>
               <button type="button" data-jobs-range="7d">Last 7 days</button>

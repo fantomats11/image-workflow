@@ -1225,6 +1225,49 @@ tbody tr:hover {
   background: #f4fafb;
 }
 
+.production-flow-board {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.production-flow-card {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 12px;
+  border: 1px solid #d9dedb;
+  border-radius: var(--radius);
+  background: #fbfcfb;
+}
+
+.production-flow-card.active {
+  border-color: #bfd8c9;
+  background: var(--success-soft);
+}
+
+.production-flow-card strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.production-flow-card span {
+  color: var(--ink);
+  font-size: 26px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.production-flow-card small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
 .jobs-panel .panel-heading h3 {
   font-size: 22px;
 }
@@ -1282,6 +1325,11 @@ tbody tr:hover {
 .job-next-action.info {
   border-color: #cbdde2;
   background: var(--info-soft);
+}
+
+.job-next-action.muted {
+  border-color: #d9dedb;
+  background: #f7f8f7;
 }
 
 .job-next-action .ghost-button {
@@ -3149,6 +3197,10 @@ tbody tr:hover {
     min-width: 0;
   }
 
+  .production-flow-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .dashboard-grid,
   .workflow-grid,
   .lower-grid,
@@ -3237,6 +3289,14 @@ tbody tr:hover {
 
   .app-shell {
     display: block;
+  }
+
+  .production-flow-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .production-flow-card {
+    min-height: 104px;
   }
 
   .sidebar {

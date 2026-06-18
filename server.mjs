@@ -3112,6 +3112,51 @@ async function readHeroReviewBatchItemMetadata({ batchKey = "", sku = "" } = {})
   return isPlainObject(item?.metadata) ? item.metadata : {};
 }
 
+async function readProductionBatchItemsBySku(skus = []) {
+  const normalizedSkus = [...new Set(
+    skus
+      .map((sku) => sanitizeSku(sku))
+      .filter(Boolean)
+  )];
+  if (!normalizedSkus.length) return new Map();
+
+  const { data: items, error } = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("id, batch_id, sku, status, metadata, created_at, updated_at")
+    .in("sku", normalizedSkus)
+    .order("updated_at", { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+
+  const batchIds = [...new Set((items || []).map((item) => item.batch_id).filter(Boolean))];
+  const batchById = new Map();
+  if (batchIds.length) {
+    const { data: batches, error: batchError } = await supabaseAdmin
+      .from("automation_batches")
+      .select("id, batch_key, created_at")
+      .in("id", batchIds)
+      .limit(1000);
+    if (batchError) throw batchError;
+    (batches || []).forEach((batch) => batchById.set(batch.id, batch));
+  }
+
+  const itemBySku = new Map();
+  (items || []).forEach((item) => {
+    const sku = sanitizeSku(item.sku);
+    if (!sku || itemBySku.has(sku)) return;
+    const batch = batchById.get(item.batch_id) || {};
+    itemBySku.set(sku, {
+      id: item.id,
+      batchId: item.batch_id || "",
+      batchKey: batch.batch_key || item.batch_id || "",
+      status: item.status || "",
+      metadata: isPlainObject(item.metadata) ? item.metadata : {},
+      updatedAt: item.updated_at || item.created_at || batch.created_at || null
+    });
+  });
+  return itemBySku;
+}
+
 async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "", metadata = null } = {}) {
   const resolvedMetadata = isPlainObject(metadata)
     ? metadata
@@ -6654,6 +6699,9 @@ async function buildProductionJobsView(query = {}) {
   const approvals = approvalsResult.data;
   const assets = assetsResult.data;
   const auditEvents = auditEventsResult.data;
+  const batchItemBySku = await readProductionBatchItemsBySku(
+    jobs.map((job) => job.sku || job.form_json?.sku || "")
+  );
   const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
   const profiles = await readKpiProfiles(userIds);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
@@ -6671,6 +6719,7 @@ async function buildProductionJobsView(query = {}) {
       auditEvents: auditEventsByJobId.get(job.id) || [],
       approvalGenerationIds,
       approvalByGenerationId,
+      batchItem: batchItemBySku.get(sanitizeSku(job.sku || job.form_json?.sku || "")),
       profile: profileById.get(job.created_by)
     }))
     .filter((job) => {
@@ -6861,7 +6910,49 @@ function paginateProductionItems(items, pagination) {
   return items.slice(start, start + pagination.pageSize);
 }
 
-function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, profile }) {
+function summarizeProductionSupportReview(batchItem = {}, supportCount = 0) {
+  const metadata = isPlainObject(batchItem?.metadata) ? batchItem.metadata : {};
+  const decisionState = isPlainObject(metadata.support_review_decision_state)
+    ? metadata.support_review_decision_state
+    : {};
+  const candidateManifest = isPlainObject(metadata.support_candidate_manifest)
+    ? metadata.support_candidate_manifest
+    : isPlainObject(metadata.candidate_manifest)
+      ? metadata.candidate_manifest
+      : {};
+  const mediaGate = isPlainObject(metadata.media_export_preflight_gate)
+    ? metadata.media_export_preflight_gate
+    : {};
+  const rawStatus = cleanOptionalString(
+    decisionState.review_status ||
+    metadata.review_set_status ||
+    batchItem.status ||
+    metadata.support_generation?.status
+  );
+  const candidateManifestStatus = cleanOptionalString(
+    candidateManifest.manifest_status ||
+    metadata.candidate_manifest_status
+  );
+  const mediaPreflightStatus = cleanOptionalString(
+    mediaGate.gate_status ||
+    metadata.media_export_preflight_status
+  );
+  let supportReviewStatus = "not_started";
+  if (candidateManifestStatus || decisionState.candidate_manifest_ready === true) {
+    supportReviewStatus = "candidate_manifest_ready";
+  } else if (/regeneration/i.test(rawStatus)) {
+    supportReviewStatus = "regenerate_requested";
+  } else if (supportCount > 0 || /support_ready|awaiting_support_review|pending_support/i.test(rawStatus)) {
+    supportReviewStatus = "pending";
+  }
+  return {
+    supportReviewStatus,
+    candidateManifestStatus,
+    mediaPreflightStatus
+  };
+}
+
+function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, batchItem, profile }) {
   const sortedGenerations = [...generations].sort((a, b) => new Date(b.completed_at || b.created_at || 0) - new Date(a.completed_at || a.created_at || 0));
   const latestGeneration = sortedGenerations[0] || null;
   const heroGeneration = sortedGenerations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || sortedGenerations[0] || null;
@@ -6870,6 +6961,7 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
   const approvedGeneration = sortedGenerations.find((generation) => approvalGenerationIds.has(generation.id));
   const approval = approvedGeneration ? approvalByGenerationId.get(approvedGeneration.id) : null;
   const visibleSupportGenerations = approval ? supportGenerations : [];
+  const supportReview = summarizeProductionSupportReview(batchItem, visibleSupportGenerations.length);
   const exportAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "approved_export");
   const exportUrl = safeUrl(approval?.export_path || exportAsset?.public_url || "");
   const hasValidExportLink = Boolean(exportUrl);
@@ -6889,6 +6981,7 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     latestGeneration?.created_at,
     approval?.approved_at,
     exportAsset?.created_at,
+    batchItem?.updatedAt,
     ...auditEvents.map((event) => event.created_at)
   ]);
 
@@ -6914,6 +7007,12 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     supportCount: visibleSupportGenerations.length,
     approvalStatus: approval ? "approved" : "pending",
     approvedAt: approval?.approved_at || null,
+    batchId: batchItem?.batchId || "",
+    batchKey: batchItem?.batchKey || "",
+    batchItemStatus: batchItem?.status || "",
+    supportReviewStatus: supportReview.supportReviewStatus,
+    candidateManifestStatus: supportReview.candidateManifestStatus,
+    mediaPreflightStatus: supportReview.mediaPreflightStatus,
     exportStatus,
     exportUrl,
     exportActionLabel: exportStatus === "export_failed" ? "Retry Export" : "Export",

@@ -408,6 +408,7 @@ const els = {
   costJobList: document.getElementById("costJobList"),
   costRecentEvents: document.getElementById("costRecentEvents"),
   historyBody: document.getElementById("historyBody"),
+  productionFlowBoard: document.getElementById("productionFlowBoard"),
   qcList: document.getElementById("qcList"),
   qcScore: document.getElementById("qcScore"),
   brandSettingsPreview: document.getElementById("brandSettingsPreview"),
@@ -438,6 +439,7 @@ const els = {
   heroReviewSupportCount: document.getElementById("heroReviewSupportCount"),
   heroReviewSupportAssets: document.getElementById("heroReviewSupportAssets"),
   supportReviewSaveButton: document.getElementById("supportReviewSaveButton"),
+  heroReviewDecisionDock: document.getElementById("heroReviewDecisionDock"),
   heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
   heroReviewRegenerateButton: document.getElementById("heroReviewRegenerateButton"),
   heroReviewMessage: document.getElementById("heroReviewMessage"),
@@ -3634,6 +3636,7 @@ function formatJobTime(value) {
 function renderHistory() {
   const items = latestJobsData?.jobs || [];
   renderJobSummary(items);
+  renderProductionFlowBoard(items);
   renderProductionPagination("jobs", latestJobsData?.pagination);
   if (els.jobsErrorState) {
     els.jobsErrorState.hidden = !jobHistoryError;
@@ -3659,6 +3662,39 @@ function renderJobSummary(items) {
     <span>${reviewCount.toLocaleString("th-TH")} รอ review</span>
     <span>${approvedCount.toLocaleString("th-TH")} approved · ${exportedCount.toLocaleString("th-TH")} exported</span>
   `;
+}
+
+function getProductionFlowStage(job = {}) {
+  if (job.exportUrl || ["google_drive", "exported"].includes(String(job.exportStatus || "").toLowerCase())) return "wordpress";
+  if (isMediaPreflightReady(job)) return "media_preflight";
+  if (isSupportReviewReady(job)) return "support_review";
+  if (isSupportGenerationWaiting(job)) return "support_generation";
+  if (isHeroReviewReady(job)) return "hero_review";
+  return "line_intake";
+}
+
+function renderProductionFlowBoard(items = []) {
+  if (!els.productionFlowBoard) return;
+  const stages = [
+    { key: "line_intake", label: "LINE Intake", helper: "รับคำสั่ง BATCH และเลือก SKU" },
+    { key: "hero_review", label: "Hero Review", helper: "approve หรือ regenerate hero" },
+    { key: "support_generation", label: "Support Generation", helper: "สร้าง support หลัง hero approved" },
+    { key: "support_review", label: "Support Review", helper: "ตรวจ support ก่อน media/export" },
+    { key: "media_preflight", label: "Media Preflight", helper: "manifest/media blockers" },
+    { key: "wordpress", label: "WordPress", helper: "พร้อมส่งออกหรือ exported แล้ว" }
+  ];
+  const counts = stages.reduce((acc, stage) => ({ ...acc, [stage.key]: 0 }), {});
+  items.forEach((item) => {
+    const stage = getProductionFlowStage(item);
+    counts[stage] = (counts[stage] || 0) + 1;
+  });
+  els.productionFlowBoard.innerHTML = stages.map((stage) => `
+    <article class="production-flow-card ${counts[stage.key] ? "active" : ""}">
+      <strong>${escapeHtml(stage.label)}</strong>
+      <span>${formatThaiNumber(counts[stage.key] || 0)}</span>
+      <small>${escapeHtml(stage.helper)}</small>
+    </article>
+  `).join("");
 }
 
 async function refreshAssetLibrary() {
@@ -3709,6 +3745,8 @@ function renderProductionJobRow(job) {
           ${renderStatusBadge(job.generationStatus || "no_generation", "Gen")}
           ${renderStatusBadge(job.heroStatus || "no_hero", "Hero")}
           ${renderStatusBadge(job.supportStatus || "no_support", "Support")}
+          ${hasGeneratedSupport(job) ? renderStatusBadge(job.supportReviewStatus || "pending", "Support QC") : ""}
+          ${job.mediaPreflightStatus ? renderStatusBadge(job.mediaPreflightStatus, "Preflight") : ""}
           ${renderStatusBadge(job.approvalStatus || "pending", "Approve")}
         </div>
       </td>
@@ -3732,6 +3770,32 @@ function isHeroReviewReady(job = {}) {
   return Boolean(job.latestGenerationId) && /hero_ready|completed|ready|succeeded/.test(statusText);
 }
 
+function hasGeneratedSupport(job = {}) {
+  return Number(job.supportCount || 0) > 0 || Boolean(job.supportStatus && job.supportStatus !== "no_support");
+}
+
+function isSupportGenerationWaiting(job = {}) {
+  return job.approvalStatus === "approved" && !hasGeneratedSupport(job);
+}
+
+function isSupportReviewApproved(job = {}) {
+  const reviewStatus = String(job.supportReviewStatus || "").toLowerCase();
+  return reviewStatus === "approved" ||
+    reviewStatus === "candidate_manifest_ready" ||
+    Boolean(job.candidateManifestStatus);
+}
+
+function isSupportReviewReady(job = {}) {
+  return job.approvalStatus === "approved" && hasGeneratedSupport(job) && !isSupportReviewApproved(job);
+}
+
+function isMediaPreflightReady(job = {}) {
+  return job.approvalStatus === "approved" &&
+    hasGeneratedSupport(job) &&
+    isSupportReviewApproved(job) &&
+    !job.exportUrl;
+}
+
 function getJobNextAction(job = {}) {
   if (String(job.status || "").toLowerCase().includes("failed")) {
     return { tone: "danger", label: "ตรวจ error / retry", helper: "งานล้มเหลวหรือ generation มีปัญหา" };
@@ -3739,8 +3803,16 @@ function getJobNextAction(job = {}) {
   if (job.approvalStatus === "approved" && job.exportUrl) {
     return { tone: "ok", label: "จบแล้ว", helper: "approved และมี export link แล้ว" };
   }
-  if (job.approvalStatus === "approved") {
-    return { tone: "ok", label: "รอ export", helper: "Hero approved แล้ว ขั้นถัดไปคือ media/export" };
+  if (isMediaPreflightReady(job)) {
+    const gate = job.mediaPreflightStatus ? `Gate: ${job.mediaPreflightStatus}` : "Support approved ครบแล้ว";
+    return { tone: "ok", label: "Media preflight", helper: `${gate} · ขั้นถัดไปคือ WordPress/export` };
+  }
+  if (isSupportReviewReady(job)) {
+    const count = Number(job.supportCount || 0);
+    return { tone: "warning", label: "Review support", helper: `มี support ${formatThaiNumber(count)} ภาพแล้ว ต้อง approve/regenerate support ก่อน export` };
+  }
+  if (isSupportGenerationWaiting(job)) {
+    return { tone: "info", label: "Support generation", helper: "Hero approved แล้ว ระบบต้องสร้าง support ต่อ" };
   }
   if (isHeroReviewReady(job)) {
     if (job.supportStatus && job.supportStatus !== "no_support") {
@@ -3758,13 +3830,16 @@ function buildJobReviewHref(job = {}) {
   if (!job.latestGenerationId) return "";
   const params = new URLSearchParams();
   params.set("generation_id", job.latestGenerationId);
+  if (job.batchKey || job.batchId) params.set("batch_id", job.batchKey || job.batchId);
   if (job.sku) params.set("sku", job.sku);
   return `#review?${params.toString()}`;
 }
 
 function renderJobNextAction(job = {}) {
   const action = getJobNextAction(job);
-  const reviewHref = isHeroReviewReady(job) ? buildJobReviewHref(job) : "";
+  const reviewHref = isHeroReviewReady(job) || isSupportReviewReady(job) || isMediaPreflightReady(job)
+    ? buildJobReviewHref(job)
+    : "";
   return `
     <div class="job-next-action ${escapeHtml(action.tone)}">
       <strong>${escapeHtml(action.label)}</strong>
@@ -5127,11 +5202,15 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
 
   els.heroReviewTitle.textContent = hasSupportAssets ? `Image Set Review / ${sku}` : `Hero Review / ${sku}`;
   els.heroReviewStatus.textContent = hasSupportAssets ? "support ready" : review.approved ? "approved" : "ready";
+  if (getPageFromHash() === "review") {
+    els.topbarEyebrow.textContent = hasSupportAssets ? "Support Review" : "Hero Review";
+    els.topbarTitle.textContent = hasSupportAssets ? "ตรวจ Support ก่อน Export" : "ตรวจ Hero ก่อน Support";
+  }
   els.heroReviewMeta.textContent = [
     job.product_name,
     job.product_type,
     job.status,
-    hasSupportAssets ? `${supportAssets.length} support shots` : "support จะเริ่มหลัง approve hero"
+    hasSupportAssets ? `${supportAssets.length} support shots · ตรวจก่อน Media Preflight` : "support จะเริ่มหลัง approve hero"
   ].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
@@ -5142,7 +5221,10 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewRegenerateButton.dataset.batchId = batchId;
   els.heroReviewRegenerateButton.dataset.sku = sku;
   els.heroReviewApproveButton.disabled = Boolean(review.approved);
-  els.heroReviewApproveButton.textContent = hasSupportAssets ? "Hero approved" : "Approve hero";
+  els.heroReviewApproveButton.hidden = hasSupportAssets;
+  els.heroReviewRegenerateButton.hidden = hasSupportAssets;
+  if (els.heroReviewDecisionDock) els.heroReviewDecisionDock.hidden = hasSupportAssets;
+  els.heroReviewApproveButton.textContent = "Approve hero";
   if (els.supportReviewSaveButton) {
     els.supportReviewSaveButton.dataset.batchId = batchId;
     els.supportReviewSaveButton.dataset.sku = sku;
