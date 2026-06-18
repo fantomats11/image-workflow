@@ -11,6 +11,7 @@ import {
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex
 } from "../../lib/automation/line-client.mjs";
+import { buildLineImageProxyUrl } from "../../lib/automation/line-image-proxy-url.mjs";
 
 test("pilot batch flex includes brand scope and dry-run state", () => {
   const flex = buildPilotBatchFlex({
@@ -177,6 +178,29 @@ test("hero review messages use signed proxy URLs for Drive reference images", ()
   assert.match(messages[1].originalContentUrl, /^https:\/\/image-workflow\.onrender\.com\/api\/public\/line-image\/drive-file-123456\?/);
   assert.match(messages[1].originalContentUrl, /sig=/);
   assert.match(messages[1].originalContentUrl, /exp=/);
+});
+
+test("line image proxy URL remains stable across repeated review loads in the same day", () => {
+  const originalDateNow = Date.now;
+  try {
+    Date.now = () => Date.UTC(2026, 5, 18, 3, 1, 2);
+    const firstUrl = buildLineImageProxyUrl({
+      baseUrl: "https://image-workflow.onrender.com",
+      secret: "test-secret",
+      driveFileId: "drive-file-123456",
+      fileName: "R23CBT0048_Front.jpg"
+    });
+    Date.now = () => Date.UTC(2026, 5, 18, 3, 1, 8);
+    const secondUrl = buildLineImageProxyUrl({
+      baseUrl: "https://image-workflow.onrender.com",
+      secret: "test-secret",
+      driveFileId: "drive-file-123456",
+      fileName: "R23CBT0048_Front.jpg"
+    });
+    assert.equal(secondUrl, firstUrl);
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
 
 test("hero review messages explain missing review page without generation id", () => {

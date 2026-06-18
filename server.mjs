@@ -14,6 +14,7 @@ import { getUserFromAccessToken, supabaseAdmin } from "./lib/supabase-admin.mjs"
 import { processAutomationTaskCore } from "./lib/automation/automation-worker-core.mjs";
 import { registerAutomationBatch } from "./lib/automation/batch-registry.mjs";
 import { buildSupabaseMediaAssetManifestForBatch } from "./lib/automation/supabase-media-asset-manifest.mjs";
+import { buildLineImageProxyUrl } from "./lib/automation/line-image-proxy-url.mjs";
 import { createFalImageProvider } from "./lib/automation/fal-image-provider.mjs";
 import { persistLiveGenerationExecution } from "./lib/automation/live-generation-persistence.mjs";
 import {
@@ -3234,15 +3235,12 @@ function extractSupportSlot({ asset = {}, generation = {} } = {}) {
 function buildSignedLineImageProxyUrl({ driveFileId = "", fileName = "" } = {}) {
   const base = cleanOptionalString(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL).replace(/\/+$/, "");
   const signingSecret = cleanOptionalString(lineImageProxySecret);
-  const fileId = cleanOptionalString(driveFileId);
-  if (!safeHttpsUrl(base) || !signingSecret || !fileId) return "";
-  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
-  const sig = createHmac("sha256", signingSecret)
-    .update(`${fileId}.${exp}`)
-    .digest("hex");
-  const params = new URLSearchParams({ exp: String(exp), sig });
-  if (fileName) params.set("name", fileName);
-  return `${base}/api/public/line-image/${encodeURIComponent(fileId)}?${params.toString()}`;
+  return buildLineImageProxyUrl({
+    baseUrl: base,
+    secret: signingSecret,
+    driveFileId,
+    fileName
+  });
 }
 
 function firstArray(...values) {
