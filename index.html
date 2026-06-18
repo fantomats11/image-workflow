@@ -9,19 +9,19 @@
   <body class="auth-loading">
     <section class="auth-gate" id="authGate" aria-live="polite">
       <div class="auth-gate-card" id="authLoadingView">
-        <p class="eyebrow">Auth Check</p>
+        <p class="eyebrow">ตรวจสิทธิ์</p>
         <h1>กำลังตรวจสอบสิทธิ์...</h1>
       </div>
 
       <div class="auth-gate-card" id="authLoginView" hidden>
-        <p class="eyebrow">Staff Login</p>
+        <p class="eyebrow">เข้าสู่ระบบพนักงาน</p>
         <h1>เข้าสู่ระบบพนักงาน</h1>
-        <p class="auth-gate-copy">ใช้ email และรหัสผ่านที่ผู้ดูแลระบบสร้างให้</p>
+        <p class="auth-gate-copy">ใช้อีเมลและรหัสผ่านที่ผู้ดูแลระบบสร้างให้</p>
         <form class="auth-gate-form" id="gateLoginForm">
-          <input id="gateLoginEmail" type="email" autocomplete="email" placeholder="email" required />
-          <input id="gateLoginPassword" type="password" autocomplete="current-password" placeholder="password" required />
+          <input id="gateLoginEmail" type="email" autocomplete="email" placeholder="อีเมล" required />
+          <input id="gateLoginPassword" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required />
           <div class="auth-gate-message" id="gateLoginMessage" role="status"></div>
-          <button class="primary-button" type="submit" id="gateLoginButton">Login</button>
+          <button class="primary-button" type="submit" id="gateLoginButton">เข้าสู่ระบบ</button>
         </form>
       </div>
 
@@ -62,11 +62,11 @@
         </div>
 
         <nav class="nav-list" id="pageNav">
-          <a class="active" href="#jobs" data-page-link="jobs">Automation Inbox</a>
+          <a class="active" href="#jobs" data-page-link="jobs">ศูนย์งานภาพ</a>
           <a href="#assets" data-page-link="assets">คลังภาพ</a>
           <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
-          <a href="#costs" data-page-link="costs">Costs</a>
-          <a href="#monitoring" data-page-link="monitoring">Monitoring</a>
+          <a href="#costs" data-page-link="costs">ต้นทุน</a>
+          <a href="#monitoring" data-page-link="monitoring">สถานะระบบ</a>
           <a href="#settings" data-page-link="settings">ตั้งค่า</a>
         </nav>
 
@@ -78,21 +78,21 @@
       <section class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Production Control</p>
-            <h2>Automation Inbox</h2>
+            <p class="eyebrow">ศูนย์ควบคุมงานภาพ</p>
+            <h2>ศูนย์งานภาพ</h2>
           </div>
           <div class="topbar-actions">
-            <section class="auth-card" id="authCard" aria-label="Login">
+            <section class="auth-card" id="authCard" aria-label="เข้าสู่ระบบ">
               <div class="auth-state" id="authState">
                 <strong>ยังไม่ได้เข้าสู่ระบบ</strong>
-                <span>Login ก่อน Production / Review / Ops</span>
+                <span>เข้าสู่ระบบก่อนสร้าง ตรวจ และติดตามงาน</span>
               </div>
               <form class="auth-form" id="loginForm">
-                <input id="loginEmail" type="email" autocomplete="email" placeholder="email" required />
-                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="password" required />
-                <button class="primary-button compact" type="submit" id="loginButton">Login</button>
+                <input id="loginEmail" type="email" autocomplete="email" placeholder="อีเมล" required />
+                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required />
+                <button class="primary-button compact" type="submit" id="loginButton">เข้าสู่ระบบ</button>
               </form>
-              <button class="ghost-button compact" type="button" id="logoutButton" data-action="logout" hidden>Logout</button>
+              <button class="ghost-button compact" type="button" id="logoutButton" data-action="logout" hidden>ออกจากระบบ</button>
             </section>
             <div class="status-pill" id="systemStatus">Style locked</div>
           </div>
@@ -203,7 +203,7 @@
                   </label>
 
                   <label>
-                    Quality
+                    คุณภาพภาพ
                     <select id="quality"></select>
                   </label>
                 </div>
@@ -213,8 +213,8 @@
                 <div class="control-section-header">
                   <span>03</span>
                   <div>
-                    <strong>Reference Assets</strong>
-                    <small>ภาพจริงคือ source of truth โดยเฉพาะโลโก้ สี และทรงสินค้า</small>
+                    <strong>ภาพอ้างอิงสินค้า</strong>
+                    <small>ภาพจริงเป็นข้อมูลหลักสำหรับตรวจโลโก้ สี และทรงสินค้า</small>
                   </div>
                 </div>
                 <label class="full-width">
@@ -243,7 +243,7 @@
                 <div class="control-section-header">
                   <span>04</span>
                   <div>
-                    <strong>Operator Notes</strong>
+                    <strong>หมายเหตุสำหรับงานนี้</strong>
                     <small>ใช้ล็อกข้อห้าม เช่น ห้ามเปลี่ยนโลโก้ ห้ามเปลี่ยนสี</small>
                   </div>
                 </div>
@@ -255,8 +255,8 @@
             </div>
 
             <div class="actions action-bar">
-              <span>Generate เฉพาะ Hero ก่อน แล้วค่อยส่งเข้า QC</span>
-              <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">Generate Hero</button>
+              <span>สร้างเฉพาะ Hero ก่อน แล้วค่อยส่งเข้าตรวจ</span>
+              <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้าง Hero</button>
               <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
             </div>
           </form>
@@ -265,7 +265,7 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">Step 2</p>
-                <h3>Hero Result + QC Gate</h3>
+                <h3>ภาพ Hero และด่านตรวจ</h3>
               </div>
               <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
             </div>
@@ -273,8 +273,8 @@
             <div class="studio-canvas">
               <div class="result-card" id="resultCard" hidden>
                 <div class="result-toolbar">
-                  <strong>Hero Image</strong>
-                  <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">Approve + Save</button>
+                  <strong>ภาพ Hero</strong>
+                  <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">อนุมัติและบันทึก</button>
                 </div>
                 <div class="generation-state" id="generationState" hidden>
                   <div class="loader-ring" aria-hidden="true"></div>
@@ -282,20 +282,20 @@
                   <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
                   <div class="progress-track"><div class="progress-bar"></div></div>
                 </div>
-                <img id="resultImage" alt="Generated product result" />
+                <img id="resultImage" alt="ภาพสินค้าที่ระบบสร้าง" />
                 <p id="resultStatus"></p>
               </div>
 
               <div class="empty-hero" id="emptyHero">
                 <strong>ยังไม่มีภาพ Hero</strong>
-                <span>อัปโหลดภาพสินค้า แล้วกด Generate Hero เพื่อเริ่ม workflow</span>
+                <span>อัปโหลดภาพสินค้า แล้วกดสร้าง Hero เพื่อเริ่มงาน</span>
               </div>
             </div>
 
             <details class="prompt-details" id="prompt">
-              <summary>Advanced: Prompt Preview</summary>
+              <summary>ขั้นสูง: ดู Prompt ก่อนส่ง</summary>
               <div class="prompt-card">
-                <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกด Generate Hero</p>
+                <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกดสร้าง Hero</p>
               </div>
               <div class="prompt-meta">
                 <span id="promptMode">Mode: -</span>
@@ -344,12 +344,12 @@
             </div>
 
             <div class="actions support-actions">
-              <button class="secondary-button" type="button" id="generateSupportButton">Generate Support Set</button>
-              <button class="primary-button" type="button" id="approveSupportButton">Approve Support Set</button>
+              <button class="secondary-button" type="button" id="generateSupportButton">สร้างภาพ Support</button>
+              <button class="primary-button" type="button" id="approveSupportButton">อนุมัติภาพ Support</button>
             </div>
 
             <div class="support-gallery" id="supportGallery">
-              <p class="empty-state">ยังไม่มีภาพ support</p>
+              <p class="empty-state">ยังไม่มีภาพ Support</p>
             </div>
           </section>
         </section>
@@ -359,13 +359,13 @@
           <section class="panel page-panel hero-review-page" id="heroReviewPage">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Hero Review</p>
+                <p class="eyebrow">ตรวจ Hero</p>
                 <h3 id="heroReviewTitle">ตรวจ Hero ก่อนสร้าง Support</h3>
               </div>
               <span class="workflow-status" id="heroReviewStatus">รอข้อมูล</span>
             </div>
             <div class="review-brief">
-              <div class="section-note" id="heroReviewMeta">เปิดจาก LINE เพื่อเทียบ ref ต้นทางกับ hero candidate แบบเต็มภาพ</div>
+              <div class="section-note" id="heroReviewMeta">เทียบภาพจริงกับภาพ Hero ที่ระบบสร้างก่อนเริ่มทำ Support</div>
               <div class="review-brief-steps" aria-label="Hero review decision flow">
                 <span>1. เทียบ ref</span>
                 <span>2. ตรวจ logo / fit</span>
@@ -376,39 +376,39 @@
               <section class="hero-review-column">
                 <div class="review-column-header">
                   <div>
-                    <strong>Reference Set</strong>
-                    <small>ภาพจริงของสินค้าใช้เป็น source of truth</small>
+                    <strong>ภาพอ้างอิงสินค้า</strong>
+                    <small>ภาพจริงที่ใช้ตรวจความถูกต้องของสินค้า</small>
                   </div>
                   <span id="heroReviewRefCount">0 ภาพ</span>
                 </div>
                 <div class="review-image-grid" id="heroReviewRefs">
-                  <p class="empty-state">ยังไม่มี reference</p>
+                  <p class="empty-state">ยังไม่มีภาพอ้างอิง</p>
                 </div>
               </section>
               <section class="hero-review-column">
                 <div class="review-column-header">
                   <div>
-                    <strong>Hero Candidate</strong>
-                    <small>ภาพที่จะใช้ล็อกโมเดลก่อนสร้าง support</small>
+                    <strong>ภาพ Hero ที่รอตรวจ</strong>
+                    <small>ภาพหลักที่จะใช้เป็นตัวตั้งต้นก่อนสร้าง Support</small>
                   </div>
                   <span id="heroReviewGenerationId">-</span>
                 </div>
                 <div class="review-hero-frame" id="heroReviewHero">
-                  <p class="empty-state">ยังไม่มี hero</p>
+                  <p class="empty-state">ยังไม่มีภาพ Hero</p>
                 </div>
                 <div class="review-support-set" id="heroReviewSupportSet" hidden>
                   <div class="review-column-header">
                     <div>
-                      <strong>Support Candidates</strong>
-                      <small>ภาพ PDP ที่ต้อง support hero และเพิ่มข้อมูลสินค้า</small>
+                      <strong>ภาพ Support ที่รอตรวจ</strong>
+                      <small>ภาพประกอบสินค้า เช่น มุมสินค้า รายละเอียด และภาพใช้งาน</small>
                     </div>
                     <span id="heroReviewSupportCount">0 ภาพ</span>
                   </div>
                   <div class="review-image-grid support-review-grid" id="heroReviewSupportAssets">
-                    <p class="empty-state">ยังไม่มี support</p>
+                    <p class="empty-state">ยังไม่มีภาพ Support</p>
                   </div>
                   <div class="support-decision-actions">
-                    <button class="primary-button" type="button" id="supportReviewSaveButton">Save support decisions</button>
+                    <button class="primary-button" type="button" id="supportReviewSaveButton">บันทึกผลตรวจ Support</button>
                   </div>
                 </div>
                 <div class="review-decision-dock" id="heroReviewDecisionDock">
@@ -418,8 +418,8 @@
                     <label><input type="checkbox" data-hero-review-check="model" /> โมเดลและ fit ใช้ได้</label>
                   </div>
                   <div class="actions">
-                    <button class="primary-button" type="button" id="heroReviewApproveButton">Approve hero</button>
-                    <button class="secondary-button" type="button" id="heroReviewRegenerateButton">Regenerate</button>
+                    <button class="primary-button" type="button" id="heroReviewApproveButton">อนุมัติ Hero</button>
+                    <button class="secondary-button" type="button" id="heroReviewRegenerateButton">สร้าง Hero ใหม่</button>
                   </div>
                 </div>
                 <div class="auth-gate-message" id="heroReviewMessage" role="status"></div>
@@ -432,64 +432,64 @@
           <section class="panel page-panel jobs-panel" id="jobs">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Automation Inbox</p>
-                <h3>คิวงานจาก Automation</h3>
+                <p class="eyebrow">ศูนย์งานภาพ</p>
+                <h3>งานสร้างภาพทั้งหมด</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshJobsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">ดูงานที่ระบบสร้างจาก LINE / Product Catalog พร้อมสถานะ Hero, Support, Media Preflight และ action ถัดไป</div>
+            <div class="section-note">ดูงานจาก LINE / Product Catalog พร้อมขั้นตอนปัจจุบันและสิ่งที่ต้องทำต่อ</div>
             <div class="production-flow-board" id="productionFlowBoard" aria-label="Production flow">
               <article class="production-flow-card">
-                <strong>LINE Intake</strong>
+                <strong>รับชุดงาน</strong>
                 <span>0</span>
                 <small>รอคำสั่ง BATCH</small>
               </article>
               <article class="production-flow-card">
-                <strong>Hero Review</strong>
+                <strong>ตรวจ Hero</strong>
                 <span>0</span>
-                <small>approve หรือ regenerate hero</small>
+                <small>อนุมัติหรือสร้าง Hero ใหม่</small>
               </article>
               <article class="production-flow-card">
-                <strong>Support Generation</strong>
+                <strong>สร้าง Support</strong>
                 <span>0</span>
-                <small>สร้าง support หลัง hero approved</small>
+                <small>สร้างภาพประกอบหลังอนุมัติ Hero</small>
               </article>
               <article class="production-flow-card">
-                <strong>Support Review</strong>
+                <strong>ตรวจ Support</strong>
                 <span>0</span>
-                <small>เลือกภาพพร้อมใช้ก่อน export</small>
+                <small>เลือกภาพที่พร้อมใช้ก่อนส่งออก</small>
               </article>
               <article class="production-flow-card">
-                <strong>Media Preflight</strong>
+                <strong>ตรวจไฟล์ก่อนส่งออก</strong>
                 <span>0</span>
-                <small>ตรวจ manifest/media blockers</small>
+                <small>เช็กไฟล์และรายการที่ยังติดอยู่</small>
               </article>
               <article class="production-flow-card">
-                <strong>WordPress</strong>
+                <strong>ส่งออก WordPress</strong>
                 <span>0</span>
                 <small>พร้อมส่งออกสินค้า</small>
               </article>
             </div>
             <div class="kpi-range-tabs" id="jobsRangeControls" aria-label="เลือกช่วงเวลา Jobs">
-              <button class="active" type="button" data-jobs-range="today">Today</button>
-              <button type="button" data-jobs-range="7d">Last 7 days</button>
-              <button type="button" data-jobs-range="30d">Last 30 days</button>
-              <button type="button" data-jobs-range="all">All time</button>
+              <button class="active" type="button" data-jobs-range="today">วันนี้</button>
+              <button type="button" data-jobs-range="7d">7 วันล่าสุด</button>
+              <button type="button" data-jobs-range="30d">30 วันล่าสุด</button>
+              <button type="button" data-jobs-range="all">ทั้งหมด</button>
             </div>
             <div class="filter-grid">
               <label>
                 ค้นหา
-                <input id="historySearch" type="search" placeholder="SKU / job id / ชื่อสินค้า / ผู้สร้าง" />
+                <input id="historySearch" type="search" placeholder="SKU / เลขงาน / ชื่อสินค้า / ผู้สร้าง" />
               </label>
               <label>
-                Workflow state
+                สถานะงาน
                 <select id="historyStatusFilter">
                   <option value="">ทั้งหมด</option>
-                  <option value="queued">queued</option>
-                  <option value="generating">generating</option>
-                  <option value="hero_ready">hero_ready</option>
-                  <option value="failed">failed</option>
-                  <option value="draft">draft</option>
+                  <option value="queued">รอคิว</option>
+                  <option value="generating">กำลังสร้างภาพ</option>
+                  <option value="hero_ready">Hero พร้อมตรวจ</option>
+                  <option value="failed">ไม่สำเร็จ</option>
+                  <option value="draft">ฉบับร่าง</option>
                 </select>
               </label>
               <label>
@@ -503,8 +503,8 @@
             </div>
             <div class="job-summary" id="jobSummary">
               <span>0 งาน</span>
-              <span>0 งาน approved</span>
-              <span>0 งาน exported</span>
+              <span>0 งานรอตรวจ</span>
+              <span>0 งานส่งออกแล้ว</span>
             </div>
             <div class="kpi-state" id="jobsLoadingState" hidden>กำลังโหลดรายการงาน...</div>
             <div class="kpi-state danger" id="jobsErrorState" hidden>โหลดรายการงานไม่สำเร็จ</div>
@@ -514,9 +514,9 @@
                   <tr>
                     <th>งาน</th>
                     <th>สถานะ</th>
-                    <th>Action ถัดไป</th>
-                    <th>Export</th>
-                    <th>ล่าสุด</th>
+                    <th>ต้องทำต่อ</th>
+                    <th>ส่งออก</th>
+                    <th>อัปเดตล่าสุด</th>
                   </tr>
                 </thead>
                 <tbody id="historyBody">
@@ -545,29 +545,29 @@
               </div>
               <span class="workflow-status" id="assetStatus">รอภาพ</span>
             </div>
-            <div class="section-note" id="assetLibraryHelper">คลังภาพสำหรับดูผลงานที่สร้างจาก workflow เช่น Hero, Support และภาพที่ Approved/Export แล้ว</div>
+            <div class="section-note" id="assetLibraryHelper">คลังภาพสำหรับดูผลงานที่สร้างจากระบบ เช่น Hero, Support และภาพที่อนุมัติหรือส่งออกแล้ว</div>
             <div class="kpi-range-tabs" id="assetsRangeControls" aria-label="เลือกช่วงเวลา Assets">
-              <button class="active" type="button" data-assets-range="today">Today</button>
-              <button type="button" data-assets-range="7d">Last 7 days</button>
-              <button type="button" data-assets-range="30d">Last 30 days</button>
-              <button type="button" data-assets-range="all">All time</button>
+              <button class="active" type="button" data-assets-range="today">วันนี้</button>
+              <button type="button" data-assets-range="7d">7 วันล่าสุด</button>
+              <button type="button" data-assets-range="30d">30 วันล่าสุด</button>
+              <button type="button" data-assets-range="all">ทั้งหมด</button>
             </div>
             <div class="kpi-range-tabs asset-type-tabs" id="assetTypeTabs" aria-label="เลือกประเภท Asset">
-              <button class="active" type="button" data-asset-type="outputs">Outputs</button>
+              <button class="active" type="button" data-asset-type="outputs">ภาพที่สร้างแล้ว</button>
               <button type="button" data-asset-type="hero">Hero</button>
               <button type="button" data-asset-type="support">Support</button>
-              <button type="button" data-asset-type="approved">Approved / Exported</button>
-              <button type="button" data-asset-type="references">References</button>
-              <button type="button" data-asset-type="all">All</button>
+              <button type="button" data-asset-type="approved">อนุมัติ / ส่งออกแล้ว</button>
+              <button type="button" data-asset-type="references">ภาพอ้างอิง</button>
+              <button type="button" data-asset-type="all">ทั้งหมด</button>
             </div>
             <div class="filter-grid asset-filter-grid">
               <label>
                 ค้นหา
-                <input id="assetSearch" type="search" placeholder="SKU / job id / generation id" />
+                <input id="assetSearch" type="search" placeholder="SKU / เลขงาน / เลขภาพ" />
               </label>
               <label>
-                Job ID
-                <input id="assetJobIdFilter" type="search" placeholder="กรองตาม job id" />
+                เลขงาน
+                <input id="assetJobIdFilter" type="search" placeholder="กรองตามเลขงาน" />
               </label>
               <label>
                 รายการต่อหน้า
@@ -717,13 +717,13 @@
               </div>
             </div>
 
-            <div class="kpi-state" id="costLoadingState" hidden>กำลังโหลด Cost / Usage Tracking...</div>
-            <div class="kpi-state danger" id="costErrorState" hidden>โหลด Cost / Usage Tracking ไม่สำเร็จ</div>
+            <div class="kpi-state" id="costLoadingState" hidden>กำลังโหลดต้นทุนและการใช้งาน...</div>
+            <div class="kpi-state danger" id="costErrorState" hidden>โหลดต้นทุนและการใช้งานไม่สำเร็จ</div>
             <div class="kpi-state" id="costEmptyState" hidden>ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</div>
 
             <div class="executive-summary-card cost-summary-card">
               <div>
-                <span>Executive cost summary</span>
+                <span>สรุปต้นทุน</span>
                 <p id="costExecutiveSummary">ยังไม่มีข้อมูลต้นทุนในช่วงเวลานี้</p>
               </div>
               <small id="costUpdatedAt">รอข้อมูลล่าสุด</small>
@@ -736,8 +736,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Trend</p>
-                    <h4>Usage cost by day</h4>
+                    <p class="eyebrow">แนวโน้ม</p>
+                    <h4>ต้นทุนรายวัน</h4>
                   </div>
                 </div>
                 <div class="trend-chart" id="costTrendChart"></div>
@@ -746,8 +746,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Waste</p>
-                    <h4>Failed / retry impact</h4>
+                    <p class="eyebrow">ต้นทุนสูญเสีย</p>
+                    <h4>ผลกระทบจากงานไม่สำเร็จและการลองใหม่</h4>
                   </div>
                 </div>
                 <div id="costWasteSummary"></div>
@@ -817,17 +817,17 @@
               <div class="monitoring-pagination-controls" id="monitoringPaginationControls">
                 <button class="ghost-button compact" type="button" id="monitoringPrevPage">Previous</button>
                 <span id="monitoringPageInfo">หน้า 1 / 1 · 0 รายการ</span>
-                <button class="ghost-button compact" type="button" id="monitoringNextPage">Next</button>
+                <button class="ghost-button compact" type="button" id="monitoringNextPage">ถัดไป</button>
               </div>
             </div>
 
-            <div class="kpi-state" id="monitoringLoadingState" hidden>กำลังโหลด Monitoring / System Health...</div>
-            <div class="kpi-state danger" id="monitoringErrorState" hidden>โหลด Monitoring ไม่สำเร็จ</div>
+            <div class="kpi-state" id="monitoringLoadingState" hidden>กำลังโหลดสถานะระบบ...</div>
+            <div class="kpi-state danger" id="monitoringErrorState" hidden>โหลดสถานะระบบไม่สำเร็จ</div>
             <div class="kpi-state" id="monitoringEmptyState" hidden>ยังไม่พบปัญหาในช่วงเวลานี้</div>
 
             <div class="executive-summary-card monitoring-health-card">
               <div>
-                <span>Operational status</span>
+                <span>สถานะการทำงาน</span>
                 <p id="monitoringHealthSummary">รอข้อมูลสถานะระบบล่าสุด</p>
               </div>
               <small id="monitoringUpdatedAt">รอข้อมูลล่าสุด</small>
@@ -840,8 +840,8 @@
               <section class="kpi-section-card monitoring-integration-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Integration</p>
-                    <h4>Google Drive health</h4>
+                    <p class="eyebrow">การเชื่อมต่อ</p>
+                    <h4>สถานะ Google Drive</h4>
                   </div>
                 </div>
                 <div id="monitoringIntegrationHealth"></div>
@@ -850,8 +850,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Queue</p>
-                    <h4>Likely stuck jobs</h4>
+                  <p class="eyebrow">คิวงาน</p>
+                  <h4>งานที่อาจติดค้าง</h4>
                   </div>
                 </div>
                 <div id="monitoringStuckJobs"></div>
@@ -861,8 +861,8 @@
             <section class="kpi-section-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Failures</p>
-                  <h4>Failed items and recommended action</h4>
+                  <p class="eyebrow">งานที่ไม่สำเร็จ</p>
+                  <h4>รายการที่ต้องตรวจและคำแนะนำ</h4>
                 </div>
               </div>
               <div id="monitoringFailedItems"></div>
@@ -871,8 +871,8 @@
             <section class="kpi-section-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Preflight Gates</p>
-                  <h4>WordPress / Media handoff</h4>
+                  <p class="eyebrow">ตรวจไฟล์ก่อนส่งออก</p>
+                  <h4>ส่งต่อไฟล์ไป WordPress</h4>
                 </div>
               </div>
               <div id="monitoringWordPressPreflights"></div>
@@ -881,8 +881,8 @@
             <section class="kpi-section-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Audit</p>
-                  <h4>Recent system events</h4>
+                  <p class="eyebrow">ประวัติระบบ</p>
+                  <h4>เหตุการณ์ล่าสุด</h4>
                 </div>
               </div>
               <div id="monitoringRecentEvents"></div>
@@ -894,25 +894,25 @@
           <section class="panel page-panel" id="settings">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Settings</p>
+                <p class="eyebrow">ตั้งค่า</p>
                 <h3>ตั้งค่าระบบภาพ</h3>
               </div>
-              <span class="workflow-status ready">Production</span>
+              <span class="workflow-status ready">พร้อมใช้งาน</span>
             </div>
             <div class="settings-grid">
               <section class="settings-card">
-                <h4>Brand Profiles</h4>
+                <h4>โปรไฟล์แบรนด์</h4>
                 <p>คุมพื้นหลัง, mood tone, model rule และ off-model rule ของแต่ละแบรนด์</p>
                 <div id="brandSettingsPreview"></div>
               </section>
               <section class="settings-card">
-                <h4>Prompt Structure</h4>
+                <h4>โครงสร้าง Prompt</h4>
                 <p>Prompt rules ถูกล็อกไว้ในโค้ดเพื่อความนิ่งของ production และสามารถวางแผนย้าย category, subtype, model profile, support shots ไป database ในเฟสถัดไปได้</p>
                 <div id="promptSettingsPreview"></div>
               </section>
               <section class="settings-card" id="googleDriveIntegrationSection" hidden>
                 <div class="settings-card-header">
-                  <h4>Google Drive Integration</h4>
+                  <h4>การเชื่อมต่อ Google Drive</h4>
                   <span class="workflow-status" id="googleDriveStatusPill">กำลังตรวจสอบ</span>
                 </div>
                 <p id="googleDriveStatusText">กำลังตรวจสอบสถานะ Google Drive...</p>
@@ -923,7 +923,7 @@
               <section class="settings-card staff-management-card" id="staffManagementSection" hidden>
                 <div class="settings-card-header">
                   <div>
-                    <h4>Staff Management</h4>
+                    <h4>จัดการผู้ใช้งาน</h4>
                     <p>จัดการสิทธิ์และสถานะของ profiles ที่มีอยู่แล้ว</p>
                   </div>
                   <div class="settings-actions">
@@ -937,7 +937,7 @@
                     <input id="staffSearch" type="search" placeholder="ชื่อหรืออีเมล" />
                   </label>
                   <label>
-                    Role
+                    สิทธิ์
                     <select id="staffRoleFilter">
                       <option value="">ทั้งหมด</option>
                       <option value="admin">admin</option>
@@ -945,7 +945,7 @@
                     </select>
                   </label>
                   <label>
-                    Status
+                    สถานะ
                     <select id="staffStatusFilter">
                       <option value="">ทั้งหมด</option>
                       <option value="active">active</option>
@@ -953,7 +953,7 @@
                     </select>
                   </label>
                   <label>
-                    Password
+                    รหัสผ่าน
                     <select id="staffPasswordFilter">
                       <option value="">ทั้งหมด</option>
                       <option value="yes">ต้องเปลี่ยนรหัส</option>
@@ -968,15 +968,15 @@
                 <div class="staff-admin-list" id="staffAdminList"></div>
               </section>
               <section class="settings-card">
-                <h4>Production Readiness</h4>
+                <h4>ความพร้อมระบบ</h4>
                 <div class="readiness-list">
-                  <span>1. Auth / Role Gate: Ready</span>
-                  <span>2. Database / Jobs / Assets: Ready</span>
-                  <span>3. Google Drive Integration: Connected</span>
-                  <span>4. Monitoring / System Health: Ready</span>
-                  <span>5. Costs / Usage Tracking: Ready</span>
-                  <span>6. Retry / Recovery: Ready</span>
-                  <span>7. SOP / Launch Docs: Ready</span>
+                  <span>1. เข้าสู่ระบบและสิทธิ์ผู้ใช้: พร้อม</span>
+                  <span>2. ฐานข้อมูลงานและคลังภาพ: พร้อม</span>
+                  <span>3. การเชื่อมต่อ Google Drive: เชื่อมต่อแล้ว</span>
+                  <span>4. สถานะระบบและการแจ้งเตือน: พร้อม</span>
+                  <span>5. ต้นทุนและการใช้งาน: พร้อม</span>
+                  <span>6. ลองใหม่และกู้คืนงาน: พร้อม</span>
+                  <span>7. เอกสารการใช้งาน: พร้อม</span>
                 </div>
               </section>
             </div>

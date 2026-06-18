@@ -3131,7 +3131,7 @@ tbody tr:hover {
 }
 
 .review-decision-dock .actions::after {
-  content: "Action จะถูกบันทึกใน Review state ไม่ใช่ปุ่ม LINE";
+  content: "การตัดสินใจจะถูกบันทึกในระบบงานภาพ";
   justify-self: end;
   color: var(--muted);
   font-size: 12px;

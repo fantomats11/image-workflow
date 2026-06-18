@@ -536,14 +536,14 @@ const appState = {
 };
 
 const pageMeta = {
-  create: { eyebrow: "Manual Tool", title: "สร้างภาพสินค้า" },
-  jobs: { eyebrow: "Production Control", title: "Automation Inbox" },
-  assets: { eyebrow: "Asset Library", title: "คลังภาพ" },
+  create: { eyebrow: "เครื่องมือสร้างภาพ", title: "สร้างภาพสินค้า" },
+  jobs: { eyebrow: "ศูนย์ควบคุมงานภาพ", title: "ศูนย์งานภาพ" },
+  assets: { eyebrow: "คลังภาพ", title: "คลังภาพ" },
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
-  costs: { eyebrow: "Cost Control", title: "Cost / Usage Tracking" },
-  monitoring: { eyebrow: "Production Monitoring", title: "System Health" },
-  review: { eyebrow: "Hero Review", title: "ตรวจ Hero ก่อน Support" },
-  settings: { eyebrow: "Admin", title: "ตั้งค่าระบบภาพ" }
+  costs: { eyebrow: "ต้นทุน", title: "ต้นทุนและการใช้งาน" },
+  monitoring: { eyebrow: "สถานะระบบ", title: "ติดตามระบบ" },
+  review: { eyebrow: "ตรวจ Hero", title: "ตรวจ Hero ก่อนสร้าง Support" },
+  settings: { eyebrow: "ผู้ดูแลระบบ", title: "ตั้งค่าระบบภาพ" }
 };
 
 function fillSelect(select, items) {
@@ -896,10 +896,10 @@ function resetTransientWorkflowState() {
   els.approveButton.disabled = true;
   els.generateSupportButton.disabled = true;
   els.approveSupportButton.disabled = true;
-  els.generateButton.textContent = "Generate Hero";
-  els.approveButton.textContent = "Approve + Save";
-  els.generateSupportButton.textContent = "Generate Support Set";
-  els.approveSupportButton.textContent = "Approve Support Set";
+  els.generateButton.textContent = "สร้าง Hero";
+  els.approveButton.textContent = "อนุมัติและบันทึก";
+  els.generateSupportButton.textContent = "สร้างภาพ Support";
+  els.approveSupportButton.textContent = "อนุมัติภาพ Support";
   els.resultImage.hidden = true;
   els.resultImage.removeAttribute("src");
   els.resultStatus.textContent = "";
@@ -930,9 +930,9 @@ function clearActionLoadingStates() {
   appState.actions.approve = false;
   appState.actions.logout = false;
   setHeroLoading(false);
-  els.generateButton.textContent = "Generate Hero";
-  els.approveButton.textContent = "Approve + Save";
-  els.logoutButton.textContent = "Logout";
+  els.generateButton.textContent = "สร้าง Hero";
+  els.approveButton.textContent = "อนุมัติและบันทึก";
+  els.logoutButton.textContent = "ออกจากระบบ";
   els.authBlockedLogoutButton.textContent = "ออกจากระบบ";
 }
 
@@ -951,13 +951,13 @@ function setActionLoading(name, isLoading) {
     appState.actions[name] = isLoading;
   }
   if (name === "generate") {
-    els.generateButton.textContent = isLoading ? "Generating..." : "Generate Hero";
+    els.generateButton.textContent = isLoading ? "กำลังสร้าง..." : "สร้าง Hero";
   }
   if (name === "approve") {
-    els.approveButton.textContent = isLoading ? "Saving..." : "Approve + Save";
+    els.approveButton.textContent = isLoading ? "กำลังบันทึก..." : "อนุมัติและบันทึก";
   }
   if (name === "logout") {
-    els.logoutButton.textContent = isLoading ? "Logging out..." : "Logout";
+    els.logoutButton.textContent = isLoading ? "กำลังออกจากระบบ..." : "ออกจากระบบ";
     els.authBlockedLogoutButton.textContent = isLoading ? "กำลังออกจากระบบ..." : "ออกจากระบบ";
   }
   updateActionAvailability();
@@ -1153,7 +1153,7 @@ function updateAuthUi(session, message = "") {
 
   els.authState.innerHTML = isLoggedIn
     ? `<strong>${passwordSetupRequired ? "ต้องตั้งรหัสผ่าน" : "เข้าสู่ระบบแล้ว"}</strong><span>${escapeHtml(message || `${email}${roleLabel}`)}</span>`
-    : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "Login ก่อน Production / Review / Ops")}</span>`;
+    : `<strong>ยังไม่ได้เข้าสู่ระบบ</strong><span>${escapeHtml(message || "เข้าสู่ระบบก่อนสร้าง ตรวจ และติดตามงาน")}</span>`;
   updateActionAvailability();
 }
 
@@ -1243,10 +1243,10 @@ async function refreshSystemStatus() {
     const data = await response.json();
     const pending = data.queue?.pending || 0;
     const active = data.queue?.active || 0;
-    const drive = data.googleDriveApiConfigured ? "Google Drive ready" : data.driveOutputConfigured ? "Drive ready" : "Local save";
-    els.systemStatus.textContent = active || pending ? `Queue ${active}/${pending}` : `Ready · ${drive}`;
+    const drive = data.googleDriveApiConfigured ? "Google Drive พร้อม" : data.driveOutputConfigured ? "Drive พร้อม" : "บันทึกในเครื่อง";
+    els.systemStatus.textContent = active || pending ? `คิวงาน ${active}/${pending}` : `พร้อมใช้งาน · ${drive}`;
   } catch {
-    els.systemStatus.textContent = "Offline";
+    els.systemStatus.textContent = "ระบบไม่ตอบสนอง";
   }
 }
 
@@ -1684,7 +1684,7 @@ async function handleLogin(event) {
     passwordInput.value = "";
     await refreshSessionProfileAndAppState();
   } catch (error) {
-    const message = `Login ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
+    const message = `เข้าสู่ระบบไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
     if (messageEl) {
       messageEl.textContent = message;
     } else {
@@ -1811,11 +1811,11 @@ async function generateImage() {
   els.emptyHero.hidden = true;
   els.resultImage.hidden = true;
   els.resultImage.removeAttribute("src");
-  setHeroLoading(true, "กำลังสร้างภาพ Hero", "ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue");
-  els.resultStatus.textContent = "กำลังเริ่มงาน generate...";
+  setHeroLoading(true, "กำลังสร้างภาพ Hero", "ระบบกำลังอัปโหลดภาพอ้างอิงและส่งงานเข้า AI queue");
+  els.resultStatus.textContent = "กำลังเริ่มงานสร้างภาพ...";
   els.generateButton.disabled = true;
   els.approveButton.disabled = true;
-  els.generateButton.textContent = "Generating...";
+  els.generateButton.textContent = "กำลังสร้าง...";
 
   try {
     const formData = buildGenerateFormData(currentPrompt, [], { jobKind: "hero", shot: "Hero" });
@@ -1843,7 +1843,7 @@ async function generateImage() {
     setHeroLoading(false);
     els.resultImage.hidden = false;
     els.resultImage.src = currentGeneratedImageUrl;
-    els.resultStatus.textContent = `Generate สำเร็จ Request ID: ${data.requestId || "-"}`;
+    els.resultStatus.textContent = `สร้างภาพสำเร็จ · Request ID: ${data.requestId || "-"}`;
     updateHeroStatus();
     updateWorkflowGate();
     renderSupportGallery();
@@ -1854,11 +1854,11 @@ async function generateImage() {
     logAction("generate", "request failed", { reason: getSafeAuthErrorMessage(error) });
     setHeroLoading(false);
     els.emptyHero.hidden = false;
-    els.resultStatus.textContent = `Generate ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "ส่งงาน generate ไม่สำเร็จ"}`;
+    els.resultStatus.textContent = `สร้างภาพไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "ส่งงานสร้างภาพไม่สำเร็จ"}`;
   } finally {
     els.generateButton.disabled = !isAppReady();
     els.approveButton.disabled = !currentGeneratedImageUrl;
-    els.generateButton.textContent = "Generate Hero";
+    els.generateButton.textContent = "สร้าง Hero";
   }
 }
 
@@ -1909,9 +1909,9 @@ async function approveImage() {
         generationId: currentHeroGenerationId,
         ...getRequestMetadata({ jobKind: "hero", shot: "Hero", jobId: currentJobId })
       })
-    }, 90000, "Approve + Save ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+    }, 90000, "อนุมัติและบันทึกใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
     logAction("approve", "request sent", { httpStatus: response.status });
-    const data = await readJsonResponse(response, "Approve + Save ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+    const data = await readJsonResponse(response, "อนุมัติและบันทึกไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
     logAction("approve", "response status/body", {
       httpStatus: response.status,
       ok: data.ok === true,
@@ -1921,7 +1921,7 @@ async function approveImage() {
     });
 
     if (!response.ok || !data.ok) {
-      const message = getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ");
+      const message = getApiErrorMessage(response, data, "อนุมัติและบันทึกไม่สำเร็จ");
       if (/google drive|drive|oauth|token|เชื่อมต่อ/i.test(message)) {
         throw new Error("Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน");
       }
@@ -1936,19 +1936,19 @@ async function approveImage() {
     renderAssets();
 
     addHistoryItem({
-      name: getJobBaseName("Approved product"),
+      name: getJobBaseName("สินค้าที่อนุมัติแล้ว"),
       type: els.imageType.value,
       category: els.category.value,
-      status: "Hero Approved"
+      status: "Hero อนุมัติแล้ว"
     });
     logAction("approve", "success", { currentJobId, currentHeroGenerationId });
     refreshMetrics();
   } catch (error) {
     logAction("approve", "request failed", { reason: getSafeAuthErrorMessage(error) });
-    els.resultStatus.textContent = `Approve ไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
+    els.resultStatus.textContent = `อนุมัติไม่สำเร็จ: ${getSafeAuthErrorMessage(error)}`;
   } finally {
     els.approveButton.disabled = false;
-    els.approveButton.textContent = "Approve + Save";
+    els.approveButton.textContent = "อนุมัติและบันทึก";
   }
 }
 
@@ -1958,17 +1958,17 @@ async function generateSupportSet() {
   const validationMessage = validateInputFiles();
 
   if (!heroUrl) {
-    renderSupportMessage("ต้อง Generate และ Approve Hero ก่อน หรืออย่างน้อยต้องมีภาพ Hero ที่ generate สำเร็จ");
+    renderSupportMessage("ต้องสร้างและอนุมัติ Hero ก่อน หรืออย่างน้อยต้องมีภาพ Hero ที่สร้างสำเร็จ");
     return;
   }
 
   if (!approvedHeroImageUrl) {
-    renderSupportMessage("แนะนำให้กด Approve Hero ก่อน เพื่อใช้ภาพที่ผ่าน QC แล้วเป็น anchor");
+    renderSupportMessage("แนะนำให้กดอนุมัติ Hero ก่อน เพื่อใช้ภาพที่ผ่านการตรวจแล้วเป็นภาพตั้งต้น");
     return;
   }
 
   if (!isQcComplete()) {
-    renderSupportMessage("ต้อง QC ให้ครบ 7/7 ก่อน Generate Support Set เพื่อยืนยันว่า Hero พร้อมใช้เป็น anchor");
+    renderSupportMessage("ต้องตรวจให้ครบ 7/7 ก่อนสร้างภาพ Support เพื่อยืนยันว่า Hero พร้อมใช้เป็นภาพตั้งต้น");
     return;
   }
 
@@ -1978,14 +1978,14 @@ async function generateSupportSet() {
   }
 
   if (!selectedShots.length) {
-    renderSupportMessage("เลือกช็อตรองอย่างน้อย 1 ช็อตก่อน Generate Support Set");
+    renderSupportMessage("เลือกช็อตรองอย่างน้อย 1 ช็อตก่อนสร้างภาพ Support");
     return;
   }
 
   supportResults = selectedShots.map((shot) => ({ shot, status: "waiting", imageUrl: "" }));
   renderSupportGallery();
   els.generateSupportButton.disabled = true;
-  els.generateSupportButton.textContent = "Generating set...";
+  els.generateSupportButton.textContent = "กำลังสร้างภาพ Support...";
 
   for (let index = 0; index < selectedShots.length; index += 1) {
     const shot = selectedShots[index];
@@ -2018,7 +2018,7 @@ async function generateSupportSet() {
 
   updateWorkflowGate();
   refreshMetrics();
-  els.generateSupportButton.textContent = "Generate Support Set";
+  els.generateSupportButton.textContent = "สร้างภาพ Support";
 }
 
 async function approveSupportSet() {
@@ -2043,9 +2043,9 @@ async function approveSupportSet() {
             jobName: `${getJobBaseName("support-product")}-${item.shot}`,
             ...getRequestMetadata({ jobKind: "support", shot: item.shot, jobId: currentJobId })
           })
-        }, 90000, "Approve + Save ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
-        const data = await readJsonResponse(response, "Approve + Save ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
-        if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "Approve + Save ไม่สำเร็จ"));
+        }, 90000, "อนุมัติและบันทึกใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+        const data = await readJsonResponse(response, "อนุมัติและบันทึกไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+        if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "อนุมัติและบันทึกไม่สำเร็จ"));
         item.status = "approved";
         item.savedPath = data.googleDriveFile?.webViewLink || data.drivePath || data.approvedPath;
         savedCount += 1;
@@ -2060,14 +2060,14 @@ async function approveSupportSet() {
       name: `${getJobBaseName("Support set")} (${savedCount} ภาพ)`,
       type: "Support Set",
       category: els.category.value,
-      status: savedCount === readyItems.length ? "Approved" : "Partial"
+      status: savedCount === readyItems.length ? "อนุมัติแล้ว" : "อนุมัติบางส่วน"
     });
 
     updateWorkflowGate();
     refreshMetrics();
   } finally {
     els.approveSupportButton.disabled = false;
-    els.approveSupportButton.textContent = "Approve Support Set";
+    els.approveSupportButton.textContent = "อนุมัติภาพ Support";
   }
 }
 
@@ -2076,7 +2076,7 @@ async function rerunSupportImage(index) {
   if (!item) return;
 
   if (!approvedHeroImageUrl) {
-    supportResults[index] = { ...item, status: "rerun blocked: ต้องมี Hero ที่ Approve แล้วก่อน" };
+    supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องมี Hero ที่อนุมัติแล้วก่อน" };
     renderSupportGallery();
     return;
   }
@@ -2851,12 +2851,12 @@ function updateMeta(mode, category, risk) {
 
 function updateHeroStatus() {
   if (approvedHeroImageUrl) {
-    els.heroStatus.textContent = isQcComplete() ? "Hero approved + QC 7/7" : "Hero approved · รอ QC";
+    els.heroStatus.textContent = isQcComplete() ? "Hero อนุมัติแล้ว · ตรวจครบ 7/7" : "Hero อนุมัติแล้ว · รอตรวจ";
     els.heroStatus.classList.toggle("ready", isQcComplete());
     return;
   }
   if (currentGeneratedImageUrl) {
-    els.heroStatus.textContent = "รอ Approve Hero";
+    els.heroStatus.textContent = "รออนุมัติ Hero";
     els.heroStatus.classList.remove("ready");
     return;
   }
@@ -2878,11 +2878,11 @@ function updateWorkflowGate() {
   els.supportStatus.classList.toggle("ready", ready);
   els.generateSupportButton.title = ready
     ? isLoggedIn
-      ? "พร้อม Generate Support Set"
+      ? "พร้อมสร้างภาพ Support"
       : hasSession
-        ? "กรุณาตั้งรหัสผ่านใหม่ก่อน Generate Support Set"
-        : "กรุณา Login ก่อน Generate Support Set"
-    : "ต้อง Approve Hero และ QC ครบ 7/7 ก่อน";
+        ? "กรุณาตั้งรหัสผ่านใหม่ก่อนสร้างภาพ Support"
+        : "กรุณาเข้าสู่ระบบก่อนสร้างภาพ Support"
+    : "ต้องอนุมัติ Hero และตรวจครบ 7/7 ก่อน";
   updateHeroStatus();
 }
 
@@ -3032,15 +3032,15 @@ function renderSupportGallery() {
 
 function getApprovalMessage(data) {
   if (data.googleDriveFile?.webViewLink) {
-    return `Approve แล้ว และอัปโหลดเข้า Google Drive API${data.googleDriveFile.skuMatched ? " ตามโฟลเดอร์ SKU" : ""}: ${data.googleDriveFile.webViewLink}`;
+    return `อนุมัติแล้ว และอัปโหลดเข้า Google Drive API${data.googleDriveFile.skuMatched ? " ตามโฟลเดอร์ SKU" : ""}: ${data.googleDriveFile.webViewLink}`;
   }
   if (data.drivePath) {
-    return `Approve แล้ว และบันทึกเข้า Drive sync folder${data.skuMatched ? " ตามโฟลเดอร์ SKU" : ""}: ${data.drivePath}`;
+    return `อนุมัติแล้ว และบันทึกเข้าโฟลเดอร์ Drive sync${data.skuMatched ? " ตามโฟลเดอร์ SKU" : ""}: ${data.drivePath}`;
   }
   if (data.localDeleted) {
-    return "Approve แล้ว และลบไฟล์ local หลังส่งออกสำเร็จ";
+    return "อนุมัติแล้ว และลบไฟล์ในเครื่องหลังส่งออกสำเร็จ";
   }
-  return `Approve แล้ว บันทึกที่: ${data.approvedPath}`;
+  return `อนุมัติแล้ว บันทึกที่: ${data.approvedPath}`;
 }
 
 function renderSupportMessage(message) {
@@ -3615,11 +3615,11 @@ function mapDbJobToHistoryItem(job) {
 
 function formatJobStatus(status) {
   const labels = {
-    draft: "Draft",
-    queued: "Queued",
-    generating: "Generating",
-    hero_ready: "Hero Ready",
-    failed: "Failed"
+    draft: "ฉบับร่าง",
+    queued: "รอคิว",
+    generating: "กำลังสร้างภาพ",
+    hero_ready: "Hero พร้อมตรวจ",
+    failed: "ไม่สำเร็จ"
   };
   return labels[status] || status || "-";
 }
@@ -3656,11 +3656,11 @@ function renderHistory() {
 function renderJobSummary(items) {
   const approvedCount = items.filter((item) => item.approvalStatus === "approved").length;
   const exportedCount = items.filter((item) => item.exportUrl || ["google_drive", "exported"].includes(String(item.exportStatus || "").toLowerCase())).length;
-  const reviewCount = items.filter((item) => isHeroReviewReady(item)).length;
+  const reviewCount = items.filter((item) => isHeroReviewReady(item) || isSupportReviewReady(item)).length;
   els.jobSummary.innerHTML = `
     <span>${items.length.toLocaleString("th-TH")} งาน</span>
-    <span>${reviewCount.toLocaleString("th-TH")} รอ review</span>
-    <span>${approvedCount.toLocaleString("th-TH")} approved · ${exportedCount.toLocaleString("th-TH")} exported</span>
+    <span>${reviewCount.toLocaleString("th-TH")} รอตรวจ</span>
+    <span>${approvedCount.toLocaleString("th-TH")} อนุมัติแล้ว · ${exportedCount.toLocaleString("th-TH")} ส่งออกแล้ว</span>
   `;
 }
 
@@ -3676,12 +3676,12 @@ function getProductionFlowStage(job = {}) {
 function renderProductionFlowBoard(items = []) {
   if (!els.productionFlowBoard) return;
   const stages = [
-    { key: "line_intake", label: "LINE Intake", helper: "รับคำสั่ง BATCH และเลือก SKU" },
-    { key: "hero_review", label: "Hero Review", helper: "approve หรือ regenerate hero" },
-    { key: "support_generation", label: "Support Generation", helper: "สร้าง support หลัง hero approved" },
-    { key: "support_review", label: "Support Review", helper: "ตรวจ support ก่อน media/export" },
-    { key: "media_preflight", label: "Media Preflight", helper: "manifest/media blockers" },
-    { key: "wordpress", label: "WordPress", helper: "พร้อมส่งออกหรือ exported แล้ว" }
+    { key: "line_intake", label: "รับชุดงาน", helper: "รับคำสั่ง BATCH และเลือก SKU" },
+    { key: "hero_review", label: "ตรวจ Hero", helper: "อนุมัติหรือสร้าง Hero ใหม่" },
+    { key: "support_generation", label: "สร้าง Support", helper: "สร้างภาพประกอบหลังอนุมัติ Hero" },
+    { key: "support_review", label: "ตรวจ Support", helper: "เลือกภาพที่พร้อมใช้ก่อนส่งออก" },
+    { key: "media_preflight", label: "ตรวจไฟล์ก่อนส่งออก", helper: "เช็กไฟล์และรายการที่ยังติดอยู่" },
+    { key: "wordpress", label: "ส่งออก WordPress", helper: "พร้อมส่งออกหรือส่งออกแล้ว" }
   ];
   const counts = stages.reduce((acc, stage) => ({ ...acc, [stage.key]: 0 }), {});
   items.forEach((item) => {
@@ -3735,29 +3735,29 @@ function renderProductionJobRow(job) {
     <tr class="production-job-row">
       <td>
         <strong>${escapeHtml(job.productName || job.sku || "Untitled product")}</strong>
-        <div class="table-muted">Job ${escapeHtml(job.shortId || shortId(job.id))}${job.sku ? ` · SKU ${escapeHtml(job.sku)}` : ""}</div>
+        <div class="table-muted">งาน ${escapeHtml(job.shortId || shortId(job.id))}${job.sku ? ` · SKU ${escapeHtml(job.sku)}` : ""}</div>
         <div class="production-meta">${escapeHtml(job.brand || "-")} · ${escapeHtml(job.category || "-")} · ${escapeHtml(job.imageType || "-")}</div>
-        <div class="production-meta">Owner: ${escapeHtml(job.createdBy?.name || job.createdBy?.email || "automation")}</div>
+        <div class="production-meta">ผู้สร้าง: ${escapeHtml(job.createdBy?.name || job.createdBy?.email || "ระบบอัตโนมัติ")}</div>
       </td>
       <td>
         <div class="production-status-stack">
-          ${renderStatusBadge(job.status, "Job")}
-          ${renderStatusBadge(job.generationStatus || "no_generation", "Gen")}
+          ${renderStatusBadge(job.status, "งาน")}
+          ${renderStatusBadge(job.generationStatus || "no_generation", "สร้างภาพ")}
           ${renderStatusBadge(job.heroStatus || "no_hero", "Hero")}
           ${renderStatusBadge(job.supportStatus || "no_support", "Support")}
-          ${hasGeneratedSupport(job) ? renderStatusBadge(job.supportReviewStatus || "pending", "Support QC") : ""}
-          ${job.mediaPreflightStatus ? renderStatusBadge(job.mediaPreflightStatus, "Preflight") : ""}
-          ${renderStatusBadge(job.approvalStatus || "pending", "Approve")}
+          ${hasGeneratedSupport(job) ? renderStatusBadge(job.supportReviewStatus || "pending", "ตรวจ Support") : ""}
+          ${job.mediaPreflightStatus ? renderStatusBadge(job.mediaPreflightStatus, "ตรวจส่งออก") : ""}
+          ${renderStatusBadge(job.approvalStatus || "pending", "อนุมัติ")}
         </div>
       </td>
       <td>${renderJobNextAction(job)}</td>
       <td>
-        ${renderStatusBadge(job.exportStatus || "not_exported", "Export")}
+        ${renderStatusBadge(job.exportStatus || "not_exported", "ส่งออก")}
         ${renderJobExportAction(job)}
       </td>
       <td>
         <strong>${escapeHtml(formatJobTime(job.latestActivityAt || job.updatedAt || job.createdAt))}</strong>
-        <div class="table-muted">${formatThaiNumber(job.generationCount || 0)} gen · ${formatThaiNumber(job.assetCount || 0)} assets</div>
+        <div class="table-muted">สร้าง ${formatThaiNumber(job.generationCount || 0)} ครั้ง · มีภาพ ${formatThaiNumber(job.assetCount || 0)} ไฟล์</div>
         ${isAdmin() ? renderRecoveryActions(job, "jobs") : ""}
       </td>
     </tr>
@@ -3798,32 +3798,32 @@ function isMediaPreflightReady(job = {}) {
 
 function getJobNextAction(job = {}) {
   if (String(job.status || "").toLowerCase().includes("failed")) {
-    return { tone: "danger", label: "ตรวจ error / retry", helper: "งานล้มเหลวหรือ generation มีปัญหา" };
+    return { tone: "danger", label: "ตรวจงานที่ไม่สำเร็จ", helper: "งานนี้มีปัญหา กดตรวจรายละเอียดหรือสั่งลองใหม่" };
   }
   if (job.approvalStatus === "approved" && job.exportUrl) {
-    return { tone: "ok", label: "จบแล้ว", helper: "approved และมี export link แล้ว" };
+    return { tone: "ok", label: "เสร็จแล้ว", helper: "อนุมัติและมีลิงก์ส่งออกแล้ว" };
   }
   if (isMediaPreflightReady(job)) {
-    const gate = job.mediaPreflightStatus ? `Gate: ${job.mediaPreflightStatus}` : "Support approved ครบแล้ว";
-    return { tone: "ok", label: "Media preflight", helper: `${gate} · ขั้นถัดไปคือ WordPress/export` };
+    const gate = job.mediaPreflightStatus ? getProductionStatusText(job.mediaPreflightStatus) : "ตรวจ Support ครบแล้ว";
+    return { tone: "ok", label: "ตรวจไฟล์ก่อนส่งออก", helper: `${gate} · ขั้นถัดไปคือส่งออก WordPress` };
   }
   if (isSupportReviewReady(job)) {
     const count = Number(job.supportCount || 0);
-    return { tone: "warning", label: "Review support", helper: `มี support ${formatThaiNumber(count)} ภาพแล้ว ต้อง approve/regenerate support ก่อน export` };
+    return { tone: "warning", label: "ตรวจ Support", helper: `มีภาพ Support ${formatThaiNumber(count)} ภาพแล้ว ต้องอนุมัติหรือสั่งสร้างใหม่ก่อนส่งออก` };
   }
   if (isSupportGenerationWaiting(job)) {
-    return { tone: "info", label: "Support generation", helper: "Hero approved แล้ว ระบบต้องสร้าง support ต่อ" };
+    return { tone: "info", label: "รอสร้าง Support", helper: "Hero อนุมัติแล้ว ระบบต้องสร้างภาพ Support ต่อ" };
   }
   if (isHeroReviewReady(job)) {
     if (job.supportStatus && job.supportStatus !== "no_support") {
-      return { tone: "warning", label: "Review image set", helper: "ตรวจ hero และ support shots ในหน้าเดียว" };
+      return { tone: "warning", label: "ตรวจชุดภาพ", helper: "ตรวจ Hero และภาพ Support ในหน้าเดียว" };
     }
-    return { tone: "warning", label: "Review hero", helper: "เปิดหน้า review เพื่อ approve หรือ regenerate" };
+    return { tone: "warning", label: "ตรวจ Hero", helper: "เปิดหน้าตรวจเพื่ออนุมัติ หรือสั่งสร้าง Hero ใหม่" };
   }
   if (/generating|queued|running/i.test([job.status, job.generationStatus].join(" "))) {
-    return { tone: "info", label: "รอ generation", helper: "ระบบกำลังสร้างหรือรอคิว" };
+    return { tone: "info", label: "กำลังสร้างภาพ", helper: "ระบบกำลังทำงานหรือรอคิว" };
   }
-  return { tone: "muted", label: "รอข้อมูล", helper: "ยังไม่มี hero candidate พร้อม review" };
+  return { tone: "muted", label: "รอข้อมูล", helper: "ยังไม่มีภาพ Hero พร้อมให้ตรวจ" };
 }
 
 function buildJobReviewHref(job = {}) {
@@ -3844,23 +3844,23 @@ function renderJobNextAction(job = {}) {
     <div class="job-next-action ${escapeHtml(action.tone)}">
       <strong>${escapeHtml(action.label)}</strong>
       <span>${escapeHtml(action.helper)}</span>
-      ${reviewHref ? `<a class="ghost-button compact" href="${escapeHtml(reviewHref)}">Open review</a>` : ""}
+      ${reviewHref ? `<a class="ghost-button compact" href="${escapeHtml(reviewHref)}">เปิดหน้าตรวจ</a>` : ""}
     </div>
   `;
 }
 
 function renderJobExportAction(job) {
   if (job.exportUrl) {
-    return `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">Open export</a>`;
+    return `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">เปิดไฟล์ส่งออก</a>`;
   }
   if (isAdmin() && job.canRetryExport && job.id) {
     return `
       <div class="export-recovery-action">
-        ${renderRecoveryButton("retry-export", job.exportActionLabel || "Retry Export", job.id || job.jobId || "", job.latestGenerationId || "", "jobs-export")}
+        ${renderRecoveryButton("retry-export", job.exportActionLabel || "ส่งออกอีกครั้ง", job.id || job.jobId || "", job.latestGenerationId || "", "jobs-export")}
       </div>
     `;
   }
-  return '<div class="table-muted">ยังไม่มี export link</div>';
+  return '<div class="table-muted">ยังไม่มีลิงก์ส่งออก</div>';
 }
 
 function renderProductionAssetCard(asset) {
@@ -3883,12 +3883,12 @@ function renderProductionAssetCard(asset) {
         ${asset.storagePath ? `<small>${escapeHtml(asset.bucket || "storage")} · ${escapeHtml(asset.storagePath)}</small>` : ""}
       </div>
       <div class="asset-primary-actions">
-        ${asset.imageUrl ? `<a class="ghost-button compact" href="${escapeHtml(asset.imageUrl)}" target="_blank" rel="noopener">Open image</a>` : ""}
-        ${asset.googleDriveLink ? `<a class="ghost-button compact" href="${escapeHtml(asset.googleDriveLink)}" target="_blank" rel="noopener">Open Drive</a>` : ""}
+        ${asset.imageUrl ? `<a class="ghost-button compact" href="${escapeHtml(asset.imageUrl)}" target="_blank" rel="noopener">เปิดรูป</a>` : ""}
+        ${asset.googleDriveLink ? `<a class="ghost-button compact" href="${escapeHtml(asset.googleDriveLink)}" target="_blank" rel="noopener">เปิด Drive</a>` : ""}
       </div>
       <div class="asset-debug-meta">
-        ${asset.jobId ? `<span>Job: ${escapeHtml(jobShort)} <button type="button" data-copy-value="${escapeHtml(asset.jobId)}" title="Copy job id">copy</button></span>` : ""}
-        ${asset.generationId ? `<span>Gen: ${escapeHtml(generationShort)} <button type="button" data-copy-value="${escapeHtml(asset.generationId)}" title="Copy generation id">copy</button></span>` : ""}
+        ${asset.jobId ? `<span>งาน: ${escapeHtml(jobShort)} <button type="button" data-copy-value="${escapeHtml(asset.jobId)}" title="คัดลอกเลขงาน">คัดลอก</button></span>` : ""}
+        ${asset.generationId ? `<span>ภาพ: ${escapeHtml(generationShort)} <button type="button" data-copy-value="${escapeHtml(asset.generationId)}" title="คัดลอกเลขภาพ">คัดลอก</button></span>` : ""}
       </div>
     </article>
   `;
@@ -3914,8 +3914,8 @@ function normalizeAssetTypeFilter(value) {
 function updateAssetLibraryHelper() {
   if (!els.assetLibraryHelper) return;
   els.assetLibraryHelper.textContent = selectedAssetType === "references"
-    ? "Reference Assets คือภาพ input ที่ใช้ประกอบการสร้างงาน เช่น ภาพสินค้าและภาพโมเดล"
-    : "คลังภาพสำหรับดูผลงานที่สร้างจาก workflow เช่น Hero, Support และภาพที่ Approved/Export แล้ว";
+    ? "ภาพอ้างอิงคือภาพจริงที่ใช้ประกอบการสร้างงาน เช่น ภาพสินค้าและภาพโมเดล"
+    : "คลังภาพสำหรับดูผลงานที่สร้างจากระบบ เช่น Hero, Support และภาพที่อนุมัติหรือส่งออกแล้ว";
 }
 
 function renderRecoveryActions(item, source) {
@@ -3924,13 +3924,13 @@ function renderRecoveryActions(item, source) {
   const generationId = item.generationId || item.latestGenerationId || "";
   const buttons = [];
   if (item.retryable && (jobId || generationId)) {
-    buttons.push(renderRecoveryButton("retry", "Retry", jobId, generationId, source));
+    buttons.push(renderRecoveryButton("retry", "ลองใหม่", jobId, generationId, source));
   }
   if (source !== "jobs" && item.canRetryExport && jobId) {
-    buttons.push(renderRecoveryButton("retry-export", "Retry Export", jobId, generationId, source));
+    buttons.push(renderRecoveryButton("retry-export", "ส่งออกอีกครั้ง", jobId, generationId, source));
   }
   if (item.canMarkFailed && jobId) {
-    buttons.push(renderRecoveryButton("mark-failed", "Mark Failed", jobId, generationId, source));
+    buttons.push(renderRecoveryButton("mark-failed", "ทำเครื่องหมายว่าไม่สำเร็จ", jobId, generationId, source));
   }
   if (!buttons.length) return "";
   return `<div class="recovery-actions">${buttons.join("")}</div>`;
@@ -4016,21 +4016,53 @@ function showRecoveryMessage(message, isError) {
   if (isError) console.warn(message);
 }
 
+function getProductionStatusText(status) {
+  const normalized = String(status || "unknown").toLowerCase();
+  const labels = {
+    approved: "อนุมัติแล้ว",
+    awaiting_support_review: "รอตรวจ Support",
+    candidate_manifest_ready: "ชุดภาพพร้อมส่งออก",
+    completed: "เสร็จแล้ว",
+    done: "เสร็จแล้ว",
+    draft: "ฉบับร่าง",
+    exported: "ส่งออกแล้ว",
+    export_failed: "ส่งออกไม่สำเร็จ",
+    failed: "ไม่สำเร็จ",
+    generating: "กำลังสร้าง",
+    google_drive: "ส่งเข้า Google Drive แล้ว",
+    hero_ready: "Hero พร้อมตรวจ",
+    no_generation: "ยังไม่สร้าง",
+    no_hero: "ยังไม่มี Hero",
+    no_support: "ยังไม่มี Support",
+    not_exported: "ยังไม่ส่งออก",
+    not_started: "ยังไม่เริ่ม",
+    pending: "รอดำเนินการ",
+    queued: "รอคิว",
+    ready: "พร้อม",
+    regenerate_requested: "ขอสร้างใหม่",
+    running: "กำลังทำงาน",
+    succeeded: "เสร็จแล้ว",
+    support_ready_for_review: "Support พร้อมตรวจ"
+  };
+  return labels[normalized] || String(status || "ไม่ทราบสถานะ").replace(/_/g, " ");
+}
+
 function renderStatusBadge(status, label = "") {
   const normalized = String(status || "unknown").toLowerCase();
   const state = normalized.includes("failed") ? "danger" : normalized.includes("pending") || normalized.includes("queued") || normalized.includes("no_") || normalized.includes("not_") ? "warning" : "ok";
-  return `<span class="production-badge ${state}">${escapeHtml(label ? `${label}: ${status}` : status)}</span>`;
+  const statusText = getProductionStatusText(status);
+  return `<span class="production-badge ${state}">${escapeHtml(label ? `${label}: ${statusText}` : statusText)}</span>`;
 }
 
 function formatAssetTypeLabel(typeGroup, rawType) {
   const labels = {
-    reference: "reference image",
-    hero: "hero output",
-    support: "support output",
-    approved: "approved/exported image",
-    other: rawType || "asset"
+    reference: "ภาพอ้างอิง",
+    hero: "ภาพ Hero",
+    support: "ภาพ Support",
+    approved: "ภาพที่อนุมัติหรือส่งออกแล้ว",
+    other: rawType || "ไฟล์ภาพ"
   };
-  return labels[typeGroup] || rawType || "asset";
+  return labels[typeGroup] || rawType || "ไฟล์ภาพ";
 }
 
 function setProductionListLoading(kind, isLoading) {
@@ -4145,15 +4177,15 @@ function renderKpiWarnings(warnings) {
 
 function renderKpiCards(summary) {
   const cards = [
-    ["Total jobs", summary.totalJobs, "จำนวนงานทั้งหมดในช่วงเวลาที่เลือก"],
-    ["Generated", summary.generated, "จำนวนงานที่สร้างภาพสำเร็จ"],
-    ["Approved", summary.approved, "จำนวนงานที่ผ่าน approve แล้ว"],
-    ["Pending approval", summary.pendingApproval, "งานที่ generate แล้วแต่ยังไม่ approve"],
-    ["Failed", summary.failed, "งานที่ status failed หรือ generation failed"],
-    ["Approval rate", formatPercent(summary.approvalRate), "approved / generated"],
-    ["QC pass rate", formatPercent(summary.qcPassRate), "passed QC / QC checked, if available"],
-    ["Avg turnaround", formatMinutes(summary.averageTurnaroundMinutes), "เวลาจากสร้างงานถึง approve/export, if calculable"],
-    ["Active staff", summary.activeStaff, "จำนวน staff ที่มี activity ในช่วงเวลานี้"]
+    ["งานทั้งหมด", summary.totalJobs, "จำนวนงานทั้งหมดในช่วงเวลาที่เลือก"],
+    ["สร้างภาพสำเร็จ", summary.generated, "จำนวนงานที่สร้างภาพสำเร็จ"],
+    ["อนุมัติแล้ว", summary.approved, "จำนวนงานที่ผ่านการอนุมัติแล้ว"],
+    ["รออนุมัติ", summary.pendingApproval, "งานที่สร้างภาพแล้วแต่ยังไม่อนุมัติ"],
+    ["ไม่สำเร็จ", summary.failed, "งานหรือการสร้างภาพที่ไม่สำเร็จ"],
+    ["อัตราอนุมัติ", formatPercent(summary.approvalRate), "งานที่อนุมัติเทียบกับงานที่สร้างภาพสำเร็จ"],
+    ["อัตราผ่านตรวจ", formatPercent(summary.qcPassRate), "งานที่ผ่านการตรวจเทียบกับงานที่ตรวจแล้ว"],
+    ["เวลาเฉลี่ยต่อรอบ", formatMinutes(summary.averageTurnaroundMinutes), "เวลาจากสร้างงานถึงอนุมัติหรือส่งออก"],
+    ["ผู้ใช้งานที่ทำงาน", summary.activeStaff, "จำนวนพนักงานที่มี activity ในช่วงเวลานี้"]
   ];
 
   els.kpiCards.innerHTML = cards
@@ -4176,10 +4208,10 @@ function renderTrendChart(trends) {
   const maxValue = Math.max(1, ...trends.flatMap((item) => [item.jobs, item.generated, item.approved, item.exported, item.failed].map(Number)));
   els.kpiTrendChart.innerHTML = `
     <div class="trend-legend">
-      <span class="jobs">Jobs</span>
-      <span class="generated">Generated</span>
-      <span class="approved">Approved</span>
-      <span class="failed">Failed</span>
+      <span class="jobs">งานทั้งหมด</span>
+      <span class="generated">สร้างสำเร็จ</span>
+      <span class="approved">อนุมัติแล้ว</span>
+      <span class="failed">ไม่สำเร็จ</span>
     </div>
     <div class="trend-bars">
       ${trends
@@ -4407,16 +4439,16 @@ function renderCostNotes(notes) {
 function renderCostKpiCards(summary) {
   const currency = summary.currency || "USD";
   const cards = [
-    ["Estimated total cost", formatEstimatedCost(summary.estimatedTotalCost, currency), "ต้นทุนโดยประมาณทั้งหมด ไม่ใช่ invoice จริง"],
-    ["Total generations", summary.totalGenerations, "จำนวน generation request ในช่วงเวลานี้"],
-    ["Successful generations", summary.successfulGenerations, "generation ที่สำเร็จ"],
-    ["Failed generations", summary.failedGenerations, "generation ที่ failed หรือมี error"],
-    ["Retry generations", summary.retryGenerations, "generation ที่มาจาก retry/recovery"],
-    ["Estimated retry cost", formatEstimatedCost(summary.estimatedRetryCost, currency), "ต้นทุนโดยประมาณจาก retry"],
-    ["Estimated failed cost", formatEstimatedCost(summary.estimatedFailedCost, currency), "wasted cost จาก failed generation โดยประมาณ"],
-    ["Approved outputs", summary.approvedOutputs, "ภาพที่ approve/export แล้ว"],
-    ["Avg cost / approved output", summary.averageCostPerApprovedOutput === null ? null : formatEstimatedCost(summary.averageCostPerApprovedOutput, currency), "estimated cost ต่อ approved output"],
-    ["Avg cost / job", summary.averageCostPerJob === null ? null : formatEstimatedCost(summary.averageCostPerJob, currency), "estimated cost ต่อ job ที่มี generation"]
+    ["ต้นทุนโดยประมาณทั้งหมด", formatEstimatedCost(summary.estimatedTotalCost, currency), "ต้นทุนโดยประมาณทั้งหมด ไม่ใช่ invoice จริง"],
+    ["จำนวนครั้งที่สร้างภาพ", summary.totalGenerations, "จำนวน generation request ในช่วงเวลานี้"],
+    ["สร้างภาพสำเร็จ", summary.successfulGenerations, "จำนวน generation ที่สำเร็จ"],
+    ["สร้างภาพไม่สำเร็จ", summary.failedGenerations, "จำนวน generation ที่ไม่สำเร็จหรือมี error"],
+    ["ลองใหม่", summary.retryGenerations, "จำนวน generation ที่มาจาก retry/recovery"],
+    ["ต้นทุนจากการลองใหม่", formatEstimatedCost(summary.estimatedRetryCost, currency), "ต้นทุนโดยประมาณจาก retry"],
+    ["ต้นทุนงานไม่สำเร็จ", formatEstimatedCost(summary.estimatedFailedCost, currency), "ต้นทุนโดยประมาณจาก generation ที่ไม่สำเร็จ"],
+    ["ภาพที่อนุมัติแล้ว", summary.approvedOutputs, "ภาพที่อนุมัติหรือส่งออกแล้ว"],
+    ["ต้นทุนเฉลี่ยต่อภาพอนุมัติ", summary.averageCostPerApprovedOutput === null ? null : formatEstimatedCost(summary.averageCostPerApprovedOutput, currency), "ต้นทุนโดยประมาณต่อภาพที่อนุมัติแล้ว"],
+    ["ต้นทุนเฉลี่ยต่องาน", summary.averageCostPerJob === null ? null : formatEstimatedCost(summary.averageCostPerJob, currency), "ต้นทุนโดยประมาณต่องานที่มีการสร้างภาพ"]
   ];
 
   els.costKpiCards.innerHTML = cards
@@ -4439,10 +4471,10 @@ function renderCostTrendChart(trends, currency) {
   const maxValue = Math.max(1, ...trends.flatMap((item) => [item.generations, item.failed, item.retry, item.estimatedCost].map(Number)));
   els.costTrendChart.innerHTML = `
     <div class="trend-legend cost-trend-legend">
-      <span class="generated">Generations</span>
-      <span class="failed">Failed</span>
-      <span class="retry">Retry</span>
-      <span class="cost">Estimated cost</span>
+      <span class="generated">สร้างภาพ</span>
+      <span class="failed">ไม่สำเร็จ</span>
+      <span class="retry">ลองใหม่</span>
+      <span class="cost">ต้นทุนประมาณ</span>
     </div>
     <div class="trend-bars">
       ${trends
@@ -4469,19 +4501,19 @@ function renderCostWasteSummary(summary) {
   els.costWasteSummary.innerHTML = `
     <div class="status-list">
       <div class="status-row danger-row">
-        <strong>Estimated failed cost</strong>
+        <strong>ต้นทุนงานไม่สำเร็จ</strong>
         <span>${escapeHtml(formatEstimatedCost(summary.estimatedFailedCost, currency))}</span>
-        <small>${failedShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณต้นทุนจริง" : `${failedShare}% ของ estimated total cost`}</small>
+        <small>${failedShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณต้นทุนจริง" : `${failedShare}% ของต้นทุนประมาณทั้งหมด`}</small>
       </div>
       <div class="status-row warning-row">
-        <strong>Estimated retry cost</strong>
+        <strong>ต้นทุนจากการลองใหม่</strong>
         <span>${escapeHtml(formatEstimatedCost(summary.estimatedRetryCost, currency))}</span>
-        <small>${retryShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณ retry impact" : `${retryShare}% ของ estimated total cost`}</small>
+        <small>${retryShare === null ? "ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณผลกระทบจากการลองใหม่" : `${retryShare}% ของต้นทุนประมาณทั้งหมด`}</small>
       </div>
       <div class="status-row">
-        <strong>Average cost / approved output</strong>
+        <strong>ต้นทุนเฉลี่ยต่อภาพที่อนุมัติ</strong>
         <span>${summary.averageCostPerApprovedOutput === null ? "ยังไม่มีข้อมูลเพียงพอ" : escapeHtml(formatEstimatedCost(summary.averageCostPerApprovedOutput, currency))}</span>
-        <small>ต้นทุนโดยประมาณต่อภาพที่ approved แล้ว</small>
+        <small>ต้นทุนโดยประมาณต่อภาพที่อนุมัติแล้ว</small>
       </div>
     </div>
   `;
@@ -4502,11 +4534,11 @@ function renderCostStaffUsage(items, currency) {
               <span>${escapeHtml(item.email || "")}</span>
             </div>
             <div class="staff-metrics">
-              <span>${formatThaiNumber(item.generations)} gen</span>
-              <span>${formatThaiNumber(item.successful)} success</span>
-              <span>${formatThaiNumber(item.failed)} fail</span>
-              <span>${formatThaiNumber(item.retryCount)} retry</span>
-              <span>${formatThaiNumber(item.approvedOutputs)} approved</span>
+              <span>สร้าง ${formatThaiNumber(item.generations)} ครั้ง</span>
+              <span>สำเร็จ ${formatThaiNumber(item.successful)}</span>
+              <span>ไม่สำเร็จ ${formatThaiNumber(item.failed)}</span>
+              <span>ลองใหม่ ${formatThaiNumber(item.retryCount)}</span>
+              <span>อนุมัติ ${formatThaiNumber(item.approvedOutputs)}</span>
               <span>${escapeHtml(formatEstimatedCost(item.estimatedCost, currency))}</span>
             </div>
             <small>${item.latestActivity ? formatDateTime(item.latestActivity) : "ยังไม่มีข้อมูลล่าสุด"}</small>
@@ -4529,19 +4561,19 @@ function renderCostJobList(items, currency) {
           <article class="cost-job-card">
             <div>
               <strong>${escapeHtml(job.sku || job.productName || "Untitled product")}</strong>
-              <span>Job ${escapeHtml(job.jobShortId || "-")} · ${escapeHtml(job.status || "unknown")}</span>
+              <span>งาน ${escapeHtml(job.jobShortId || "-")} · ${escapeHtml(getProductionStatusText(job.status || "unknown"))}</span>
               <small>${escapeHtml(job.createdBy?.name || job.createdBy?.email || "ไม่ระบุผู้ใช้งาน")}</small>
             </div>
             <div class="staff-metrics">
-              <span>${formatThaiNumber(job.generationCount)} gen</span>
-              <span>${formatThaiNumber(job.retryCount)} retry</span>
-              <span>${formatThaiNumber(job.failed)} fail</span>
-              <span>${formatThaiNumber(job.approvedOutputs)} output</span>
-              <span>${escapeHtml(job.exportStatus || "not_exported")}</span>
+              <span>สร้าง ${formatThaiNumber(job.generationCount)} ครั้ง</span>
+              <span>ลองใหม่ ${formatThaiNumber(job.retryCount)}</span>
+              <span>ไม่สำเร็จ ${formatThaiNumber(job.failed)}</span>
+              <span>ภาพอนุมัติ ${formatThaiNumber(job.approvedOutputs)}</span>
+              <span>${escapeHtml(getProductionStatusText(job.exportStatus || "not_exported"))}</span>
             </div>
             <div class="cost-job-total">
               <strong>${escapeHtml(formatEstimatedCost(job.estimatedCost, currency))}</strong>
-              <span>${job.averageCostPerOutput === null ? "avg/output: ยังไม่มีข้อมูล" : `avg/output: ${escapeHtml(formatEstimatedCost(job.averageCostPerOutput, currency))}`}</span>
+              <span>${job.averageCostPerOutput === null ? "เฉลี่ยต่อภาพ: ยังไม่มีข้อมูล" : `เฉลี่ยต่อภาพ: ${escapeHtml(formatEstimatedCost(job.averageCostPerOutput, currency))}`}</span>
             </div>
           </article>
         `)
@@ -4662,9 +4694,9 @@ function setMonitoringLoading(isLoading) {
 function renderMonitoringError(error) {
   latestMonitoringData = null;
   els.monitoringErrorState.hidden = false;
-  els.monitoringErrorState.textContent = `โหลด Monitoring / System Health ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
+  els.monitoringErrorState.textContent = `โหลดสถานะระบบไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "กรุณาลองใหม่อีกครั้ง"}`;
   els.monitoringEmptyState.hidden = true;
-  els.monitoringHealthSummary.textContent = "ระบบยังโหลด Monitoring ไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
+  els.monitoringHealthSummary.textContent = "ระบบยังโหลดสถานะระบบไม่สำเร็จ แต่หน้าอื่นยังใช้งานได้ตามปกติ";
   els.monitoringUpdatedAt.textContent = "โหลดไม่สำเร็จ";
   [
     els.monitoringWarnings,
@@ -4705,7 +4737,7 @@ function buildMonitoringHealthSummary(data) {
     return `มี Supabase Storage warning ${formatThaiNumber(summary.storageWarnings)} รายการ แต่ Google Drive export สำเร็จแล้ว`;
   }
   if (!driveConnected) return "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
-  if (summary.pendingApprovals) return `ระบบทำงานได้ แต่มีงานรอ approve ${formatThaiNumber(summary.pendingApprovals)} รายการ`;
+  if (summary.pendingApprovals) return `ระบบทำงานได้ แต่มีงานรออนุมัติ ${formatThaiNumber(summary.pendingApprovals)} รายการ`;
   return "ยังไม่พบปัญหาในช่วงเวลานี้";
 }
 
@@ -4731,16 +4763,16 @@ function renderMonitoringSummaryCards(data) {
   const summary = data.summary || {};
   const drive = data.integrationHealth?.googleDrive || {};
   const cards = [
-    ["Warnings / errors", summary.warningsCount, "จำนวน warning และ error ที่ต้องตรวจสอบ", summary.warningsCount ? "warning" : "ok"],
-    ["Failed jobs", summary.failedJobs, "jobs ที่ status failed", summary.failedJobs ? "danger" : "ok"],
-    ["Failed generations", summary.failedGenerations, "generation ที่ failed หรือมี error_message", summary.failedGenerations ? "danger" : "ok"],
-    ["Failed exports", summary.failedExports, "Google Drive/export failure จาก audit events", summary.failedExports ? "danger" : "ok"],
-    ["Storage warnings", summary.storageWarnings, "Supabase Storage failed แต่ Google Drive export สำเร็จแล้ว", summary.storageWarnings ? "warning" : "ok"],
-    ["Stuck jobs", summary.stuckJobs, "queued/running/generating เกิน 30 นาที", summary.stuckJobs ? "warning" : "ok"],
-    ["Pending approvals", summary.pendingApprovals, "generate สำเร็จแต่ยังไม่ approve", summary.pendingApprovals ? "warning" : "ok"],
-    ["Preflight gates", summary.wordpressPreflights, "WordPress product/media preflight ที่รอหรือเสร็จในช่วงนี้", summary.wordpressPreflights ? "warning" : "ok"],
-    ["Google Drive", drive.connected ? "Connected" : "Disconnected", drive.updatedAt ? `อัปเดตล่าสุด ${formatDateTime(drive.updatedAt)}` : "ยังไม่มีเวลาอัปเดตล่าสุด", drive.connected ? "ok" : "warning"],
-    ["Latest error", summary.latestErrorTime ? formatDateTime(summary.latestErrorTime) : "ไม่มี", "เวลาของ failure ล่าสุดในช่วงนี้", summary.latestErrorTime ? "danger" : "ok"]
+    ["คำเตือน / ข้อผิดพลาด", summary.warningsCount, "จำนวน warning และ error ที่ต้องตรวจสอบ", summary.warningsCount ? "warning" : "ok"],
+    ["งานไม่สำเร็จ", summary.failedJobs, "งานที่สถานะไม่สำเร็จ", summary.failedJobs ? "danger" : "ok"],
+    ["สร้างภาพไม่สำเร็จ", summary.failedGenerations, "generation ที่ไม่สำเร็จหรือมี error_message", summary.failedGenerations ? "danger" : "ok"],
+    ["ส่งออกไม่สำเร็จ", summary.failedExports, "Google Drive/export failure จาก audit events", summary.failedExports ? "danger" : "ok"],
+    ["คำเตือน Storage", summary.storageWarnings, "Supabase Storage ไม่สำเร็จ แต่ Google Drive export สำเร็จแล้ว", summary.storageWarnings ? "warning" : "ok"],
+    ["งานค้าง", summary.stuckJobs, "งานที่รอคิวหรือกำลังสร้างเกิน 30 นาที", summary.stuckJobs ? "warning" : "ok"],
+    ["รออนุมัติ", summary.pendingApprovals, "สร้างภาพสำเร็จแต่ยังไม่อนุมัติ", summary.pendingApprovals ? "warning" : "ok"],
+    ["ด่านตรวจก่อนส่งออก", summary.wordpressPreflights, "WordPress product/media preflight ที่รอหรือเสร็จในช่วงนี้", summary.wordpressPreflights ? "warning" : "ok"],
+    ["Google Drive", drive.connected ? "เชื่อมต่อแล้ว" : "ยังไม่เชื่อมต่อ", drive.updatedAt ? `อัปเดตล่าสุด ${formatDateTime(drive.updatedAt)}` : "ยังไม่มีเวลาอัปเดตล่าสุด", drive.connected ? "ok" : "warning"],
+    ["ข้อผิดพลาดล่าสุด", summary.latestErrorTime ? formatDateTime(summary.latestErrorTime) : "ไม่มี", "เวลาของ failure ล่าสุดในช่วงนี้", summary.latestErrorTime ? "danger" : "ok"]
   ];
 
   els.monitoringSummaryCards.innerHTML = cards
@@ -4846,47 +4878,47 @@ function renderMonitoringWordPressPreflightRow(item) {
     : item.mediaAttachAllowed || item.executionAllowed || summary.blocked || summary.awaitingMediaAssets || summary.missingHeroMedia || summary.missingSupportMedia || summary.duplicateIdempotencyKeys
       ? "warning"
       : "neutral";
-  let headline = `${formatThaiNumber(summary.readyForProposal || 0)} ready product proposal · ${formatThaiNumber(summary.blocked || 0)} blocked`;
+  let headline = `${formatThaiNumber(summary.readyForProposal || 0)} รายการพร้อมเสนอ · ${formatThaiNumber(summary.blocked || 0)} รายการติดเงื่อนไข`;
   let detail = [
-    `${formatThaiNumber(summary.createDraftProduct || 0)} draft proposal`,
-    `${formatThaiNumber(summary.skipExistingSku || 0)} skip existing`,
-    `${formatThaiNumber(summary.remoteChecked || 0)} remote checked`,
-    summary.remoteErrors ? `${formatThaiNumber(summary.remoteErrors)} remote errors` : ""
+    `${formatThaiNumber(summary.createDraftProduct || 0)} ร่างสินค้า`,
+    `${formatThaiNumber(summary.skipExistingSku || 0)} ข้าม SKU ที่มีอยู่แล้ว`,
+    `${formatThaiNumber(summary.remoteChecked || 0)} ตรวจข้อมูลปลายทาง`,
+    summary.remoteErrors ? `${formatThaiNumber(summary.remoteErrors)} ข้อผิดพลาดปลายทาง` : ""
   ];
   if (isMedia) {
-    headline = `${formatThaiNumber(summary.readyForMediaProposal || 0)} ready media proposal · ${formatThaiNumber(summary.mediaAssetsMatched || 0)} assets`;
+    headline = `${formatThaiNumber(summary.readyForMediaProposal || 0)} รายการพร้อมเสนอไฟล์ภาพ · ${formatThaiNumber(summary.mediaAssetsMatched || 0)} ภาพที่จับคู่ได้`;
     detail = [
-      `${formatThaiNumber(summary.proposedMainImages || 0)} main`,
-      `${formatThaiNumber(summary.proposedGalleryImages || 0)} gallery`,
-      summary.awaitingMediaAssets ? `${formatThaiNumber(summary.awaitingMediaAssets)} awaiting media` : "",
-      summary.productPreflightBlocked ? `${formatThaiNumber(summary.productPreflightBlocked)} product blocked` : ""
+      `${formatThaiNumber(summary.proposedMainImages || 0)} ภาพหลัก`,
+      `${formatThaiNumber(summary.proposedGalleryImages || 0)} ภาพแกลเลอรี`,
+      summary.awaitingMediaAssets ? `${formatThaiNumber(summary.awaitingMediaAssets)} รอไฟล์ภาพ` : "",
+      summary.productPreflightBlocked ? `${formatThaiNumber(summary.productPreflightBlocked)} สินค้าติดเงื่อนไข` : ""
     ];
   }
   if (isMediaAttachConfirmation) {
-    headline = `${formatThaiNumber(summary.readyForConfirmation || 0)} ready confirmation · ${formatThaiNumber(summary.proposedOperations || 0)} operations`;
+    headline = `${formatThaiNumber(summary.readyForConfirmation || 0)} รายการรอยืนยัน · ${formatThaiNumber(summary.proposedOperations || 0)} คำสั่งที่เสนอ`;
     detail = [
-      `${formatThaiNumber(summary.proposedMainImages || 0)} main`,
-      `${formatThaiNumber(summary.proposedGalleryImages || 0)} gallery`,
+      `${formatThaiNumber(summary.proposedMainImages || 0)} ภาพหลัก`,
+      `${formatThaiNumber(summary.proposedGalleryImages || 0)} ภาพแกลเลอรี`,
       item.gateStatus || "",
-      item.mediaAttachAllowed ? "media attach allowed" : "no media attach"
+      item.mediaAttachAllowed ? "อนุญาตให้แนบภาพ" : "ยังไม่แนบภาพ"
     ];
   }
   if (isMediaAttachExecutionPlan) {
-    headline = `${formatThaiNumber(summary.readyForLiveWritePhase || 0)} ready for later live phase · ${formatThaiNumber(summary.proposedOperations || 0)} operations`;
+    headline = `${formatThaiNumber(summary.readyForLiveWritePhase || 0)} รายการพร้อมสำหรับ live phase · ${formatThaiNumber(summary.proposedOperations || 0)} คำสั่งที่เสนอ`;
     detail = [
       item.planStatus || "",
-      item.requiresRemoteRefetch ? "remote refetch required" : "",
-      summary.awaitingFinalConfirmation ? `${formatThaiNumber(summary.awaitingFinalConfirmation)} awaiting confirmation` : "",
-      summary.duplicateIdempotencyKeys ? `${formatThaiNumber(summary.duplicateIdempotencyKeys)} duplicate keys` : ""
+      item.requiresRemoteRefetch ? "ต้องดึงข้อมูลปลายทางใหม่" : "",
+      summary.awaitingFinalConfirmation ? `${formatThaiNumber(summary.awaitingFinalConfirmation)} รอยืนยันสุดท้าย` : "",
+      summary.duplicateIdempotencyKeys ? `${formatThaiNumber(summary.duplicateIdempotencyKeys)} key ซ้ำ` : ""
     ];
   }
   if (isMediaRemoteRefetch) {
-    headline = `${formatThaiNumber(summary.remoteProductsFound || 0)} products found · ${formatThaiNumber(summary.operationCount || 0)} operations checked`;
+    headline = `${formatThaiNumber(summary.remoteProductsFound || 0)} สินค้าที่พบ · ตรวจแล้ว ${formatThaiNumber(summary.operationCount || 0)} คำสั่ง`;
     detail = [
       item.preflightStatus || "",
-      `${formatThaiNumber(summary.currentGalleryImages || 0)} current gallery`,
-      `${formatThaiNumber(summary.remoteMediaMatches || 0)} media matches`,
-      summary.remoteProductsMissing ? `${formatThaiNumber(summary.remoteProductsMissing)} products missing` : ""
+      `${formatThaiNumber(summary.currentGalleryImages || 0)} ภาพแกลเลอรีปัจจุบัน`,
+      `${formatThaiNumber(summary.remoteMediaMatches || 0)} ภาพที่จับคู่ได้`,
+      summary.remoteProductsMissing ? `${formatThaiNumber(summary.remoteProductsMissing)} สินค้าหาไม่เจอ` : ""
     ];
   }
   return `
@@ -5200,18 +5232,18 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const mediaExportPreflightGate = review.media_export_preflight_gate || null;
   const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
-  els.heroReviewTitle.textContent = hasSupportAssets ? `Image Set Review / ${sku}` : `Hero Review / ${sku}`;
-  els.heroReviewStatus.textContent = hasSupportAssets ? "support ready" : review.approved ? "approved" : "ready";
+  els.heroReviewTitle.textContent = hasSupportAssets ? `ตรวจชุดภาพ / ${sku}` : `ตรวจ Hero / ${sku}`;
+  els.heroReviewStatus.textContent = hasSupportAssets ? "Support พร้อมตรวจ" : review.approved ? "อนุมัติแล้ว" : "พร้อมตรวจ";
   if (getPageFromHash() === "review") {
-    els.topbarEyebrow.textContent = hasSupportAssets ? "Support Review" : "Hero Review";
-    els.topbarTitle.textContent = hasSupportAssets ? "ตรวจ Support ก่อน Export" : "ตรวจ Hero ก่อน Support";
+    els.topbarEyebrow.textContent = hasSupportAssets ? "ตรวจ Support" : "ตรวจ Hero";
+    els.topbarTitle.textContent = hasSupportAssets ? "ตรวจ Support ก่อนส่งออก" : "ตรวจ Hero ก่อนสร้าง Support";
   }
   els.heroReviewMeta.textContent = [
     job.product_name,
     job.product_type,
-    job.status,
-    hasSupportAssets ? `${supportAssets.length} support shots · ตรวจก่อน Media Preflight` : "support จะเริ่มหลัง approve hero"
-  ].filter(Boolean).join(" · ") || "ตรวจ ref ต้นทางกับ hero candidate";
+    getProductionStatusText(job.status),
+    hasSupportAssets ? `${supportAssets.length} ภาพ Support · ตรวจก่อนส่งออก` : "ระบบจะสร้าง Support หลังอนุมัติ Hero"
+  ].filter(Boolean).join(" · ") || "เทียบภาพอ้างอิงกับ Hero ที่ระบบสร้าง";
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
   els.heroReviewApproveButton.dataset.generationId = generationId;
@@ -5224,7 +5256,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewApproveButton.hidden = hasSupportAssets;
   els.heroReviewRegenerateButton.hidden = hasSupportAssets;
   if (els.heroReviewDecisionDock) els.heroReviewDecisionDock.hidden = hasSupportAssets;
-  els.heroReviewApproveButton.textContent = "Approve hero";
+  els.heroReviewApproveButton.textContent = "อนุมัติ Hero";
   if (els.supportReviewSaveButton) {
     els.supportReviewSaveButton.dataset.batchId = batchId;
     els.supportReviewSaveButton.dataset.sku = sku;
@@ -5233,15 +5265,15 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   }
 
   els.heroReviewHero.innerHTML = heroUrl
-    ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="Hero candidate ${escapeHtml(sku)}" /></a>`
-    : `<p class="empty-state">ไม่พบ hero image</p>`;
+    ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="ภาพ Hero ${escapeHtml(sku)}" /></a>`
+    : `<p class="empty-state">ไม่พบภาพ Hero</p>`;
 
   if (!refs.length) {
-    els.heroReviewRefs.innerHTML = `<p class="empty-state">ไม่พบ reference image ในงานนี้</p>`;
+    els.heroReviewRefs.innerHTML = `<p class="empty-state">ไม่พบภาพอ้างอิงในงานนี้</p>`;
   } else {
     els.heroReviewRefs.innerHTML = refs.map((asset, index) => {
       const url = asset.public_url || asset.url || asset.thumbnailLink || "";
-      const label = asset.file_name || asset.name || asset.source_name || `Reference ${index + 1}`;
+      const label = asset.file_name || asset.name || asset.source_name || `ภาพอ้างอิง ${index + 1}`;
       return `
         <figure class="review-image-tile">
           ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
@@ -5257,15 +5289,15 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     els.heroReviewSupportAssets.innerHTML = hasSupportAssets
       ? supportAssets.map((asset, index) => {
         const url = asset.public_url || asset.url || asset.source_url || "";
-        const label = asset.slot || asset.file_name || `Support ${index + 1}`;
+        const label = asset.slot || asset.file_name || `ภาพ Support ${index + 1}`;
         const assetKey = getSupportAssetKey(asset) || `${sku}:support:${index + 1}`;
         const decision = supportDecisionMap.get(assetKey) || "pending_support_qc";
         return `
           <figure class="review-image-tile">
-            ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)} support shot" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
+            ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
             <figcaption>${escapeHtml(label)}</figcaption>
             <label class="support-decision-control">
-              <span>Decision</span>
+              <span>ผลตรวจ</span>
               <select
                 data-support-decision
                 data-asset-key="${escapeHtml(assetKey)}"
@@ -5275,27 +5307,27 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
                 data-public-url="${escapeHtml(url)}"
                 data-slot="${escapeHtml(asset.slot || asset.shot_key || label)}"
               >
-                <option value="pending_support_qc"${decision === "pending_support_qc" ? " selected" : ""}>Pending QC</option>
-                <option value="approve_support"${decision === "approve_support" ? " selected" : ""}>Approve support</option>
-                <option value="regenerate_support"${decision === "regenerate_support" ? " selected" : ""}>Regenerate</option>
-                <option value="reject_support"${decision === "reject_support" ? " selected" : ""}>Reject</option>
-                <option value="needs_manual_review"${decision === "needs_manual_review" ? " selected" : ""}>Needs manual review</option>
+                <option value="pending_support_qc"${decision === "pending_support_qc" ? " selected" : ""}>รอตรวจ</option>
+                <option value="approve_support"${decision === "approve_support" ? " selected" : ""}>อนุมัติภาพนี้</option>
+                <option value="regenerate_support"${decision === "regenerate_support" ? " selected" : ""}>สร้างใหม่</option>
+                <option value="reject_support"${decision === "reject_support" ? " selected" : ""}>ไม่ใช้ภาพนี้</option>
+                <option value="needs_manual_review"${decision === "needs_manual_review" ? " selected" : ""}>ต้องตรวจเพิ่ม</option>
               </select>
             </label>
           </figure>
         `;
       }).join("")
-      : `<p class="empty-state">ยังไม่มี support ใน review set นี้</p>`;
+      : `<p class="empty-state">ยังไม่มีภาพ Support ในชุดงานนี้</p>`;
   }
 
   const reviewMessage = mediaExportPreflightGate?.gate_status
-    ? `Media export gate: ${mediaExportPreflightGate.gate_status}`
+    ? `ตรวจไฟล์ก่อนส่งออก: ${getProductionStatusText(mediaExportPreflightGate.gate_status)}`
     : supportCandidateManifest?.manifest_status
-      ? `Candidate manifest: ${supportCandidateManifest.manifest_status}`
+      ? `ชุดภาพพร้อมส่งออก: ${getProductionStatusText(supportCandidateManifest.manifest_status)}`
       : hasSupportAssets
-        ? "Support candidates พร้อมตรวจใน flow เดียวกันแล้ว"
+        ? "ภาพ Support พร้อมให้ตรวจแล้ว"
         : review.approved
-          ? "Hero นี้ approve แล้ว"
+          ? "Hero นี้อนุมัติแล้ว"
           : "";
   setHeroReviewMessage(
     reviewMessage,
@@ -5305,9 +5337,9 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
 
 async function approveHeroFromReviewPage() {
   const generationId = els.heroReviewApproveButton?.dataset.generationId || "";
-  if (!generationId) return setHeroReviewMessage("ไม่มี generation_id สำหรับ approve", "danger");
+  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับอนุมัติ Hero", "danger");
   els.heroReviewApproveButton.disabled = true;
-  setHeroReviewMessage("กำลังบันทึก approval...", "");
+  setHeroReviewMessage("กำลังบันทึกการอนุมัติ Hero...", "");
   try {
     const response = await authFetch("/api/approvals", {
       method: "POST",
@@ -5320,9 +5352,9 @@ async function approveHeroFromReviewPage() {
       })
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || "Approval was not recorded.");
-    els.heroReviewStatus.textContent = "approved";
-    setHeroReviewMessage("Approve แล้ว: บันทึก decision ใน flow กลางเรียบร้อย", "success");
+    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกการอนุมัติไม่สำเร็จ");
+    els.heroReviewStatus.textContent = "อนุมัติแล้ว";
+    setHeroReviewMessage("อนุมัติ Hero แล้ว ระบบจะไปสร้าง Support ต่อ", "success");
   } catch (error) {
     els.heroReviewApproveButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
@@ -5331,9 +5363,9 @@ async function approveHeroFromReviewPage() {
 
 async function regenerateHeroFromReviewPage() {
   const generationId = els.heroReviewRegenerateButton?.dataset.generationId || "";
-  if (!generationId) return setHeroReviewMessage("ไม่มี generation_id สำหรับ regenerate", "danger");
+  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับสร้าง Hero ใหม่", "danger");
   els.heroReviewRegenerateButton.disabled = true;
-  setHeroReviewMessage("กำลังส่งคำขอ regenerate...", "");
+  setHeroReviewMessage("กำลังส่งคำขอสร้าง Hero ใหม่...", "");
   try {
     const response = await authFetch("/api/review/hero/regenerate", {
       method: "POST",
@@ -5345,9 +5377,9 @@ async function regenerateHeroFromReviewPage() {
       })
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || "Regenerate request was not recorded.");
-    els.heroReviewStatus.textContent = "regenerate queued";
-    setHeroReviewMessage("รับคำขอ regenerate แล้ว", "success");
+    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกคำขอสร้างใหม่ไม่สำเร็จ");
+    els.heroReviewStatus.textContent = "รอสร้างใหม่";
+    setHeroReviewMessage("รับคำขอสร้าง Hero ใหม่แล้ว ระบบจะเริ่มงานตามคิว", "success");
   } catch (error) {
     els.heroReviewRegenerateButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
@@ -5359,8 +5391,8 @@ async function saveSupportReviewDecisions() {
   const sku = els.supportReviewSaveButton?.dataset.sku || getHashParams().get("sku") || "";
   const generationId = els.supportReviewSaveButton?.dataset.generationId || getHashParams().get("generation_id") || "";
   const decisionInputs = Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-decision]") || []);
-  if (!batchId || !sku) return setHeroReviewMessage("ไม่มี batch_id หรือ sku สำหรับบันทึก Support Review", "danger");
-  if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มี support candidates ให้บันทึก", "danger");
+  if (!batchId || !sku) return setHeroReviewMessage("ไม่มีรหัสชุดงานหรือ SKU สำหรับบันทึกผลตรวจ Support", "danger");
+  if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มีภาพ Support ให้บันทึก", "danger");
 
   const decisions = decisionInputs.map((input) => ({
     asset_key: input.dataset.assetKey || "",
@@ -5373,7 +5405,7 @@ async function saveSupportReviewDecisions() {
   }));
 
   els.supportReviewSaveButton.disabled = true;
-  setHeroReviewMessage("กำลังบันทึก Support Review decisions...", "");
+  setHeroReviewMessage("กำลังบันทึกผลตรวจ Support...", "");
   try {
     const response = await authFetch("/api/review/support-decisions", {
       method: "POST",
@@ -5381,7 +5413,7 @@ async function saveSupportReviewDecisions() {
       body: JSON.stringify({ batch_id: batchId, sku, generation_id: generationId, decisions })
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึก Support Review decisions ไม่สำเร็จ");
+    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกผลตรวจ Support ไม่สำเร็จ");
     const state = result.decision_state || {};
     els.heroReviewStatus.textContent = state.review_status || "support review saved";
     if (state.candidate_manifest_ready) {
@@ -5389,14 +5421,14 @@ async function saveSupportReviewDecisions() {
       const mediaGateStatus = result.media_export_preflight_gate?.gate_status || "";
       setHeroReviewMessage(
         mediaGateStatus
-          ? `Support approved ครบแล้ว: ${mediaGateStatus}`
-          : `Support approved ครบแล้ว: ${manifestStatus}`,
+          ? `ตรวจ Support ครบแล้ว: ${getProductionStatusText(mediaGateStatus)}`
+          : `ตรวจ Support ครบแล้ว: ${getProductionStatusText(manifestStatus)}`,
         "success"
       );
     } else if (state.review_status === "support_regeneration_requested") {
-      setHeroReviewMessage("รับคำขอ regenerate support แล้ว: flow จะยังไม่ไป Candidate Manifest", "success");
+      setHeroReviewMessage("รับคำขอสร้าง Support ใหม่แล้ว ระบบจะยังไม่ไปขั้นส่งออก", "success");
     } else {
-      setHeroReviewMessage("บันทึก Support Review decisions แล้ว", "success");
+      setHeroReviewMessage("บันทึกผลตรวจ Support แล้ว", "success");
     }
   } catch (error) {
     setHeroReviewMessage(error.message, "danger");
