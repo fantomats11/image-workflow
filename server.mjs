@@ -3126,10 +3126,10 @@ async function readHeroReviewReferenceAssetsFromBatch({ batchKey = "", sku = "",
     return referenceAssets.map(normalizeHeroReviewReferenceAsset).filter(Boolean);
   }
 
-  return readHeroReviewReferenceAssetsFromDriveFolder(resolvedMetadata);
+  return readHeroReviewReferenceAssetsFromDriveFolder({ metadata: resolvedMetadata, sku });
 }
 
-async function readHeroReviewReferenceAssetsFromDriveFolder(metadata = {}) {
+async function readHeroReviewReferenceAssetsFromDriveFolder({ metadata = {}, sku = "" } = {}) {
   if (!isPlainObject(metadata)) return [];
   const folderId = cleanOptionalString(
     metadata.reference_drive_id ||
@@ -3149,28 +3149,25 @@ async function readHeroReviewReferenceAssetsFromDriveFolder(metadata = {}) {
     console.warn(`Hero review reference folder read failed: ${readableError(error)}`);
     return [];
   }
-  return files
-    .filter((file) => isGoogleDriveImageReferenceFile(file))
-    .slice(0, 12)
-    .map((file, index) => normalizeHeroReviewReferenceAsset({
-      id: file.id,
-      drive_file_id: file.id,
-      name: file.name || `reference-${index + 1}`,
-      file_name: `${String(index + 1).padStart(2, "0")}-${file.name || file.id}`,
-      mimeType: file.mimeType || "",
-      width: file.imageMediaMetadata?.width || null,
-      height: file.imageMediaMetadata?.height || null,
-      webViewLink: file.webViewLink || "",
-      webContentLink: file.webContentLink || "",
-      thumbnailLink: file.thumbnailLink || "",
+
+  const normalizedSku = sanitizeSku(sku || metadata.sku || "");
+  const resolution = buildReferenceAssetResolution({
+    batchItems: [{
+      sku: normalizedSku,
+      reference_drive_id: folderId,
+      reference_url: metadata.reference_url || metadata.reference_manifest?.source_url || ""
+    }],
+    filesByFolderId: { [folderId]: files }
+  });
+  const selectedAssets = resolution.items?.[0]?.selected_reference_assets || [];
+  return selectedAssets
+    .map((asset, index) => normalizeHeroReviewReferenceAsset({
+      ...asset,
+      file_name: `${String(index + 1).padStart(2, "0")}-${asset.name || asset.drive_file_id || asset.id}`,
       source_role: "product_reference",
       type: "product_reference"
     }))
     .filter(Boolean);
-}
-
-function isGoogleDriveImageReferenceFile(file = {}) {
-  return String(file.mimeType || "").toLowerCase().startsWith("image/");
 }
 
 function normalizeHeroReviewReferenceAsset(asset = {}) {

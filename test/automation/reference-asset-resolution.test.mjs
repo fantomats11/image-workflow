@@ -68,6 +68,35 @@ test("buildReferenceAssetResolution keeps label-only folders in review state", (
   assert.equal(resolution.items[0].classification_summary.label_or_tag, 1);
 });
 
+test("buildReferenceAssetResolution dedupes repeated view sets and excludes SKU cards", () => {
+  const resolution = buildReferenceAssetResolution({
+    batchItems: [{
+      sku: "R23CBT0048",
+      reference_url: "https://drive.google.com/drive/folders/folder-repeat"
+    }],
+    filesByFolderId: {
+      "folder-repeat": [
+        { id: "sku-card", name: "R23CBT0048_SkuCard_1778916633111.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 1200, height: 1600 } },
+        { id: "front-new", name: "R23CBT0048_Front_1778916623595.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "front-old", name: "R23CBT0048_Front_1778916600345.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "back-new", name: "R23CBT0048_Back_1778916625546.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "back-old", name: "R23CBT0048_Back_1778916602023.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "side-new", name: "R23CBT0048_Side_1778916627405.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "side-old", name: "R23CBT0048_Side_1778916603677.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "inside-new", name: "R23CBT0048_Inside_1778916629366.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "inside-old", name: "R23CBT0048_Inside_1778916605053.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "extra-new", name: "R23CBT0048_Extra1_1778916631325.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } },
+        { id: "extra-old", name: "R23CBT0048_Extra1_1778916606492.jpg", mimeType: "image/jpeg", imageMediaMetadata: { width: 602, height: 800 } }
+      ]
+    }
+  });
+
+  const selectedIds = resolution.items[0].selected_reference_assets.map((asset) => asset.drive_file_id);
+  assert.deepEqual(selectedIds.sort(), ["back-new", "extra-new", "front-new", "inside-new", "side-new"].sort());
+  assert.equal(selectedIds.includes("sku-card"), false);
+  assert.equal(resolution.items[0].classification_summary.label_or_tag, 1);
+});
+
 test("buildReferenceAssetResolution reports unreadable or empty reference folders", () => {
   const resolution = buildReferenceAssetResolution({
     batchItems: [{
