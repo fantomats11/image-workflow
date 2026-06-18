@@ -771,3 +771,89 @@ test("worker core enqueues live support execution after approved hero plan", asy
   assert.equal(enqueued[0].payload.live_generation_gate.requests.length, 1);
   assert.equal(enqueued[0].payload.generation_plan.items[0].generation_requests[0].kind, "support");
 });
+
+test("worker core enqueues live hero regeneration after regenerate hero review action", async () => {
+  const completed = [];
+  const enqueued = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-regenerate-hero-plan-1",
+      task_type: "generate_batch",
+      batch_id: "batch-live-regenerate",
+      dedupe_key: "regenerate-hero:batch-live-regenerate:R24CBF0013",
+      payload: {
+        action: "regenerate_hero",
+        actor_id: "actor-1",
+        sku: "R24CBF0013",
+        generation_id: "hero-gen-existing",
+        generation_phase: "hero_regeneration_after_review",
+        request_mode: "hero-regeneration-only",
+        auto_enqueue_live_hero: true,
+        live_generation_requested: true,
+        live_generation_confirmed: true
+      }
+    },
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "test-fal-key" },
+    batchItems: [{
+      id: "item-1",
+      sku: "R24CBF0013",
+      target_site: "rentacoat",
+      status: "needs_hero_regeneration",
+      product_name: "Women's Slopeside Peak Luxe Waterproof Snow Boot",
+      category: "รองเท้า",
+      metadata: {
+        brand_id: "rent_a_coat",
+        product_type: "rental",
+        reference_url: "https://drive.google.com/drive/folders/ref-folder",
+        support_shots: "",
+        web_review_action: {
+          action: "regenerate_hero",
+          hero_asset_id: "hero-asset-1",
+          generation_id: "hero-gen-existing"
+        }
+      }
+    }],
+    readMediaManifest: async () => ({
+      assets: [{
+        id: "hero-asset-1",
+        sku: "R24CBF0013",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "generated",
+        local_path: "/tmp/old-hero.png",
+        url: "https://cdn.example.com/old-hero.png",
+        file_name: "old-hero.png"
+      }]
+    }),
+    readModelInputStagingManifest: async () => ({
+      items: [{
+        sku: "R24CBF0013",
+        staged_reference_assets: [{
+          drive_file_id: "front-ref-1",
+          source_name: "R24CBF0013_Front.jpg",
+          source_mime_type: "image/jpeg",
+          local_path: "/tmp/r24-front.jpg",
+          file_name: "front.jpg",
+          file_size: 456,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    }),
+    enqueueTask: async (taskPayload) => enqueued.push(taskPayload),
+    recordAuditEvent: async () => {},
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].result.generation_plan.summary.hero_requests, 1);
+  assert.equal(completed[0].result.generation_plan.summary.skipped_existing_slots, 0);
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0].taskType, "live_pilot_generation_execution");
+  assert.equal(enqueued[0].payload.action, "regenerate_hero_after_review");
+  assert.equal(enqueued[0].payload.live_generation_gate.live_generation_allowed, true);
+  assert.equal(enqueued[0].payload.live_generation_gate.requests.length, 1);
+  assert.equal(enqueued[0].payload.live_generation_gate.requests[0].kind, "hero");
+  assert.match(enqueued[0].payload.live_generation_gate.requests[0].request_id, /^R24CBF0013:hero:regenerate:hero-gen/);
+});

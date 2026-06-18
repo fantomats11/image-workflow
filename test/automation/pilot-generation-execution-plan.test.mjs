@@ -458,3 +458,149 @@ test("buildPilotGenerationExecutionPlan marks staged local model inputs ready fo
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
   assert.deepEqual(plan.items[0].generation_requests[1].blockers, ["support_requires_approved_hero_anchor"]);
 });
+
+test("buildPilotGenerationExecutionPlan obeys regenerate hero review action even when a hero asset exists", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: {
+      id: "task-regenerate-hero",
+      task_type: "generate_batch",
+      batch_id: "batch-review-action",
+      payload: {
+        action: "regenerate_hero",
+        sku: "R24CBF0013",
+        generation_id: "675e34a7-a41c-48c9-a4f2-d0ae352660b1",
+        request_mode: "hero-regeneration-only"
+      }
+    },
+    batchItems: [{
+      sku: "R24CBF0013",
+      brand_id: "rent_a_coat",
+      target_site: "rentacoat",
+      product_name: "Women's Slopeside Peak Luxe Waterproof Snow Boot",
+      product_type: "rental",
+      category: "รองเท้า",
+      reference_url: "https://drive.google.com/drive/folders/boot-ref",
+      support_shots: ""
+    }, {
+      sku: "R23CBT0048",
+      brand_id: "go_mall",
+      target_site: "gomall",
+      product_name: "Columbia Alpine Crux Titanium Down Hooded Jacket",
+      product_type: "sale",
+      category: "เสื้อ",
+      reference_url: "https://drive.google.com/drive/folders/jacket-ref",
+      support_shots: ""
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "R24CBF0013",
+        staged_reference_assets: [{
+          drive_file_id: "boot-front",
+          source_name: "R24CBF0013_Front.jpg",
+          local_path: "/tmp/R24CBF0013/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    },
+    mediaManifest: {
+      assets: [{
+        id: "existing-hero",
+        sku: "R24CBF0013",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "generated",
+        local_path: "/tmp/R24CBF0013/hero.png",
+        url: "https://cdn.example.com/existing-hero.png"
+      }]
+    }
+  });
+
+  assert.equal(plan.review_action, "regenerate_hero");
+  assert.equal(plan.summary.hero_requests, 1);
+  assert.equal(plan.summary.support_requests, 0);
+  assert.equal(plan.summary.skipped_existing_slots, 0);
+  assert.equal(plan.items[0].generation_status, "ready_for_live_generation");
+  assert.equal(plan.items[0].generation_requests[0].kind, "hero");
+  assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
+  assert.match(plan.items[0].generation_requests[0].request_id, /^R24CBF0013:hero:regenerate:675e34a7$/);
+  assert.equal(plan.items[1].generation_status, "not_selected_for_review_action");
+  assert.deepEqual(plan.items[1].generation_requests, []);
+});
+
+test("buildPilotGenerationExecutionPlan creates default support requests after hero approval when keyword intake has no support shots", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: {
+      id: "task-approve-hero",
+      task_type: "generate_batch",
+      batch_id: "batch-review-action",
+      payload: {
+        action: "approve_hero",
+        sku: "R23CBT0048",
+        generation_id: "a43f727e-f8ea-4362-8690-b3161fc8e29d",
+        request_mode: "support-only-after-hero-approval"
+      }
+    },
+    batchItems: [{
+      sku: "R24CBF0013",
+      brand_id: "rent_a_coat",
+      target_site: "rentacoat",
+      product_name: "Women's Slopeside Peak Luxe Waterproof Snow Boot",
+      product_type: "rental",
+      category: "รองเท้า",
+      reference_url: "https://drive.google.com/drive/folders/boot-ref",
+      support_shots: ""
+    }, {
+      sku: "R23CBT0048",
+      brand_id: "go_mall",
+      target_site: "gomall",
+      product_name: "Columbia Alpine Crux Titanium Down Hooded Jacket LightPink Goose Down Women’s",
+      product_type: "sale",
+      category: "เสื้อ",
+      reference_url: "https://drive.google.com/drive/folders/jacket-ref",
+      support_shots: "",
+      status: "hero_approved",
+      metadata: { web_review_action: { action: "approve_hero" } }
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "R23CBT0048",
+        staged_reference_assets: [{
+          drive_file_id: "jacket-front",
+          source_name: "R23CBT0048_Front.jpg",
+          local_path: "/tmp/R23CBT0048/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    },
+    mediaManifest: {
+      assets: [{
+        id: "approved-hero",
+        sku: "R23CBT0048",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "approved",
+        local_path: "/tmp/R23CBT0048/hero.png",
+        url: "https://cdn.example.com/approved-hero.png",
+        approved_at: "2026-06-18T02:00:00Z"
+      }]
+    }
+  });
+
+  assert.equal(plan.review_action, "approve_hero");
+  assert.equal(plan.summary.hero_requests, 0);
+  assert.equal(plan.summary.support_requests, 3);
+  assert.equal(plan.summary.blocked_generation_requests, 0);
+  assert.equal(plan.items[0].generation_status, "not_selected_for_review_action");
+  assert.deepEqual(plan.items[1].support_shots, ["side_fit_on_model", "back_fit_on_model", "material_or_lining_closeup"]);
+  assert.equal(plan.items[1].generation_status, "ready_for_live_generation");
+  assert.equal(plan.items[1].generation_requests.every((request) => request.kind === "support"), true);
+  assert.equal(plan.items[1].generation_requests[0].model_input_files[0].source_name, "approved_hero_anchor");
+});
