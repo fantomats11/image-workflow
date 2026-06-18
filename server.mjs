@@ -6603,20 +6603,21 @@ async function buildProductionJobsView(query = {}) {
   const search = String(query.q || "").trim().toLowerCase();
   const rangeMeta = getKpiRangeMeta(range);
   const readLimit = range === "all" ? 5000 : 2500;
+  const contextSince = null;
 
   const [jobsResult, generationsResult, approvalsResult, assetsResult, auditEventsResult] = await Promise.all([
     readMonitoringRows("jobs", [
       "id, sku, product_name, brand, category, image_type, status, created_by, created_at, updated_at, form_json",
       "id, sku, product_name, brand, category, image_type, status, created_by, created_at, form_json"
     ], {
-      since: rangeMeta.since,
+      since: contextSince,
       limit: readLimit
     }),
     readMonitoringRows("generations", [
       "id, job_id, kind, request_id, status, created_by, created_at, updated_at, completed_at, error_message",
       "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message"
     ], {
-      since: rangeMeta.since,
+      since: contextSince,
       limit: readLimit,
       optional: true
     }),
@@ -6624,7 +6625,7 @@ async function buildProductionJobsView(query = {}) {
       "id, generation_id, approved_by, approved_at, export_path",
       "id, generation_id, approved_by, approved_at"
     ], {
-      since: rangeMeta.since,
+      since: contextSince,
       dateColumn: "approved_at",
       orderColumn: "approved_at",
       limit: readLimit,
@@ -6634,7 +6635,7 @@ async function buildProductionJobsView(query = {}) {
       "id, job_id, type, bucket, public_url, storage_key, created_by, created_at",
       "id, job_id, type, bucket, created_by, created_at"
     ], {
-      since: rangeMeta.since,
+      since: contextSince,
       limit: readLimit,
       optional: true
     }),
@@ -6642,7 +6643,7 @@ async function buildProductionJobsView(query = {}) {
       "id, actor_id, job_id, generation_id, event_type, event_json, created_at",
       "id, actor_id, job_id, generation_id, event_type, created_at"
     ], {
-      since: rangeMeta.since,
+      since: contextSince,
       limit: readLimit,
       optional: true
     })
@@ -6673,6 +6674,7 @@ async function buildProductionJobsView(query = {}) {
       profile: profileById.get(job.created_by)
     }))
     .filter((job) => {
+      if (!productionJobMatchesRange(job, rangeMeta)) return false;
       if (statusFilter && String(job.status || "").toLowerCase() !== statusFilter) return false;
       if (!search) return true;
       const haystack = [
@@ -6689,7 +6691,8 @@ async function buildProductionJobsView(query = {}) {
         job.exportStatus
       ].join(" ").toLowerCase();
       return haystack.includes(search);
-    });
+    })
+    .sort((a, b) => new Date(b.latestActivityAt || b.createdAt || 0) - new Date(a.latestActivityAt || a.createdAt || 0));
 
   const pagination = buildProductionPaginationMeta(paginationInput, rows.length);
   return {
@@ -6698,6 +6701,14 @@ async function buildProductionJobsView(query = {}) {
     jobs: paginateProductionItems(rows, pagination),
     pagination
   };
+}
+
+function productionJobMatchesRange(job = {}, rangeMeta = {}) {
+  if (!rangeMeta?.since) return true;
+  const activityAt = job.latestActivityAt || job.updatedAt || job.createdAt || "";
+  const activityMs = new Date(activityAt).getTime();
+  const sinceMs = new Date(rangeMeta.since).getTime();
+  return Number.isFinite(activityMs) && Number.isFinite(sinceMs) && activityMs >= sinceMs;
 }
 
 async function buildProductionAssetsView(query = {}) {
