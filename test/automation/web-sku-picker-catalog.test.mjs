@@ -161,6 +161,24 @@ test("loadWebSkuPickerCatalogSnapshot prefers refreshed outputs snapshot before 
   assert.equal(snapshot.rows[0].sku, "LIVE001");
 });
 
+test("loadWebSkuPickerCatalogSnapshot reuses unchanged parsed snapshots", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-cache-"));
+  await fs.writeFile(
+    path.join(outputsDir, "generation-input-catalog.csv"),
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "CACHE001,Cached Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/cache-folder-id,cache-folder-id,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const first = await loadWebSkuPickerCatalogSnapshot({ outputsDir });
+  const second = await loadWebSkuPickerCatalogSnapshot({ outputsDir });
+
+  assert.equal(second, first);
+  assert.equal(second.rows, first.rows);
+});
+
 test("buildWebSkuReferenceContract creates stageable Drive cards without exposing raw key", () => {
   const item = findWebSkuPickerItemBySku(rows, "R23CBT0048");
   const contract = buildWebSkuReferenceContract({

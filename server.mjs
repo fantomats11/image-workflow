@@ -141,6 +141,11 @@ const generationJobs = new Map();
 const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
+const googleDriveReferenceFilesCache = new Map();
+const googleDriveReferenceFilesCacheTtlMs = Math.max(
+  30_000,
+  Number(process.env.GOOGLE_DRIVE_REFERENCE_FILES_CACHE_TTL_MS || 300_000) || 300_000
+);
 const googleOAuthStateById = new Map();
 let automationEmbeddedWorkerRunning = false;
 let automationEmbeddedWorkerLastRunAt = null;
@@ -927,7 +932,7 @@ async function buildWebSkuReferencePayload(item = {}) {
     try {
       const drive = await getGoogleDriveClient();
       if (drive) {
-        const files = await listGoogleDriveReferenceFiles(drive, folderId);
+        const files = await listGoogleDriveReferenceFilesCached(drive, folderId);
         const resolution = buildReferenceAssetResolution({
           batch: { batch_id: null },
           batchItems: [{
@@ -5453,9 +5458,9 @@ async function listGoogleDriveReferenceFiles(drive, folderId) {
   let pageToken;
   do {
     const response = await drive.files.list({
-      q: `'${escapeGoogleDriveQueryValue(folderId)}' in parents and trashed = false`,
+      q: `'${escapeGoogleDriveQueryValue(folderId)}' in parents and trashed = false and mimeType contains 'image/'`,
       fields: "nextPageToken, files(id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink, imageMediaMetadata(width,height), createdTime, modifiedTime)",
-      pageSize: 1000,
+      pageSize: 200,
       pageToken,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true
@@ -5463,6 +5468,23 @@ async function listGoogleDriveReferenceFiles(drive, folderId) {
     files.push(...(response.data.files || []));
     pageToken = response.data.nextPageToken;
   } while (pageToken);
+  return files;
+}
+
+async function listGoogleDriveReferenceFilesCached(drive, folderId) {
+  const cacheKey = cleanOptionalString(folderId);
+  if (!cacheKey) return [];
+  const cached = googleDriveReferenceFilesCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.files;
+  }
+
+  const files = await listGoogleDriveReferenceFiles(drive, cacheKey);
+  googleDriveReferenceFilesCache.set(cacheKey, {
+    files,
+    expiresAt: now + googleDriveReferenceFilesCacheTtlMs
+  });
   return files;
 }
 

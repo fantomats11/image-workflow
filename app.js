@@ -1226,7 +1226,7 @@ function renderCatalogReferencePanel(message = "") {
   const stageable = selectedCatalogReferences.filter((reference) => reference.stage_available && reference.reference_key);
   const stagedCount = stagedCatalogReferenceKeys.length;
   els.catalogReferenceStatus.textContent = message || [
-    catalogReferenceLoading ? "กำลังโหลด reference จาก catalog/Drive..." : "",
+    catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive..." : "",
     `พร้อมใช้กับ Hero: ${stageable.length} รูป`,
     stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
     "ตรวจด้วยตาว่าเป็นภาพสินค้าจริง ไม่ใช่ tag/barcode/SKU card"
@@ -1237,7 +1237,9 @@ function renderCatalogReferencePanel(message = "") {
   }
 
   if (!selectedCatalogReferences.length) {
-    els.catalogReferenceCards.innerHTML = `<div class="catalog-reference-empty">ยังไม่มี reference card สำหรับ SKU นี้</div>`;
+    els.catalogReferenceCards.innerHTML = catalogReferenceLoading
+      ? `<div class="catalog-reference-empty">กำลังโหลดรายการไฟล์ภาพจาก Google Drive...</div>`
+      : `<div class="catalog-reference-empty">ยังไม่มี reference card สำหรับ SKU นี้</div>`;
     updateActionAvailability();
     return;
   }
@@ -1275,6 +1277,7 @@ async function loadCatalogReferencesForSelectedSku() {
   const requestedSku = selectedCatalogSku.sku;
   selectedCatalogReferences = [];
   stagedCatalogReferenceKeys = [];
+  let finalMessage = "";
   renderCatalogReferencePanel();
   try {
     const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
@@ -1287,14 +1290,14 @@ async function loadCatalogReferencesForSelectedSku() {
       reference_readiness: data.reference_readiness || selectedCatalogSku.reference_readiness
     };
     renderSkuPickerStatus();
-    renderCatalogReferencePanel();
   } catch (error) {
     selectedCatalogReferences = [];
     stagedCatalogReferenceKeys = [];
-    renderCatalogReferencePanel(getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง");
+    finalMessage = getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง";
   } finally {
+    if (selectedCatalogSku?.sku !== requestedSku) return;
     catalogReferenceLoading = false;
-    renderCatalogReferencePanel();
+    renderCatalogReferencePanel(finalMessage);
   }
 }
 
