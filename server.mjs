@@ -38,7 +38,7 @@ import {
   buildWordPressMediaAttachConfirmationFlex,
   buildWordPressMediaPreflightFlex,
   buildWordPressPreflightFlex,
-  buildPilotBatchFlex,
+  buildLineKeywordBatchReviewFlex,
   pushLineMessage
 } from "./lib/automation/line-client.mjs";
 import {
@@ -50,6 +50,34 @@ import {
 import { renderAiHubImageReviewPage } from "./lib/automation/ai-hub-review-page.mjs";
 import { buildAiHubReviewDecisionSubmission } from "./lib/automation/ai-hub-review-decision-workflow.mjs";
 import { renderAiHubReviewWorkspacePage } from "./lib/automation/ai-hub-review-workspace-page.mjs";
+import {
+  resolveBatchWorkflowState,
+  resolveItemWorkflowState
+} from "./lib/automation/e2e-workflow-state.mjs";
+import {
+  buildApprovedHeroAnchor,
+  mergeApprovedHeroAnchorMetadata
+} from "./lib/automation/hero-approval-anchor.mjs";
+import {
+  buildBatchReviewPayload,
+  isBatchCancelable,
+  isItemRetryable,
+  isItemSkippable
+} from "./lib/automation/batch-review-contract.mjs";
+import {
+  buildWorkerModeStartupWarnings,
+  buildWorkerQueueSafetySummary,
+  resolveWorkerRuntimeConfig
+} from "./lib/automation/worker-runtime-config.mjs";
+import {
+  buildSecurityHeaders,
+  isAllowedImageUpload,
+  parseSafeImageUrls,
+  validateRemoteImageUrl,
+  validateUploadedImageFiles,
+  verifyHmacSha256Base64
+} from "./lib/security/input-security.mjs";
+import { shouldSkipRetryExport } from "./lib/automation/export-asset-verification.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,6 +132,8 @@ let generationQueue = Promise.resolve();
 let activeGenerations = 0;
 let pendingGenerations = 0;
 const generationJobs = new Map();
+const rateLimitBuckets = new Map();
+const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
 const googleOAuthStateById = new Map();
 let automationEmbeddedWorkerRunning = false;
@@ -125,12 +155,25 @@ if (process.env.FAL_KEY) {
 }
 
 const app = express();
+app.disable("x-powered-by");
 const upload = multer({
   dest: uploadDir,
-  limits: { fileSize: 20 * 1024 * 1024 }
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (isAllowedImageUpload(file)) return callback(null, true);
+    const error = new Error("Unsupported image upload type.");
+    error.code = "UNSUPPORTED_IMAGE_UPLOAD";
+    return callback(error);
+  }
 });
 
-app.post("/api/line/webhook", express.raw({ type: "application/json", limit: "2mb" }), async (req, res) => {
+app.use((req, res, next) => {
+  const headers = buildSecurityHeaders();
+  Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+  next();
+});
+
+app.post("/api/line/webhook", rateLimit({ keyPrefix: "line", windowMs: 60_000, max: 120 }), express.raw({ type: "application/json", limit: "2mb" }), async (req, res) => {
   if (!isLineWebhookConfigured()) {
     return res.status(503).json({
       ok: false,
@@ -164,7 +207,9 @@ app.post("/api/line/webhook", express.raw({ type: "application/json", limit: "2m
   }
 
   res.json({ ok: true });
-  handleLineWebhookPayload(payload).catch((error) => {
+  const dedupedPayload = dedupeLineWebhookPayload(payload);
+  if (!dedupedPayload.events.length) return;
+  handleLineWebhookPayload(dedupedPayload).catch((error) => {
     console.error("[line] webhook handling failed:", readableError(error));
   });
 });
@@ -252,6 +297,30 @@ function sendApiError(res, status, code, error) {
     code,
     error
   });
+}
+
+function handleImageUploadFields(fields) {
+  const middleware = upload.fields(fields);
+  return (req, res, next) => {
+    middleware(req, res, (error) => {
+      if (!error) return next();
+      return handleUploadError(error, res);
+    });
+  };
+}
+
+function handleUploadError(error, res) {
+  if (error?.code === "LIMIT_FILE_SIZE") {
+    return sendApiError(res, 413, "image_upload_too_large", "ไฟล์รูปภาพต้องไม่เกิน 20MB ต่อไฟล์");
+  }
+  if (error?.code === "LIMIT_UNEXPECTED_FILE") {
+    return sendApiError(res, 400, "unexpected_upload_field", "ช่องอัปโหลดรูปภาพไม่ถูกต้อง");
+  }
+  if (error?.code === "UNSUPPORTED_IMAGE_UPLOAD") {
+    return sendApiError(res, 415, "unsupported_image_upload", "รองรับเฉพาะไฟล์รูปภาพ JPG, PNG หรือ WebP เท่านั้น");
+  }
+  console.warn("[upload] rejected:", readableError(error));
+  return sendApiError(res, 400, "upload_rejected", "อัปโหลดไฟล์ไม่สำเร็จ");
 }
 
 function isAiHubLocalReviewEnabled() {
@@ -391,6 +460,16 @@ function safeRuntimeEnv() {
   return "development";
 }
 
+function safeBuildVersion() {
+  return process.env.APP_VERSION?.trim() || process.env.npm_package_version?.trim() || "1.0.0";
+}
+
+function safeBuildCommit() {
+  const commit = process.env.RENDER_GIT_COMMIT?.trim() || process.env.GIT_COMMIT?.trim() || "";
+  if (!/^[a-f0-9]{7,40}$/i.test(commit)) return "";
+  return commit.slice(0, 12);
+}
+
 function isSupabaseStorageConfigured() {
   return Boolean(supabaseUrl && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() && supabaseStorageBuckets.length);
 }
@@ -526,18 +605,38 @@ app.use("/approved", express.static(approvedDir));
 
 app.get("/api/health", async (_req, res) => {
   const googleDriveStatus = await getSafeGoogleDriveStatus();
+  const workerRuntime = resolveWorkerRuntimeConfig(process.env);
+  const googleDriveConfigured = isGoogleDriveApiConfigured() || isGoogleOAuthConfigured();
+  const storageConfigured = isSupabaseStorageConfigured();
+  const lineConfigured = isLineWebhookConfigured();
+  const status = workerRuntime.wordpress_live_writes_enabled ? "blocked" : "ok";
   res.json({
     ok: true,
+    status,
     service: "image-workflow",
+    version: safeBuildVersion(),
+    commit: safeBuildCommit() || null,
     time: new Date().toISOString(),
     env: safeRuntimeEnv(),
+    worker_mode: workerRuntime.worker_mode,
+    embedded_worker_enabled: workerRuntime.embedded_worker_enabled,
+    dedicated_worker_expected: workerRuntime.dedicated_worker_expected,
+    live_generation_enabled: workerRuntime.live_generation_enabled,
+    dry_run: workerRuntime.dry_run,
+    support_after_hero_approval_enabled: workerRuntime.support_after_hero_approval_enabled,
+    wordpress_dry_run: workerRuntime.wordpress_dry_run,
+    wordpress_live_writes_enabled: workerRuntime.wordpress_live_writes_enabled,
+    google_drive_configured: googleDriveConfigured,
+    google_drive_connected: googleDriveStatus.connected === true,
+    storage_configured: storageConfigured,
+    line_configured: lineConfigured,
     checks: {
       supabaseConfigured: Boolean(supabaseUrl && supabaseAnonKey),
-      googleDriveConfigured: isGoogleDriveApiConfigured() || isGoogleOAuthConfigured(),
+      googleDriveConfigured,
       googleDriveConnected: googleDriveStatus.connected === true,
       falConfigured: Boolean(process.env.FAL_KEY),
-      storageConfigured: isSupabaseStorageConfigured(),
-      lineConfigured: isLineWebhookConfigured()
+      storageConfigured,
+      lineConfigured
     },
     falConfigured: Boolean(process.env.FAL_KEY),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
@@ -549,11 +648,16 @@ app.get("/api/health", async (_req, res) => {
       pending: pendingGenerations
     },
     automationWorker: {
+      mode: workerRuntime.worker_mode,
       embedded: automationEmbeddedWorkerEnabled,
+      dedicatedExpected: workerRuntime.dedicated_worker_expected,
+      allowMultipleWorkers: workerRuntime.allow_multiple_workers,
+      multipleWorkersConfigured: workerRuntime.multiple_workers_configured,
       running: automationEmbeddedWorkerRunning,
       lastRunAt: automationEmbeddedWorkerLastRunAt,
       lastError: automationEmbeddedWorkerLastError,
-      processedTasks: automationEmbeddedWorkerProcessedTasks
+      processedTasks: automationEmbeddedWorkerProcessedTasks,
+      queueSafety: buildWorkerQueueSafetySummary()
     },
     jobs: generationJobs.size
   });
@@ -1131,6 +1235,179 @@ app.get("/api/assets", requireUser, async (req, res) => {
   }
 });
 
+app.get("/api/automation/batches/:batchId/review", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const context = await readAutomationBatchReviewContext(req.params.batchId);
+    if (!context.batch) return sendApiError(res, 404, "batch_not_found", "ไม่พบ batch ที่ต้องการตรวจ");
+    res.json(buildBatchReviewPayload({ ...context, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() }));
+  } catch (error) {
+    console.error("Batch review load failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "batch_review_failed", error: "โหลด Batch Review ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/automation/batches/:batchId/confirm", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const context = await readAutomationBatchReviewContext(req.params.batchId);
+    if (!context.batch) return sendApiError(res, 404, "batch_not_found", "ไม่พบ batch ที่ต้องการยืนยัน");
+
+    const payload = buildBatchReviewPayload({ ...context, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() });
+    if (!payload.allowed_actions.some((action) => action.type === "confirm_batch") &&
+      !["hero_queued", "hero_generating", "hero_waiting_review", "hero_approved", "support_ready", "support_queued", "support_generating", "support_waiting_review", "support_approved", "export_ready", "exported"].includes(payload.state)) {
+      return res.status(409).json({
+        ok: false,
+        code: "batch_confirm_not_allowed",
+        error: "Batch นี้ยังไม่พร้อมให้ยืนยัน",
+        review: payload
+      });
+    }
+
+    await confirmAutomationBatchFromReview({ batch: context.batch, actorId: req.user.id });
+    const updated = await readAutomationBatchReviewContext(context.batch.id);
+    res.json(buildBatchReviewPayload({ ...updated, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() }));
+  } catch (error) {
+    console.error("Batch confirm failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "batch_confirm_failed", error: "ยืนยัน Batch ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/automation/batches/:batchId/cancel", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const context = await readAutomationBatchReviewContext(req.params.batchId);
+    if (!context.batch) return sendApiError(res, 404, "batch_not_found", "ไม่พบ batch ที่ต้องการยกเลิก");
+    const review = buildBatchReviewPayload({ ...context, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() });
+    if (["cancelled"].includes(review.state) || ["cancelled", "rejected"].includes(String(context.batch.status || "").trim().toLowerCase())) {
+      return res.json(review);
+    }
+    const hasActiveGeneration = context.tasks.some((task) => ["queued", "running"].includes(String(task.status || "").toLowerCase()));
+    if (!isBatchCancelable({
+      batchState: review.state,
+      batchStatus: context.batch.status,
+      hasActiveGeneration
+    })) {
+      return res.status(409).json({
+        ok: false,
+        code: "batch_cancel_not_allowed",
+        error: "Batch นี้ยกเลิกไม่ได้ในสถานะปัจจุบัน",
+        review
+      });
+    }
+
+    await cancelAutomationBatchFromReview({ batch: context.batch, actorId: req.user.id });
+    const updated = await readAutomationBatchReviewContext(context.batch.id);
+    res.json(buildBatchReviewPayload({ ...updated, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() }));
+  } catch (error) {
+    console.error("Batch cancel failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "batch_cancel_failed", error: "ยกเลิก Batch ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/automation/batch-items/:itemId/skip", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const itemContext = await readAutomationBatchItemActionContext(req.params.itemId);
+    if (!itemContext.item) return sendApiError(res, 404, "batch_item_not_found", "ไม่พบ SKU ที่ต้องการข้าม");
+    const workflowItem = normalizeAutomationBatchItemForWorkflow(itemContext.item);
+    const itemWorkflow = resolveItemWorkflowState({ item: workflowItem, tasks: itemContext.tasks });
+    const review = buildBatchReviewPayload({ ...itemContext, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() });
+    if (itemWorkflow.state === "skipped" || ["skipped", "rejected"].includes(String(itemContext.item.status || "").trim().toLowerCase())) {
+      return res.json(review);
+    }
+    if (!isItemSkippable({ item: workflowItem, workflow: itemWorkflow, tasks: itemContext.tasks })) {
+      return res.status(409).json({
+        ok: false,
+        code: "item_skip_not_allowed",
+        error: "SKU นี้ข้ามไม่ได้ในสถานะปัจจุบัน",
+        review
+      });
+    }
+
+    await skipAutomationBatchItemFromReview({ item: itemContext.item, actorId: req.user.id });
+    const updated = await readAutomationBatchReviewContext(itemContext.batch.id);
+    res.json(buildBatchReviewPayload({ ...updated, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() }));
+  } catch (error) {
+    console.error("Batch item skip failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "batch_item_skip_failed", error: "ข้าม SKU ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/automation/batch-items/:itemId/retry", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({
+        ok: false,
+        code: profileCheck.code,
+        error: profileCheck.error
+      });
+    }
+
+    const itemContext = await readAutomationBatchItemActionContext(req.params.itemId);
+    if (!itemContext.item) return sendApiError(res, 404, "batch_item_not_found", "ไม่พบ SKU ที่ต้องการ retry");
+    const workflowItem = normalizeAutomationBatchItemForWorkflow(itemContext.item);
+    const itemWorkflow = resolveItemWorkflowState({ item: workflowItem, tasks: itemContext.tasks });
+    const review = buildBatchReviewPayload({ ...itemContext, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() });
+    if (hasBatchReviewRetryTaskForItem(itemContext.tasks, itemContext.item.id)) {
+      return res.json(review);
+    }
+    if (!isItemRetryable({ item: workflowItem, workflow: itemWorkflow, tasks: itemContext.tasks })) {
+      return res.status(409).json({
+        ok: false,
+        code: "item_retry_not_allowed",
+        error: "SKU นี้ยังไม่เข้าเงื่อนไข retry",
+        review
+      });
+    }
+
+    await retryAutomationBatchItemFromReview({
+      batch: itemContext.batch,
+      item: itemContext.item,
+      itemState: itemWorkflow.state,
+      actorId: req.user.id
+    });
+    const updated = await readAutomationBatchReviewContext(itemContext.batch.id);
+    res.json(buildBatchReviewPayload({ ...updated, profile: profileCheck.profile, hrefBase: getPublicBaseUrl() }));
+  } catch (error) {
+    console.error("Batch item retry failed:", readableError(error));
+    res.status(500).json({ ok: false, code: "batch_item_retry_failed", error: "Retry SKU ไม่สำเร็จ" });
+  }
+});
+
 app.post("/api/jobs", requireUser, async (req, res) => {
   try {
     const payload = buildJobInsert(req.body, req.user.id);
@@ -1580,63 +1857,38 @@ app.post("/api/approvals", requireUser, async (req, res) => {
       eventJson: { export_path: exportPath }
     });
 
-    const existingApprovalResult = await supabaseAdmin
-      .from("approvals")
-      .select("*")
-      .eq("generation_id", generationId)
-      .order("approved_at", { ascending: false })
-      .limit(1);
-
-    if (existingApprovalResult.error) {
-      console.warn(existingApprovalResult.error.message || readableError(existingApprovalResult.error));
-    } else if (existingApprovalResult.data?.length) {
-      const task = await maybeEnqueueHeroReviewAutomationTask({
-        action: "approve_hero",
-        batchId: cleanOptionalString(req.body.batch_id || req.body.batchId),
-        sku: sanitizeSku(req.body.sku || ""),
-        jobId: generation.job_id,
-        generationId,
-        actorId: req.user.id
-      });
-      return res.json({ ok: true, approval: existingApprovalResult.data[0], duplicate: true, task });
-    }
-
-    const payload = {
-      generation_id: generationId,
-      approved_by: req.user.id,
-      approved_at: new Date().toISOString(),
-      export_path: exportPath,
+    const heroAsset = await readHeroAssetForGeneration(generation);
+    const approvalResult = await ensureHeroApprovalRecord({
+      generation,
+      actorId: req.user.id,
+      exportPath,
       note
-    };
+    });
 
-    const { data: approval, error } = await supabaseAdmin
-      .from("approvals")
-      .insert(payload)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.warn(error.message || readableError(error));
+    if (approvalResult.error) {
+      console.warn(readableError(approvalResult.error));
       await recordAuditEvent({
         actorId: req.user.id,
         jobId: generation.job_id,
         generationId,
         eventType: "approval_record_failed",
-        eventJson: { error: readableError(error), export_path: exportPath }
+        eventJson: { error: readableError(approvalResult.error), export_path: exportPath }
       });
       return res.json({ ok: false, error: "Approval was not recorded." });
     }
 
-    await recordAuditEvent({
-      actorId: req.user.id,
-      jobId: generation.job_id,
-      generationId,
-      eventType: "approval_recorded",
-      eventJson: {
-        approval_id: approval?.id || null,
-        export_path: exportPath
-      }
-    });
+    if (!approvalResult.duplicate) {
+      await recordAuditEvent({
+        actorId: req.user.id,
+        jobId: generation.job_id,
+        generationId,
+        eventType: "approval_recorded",
+        eventJson: {
+          approval_id: approvalResult.approval?.id || null,
+          export_path: exportPath
+        }
+      });
+    }
 
     const task = await maybeEnqueueHeroReviewAutomationTask({
       action: "approve_hero",
@@ -1644,10 +1896,18 @@ app.post("/api/approvals", requireUser, async (req, res) => {
       sku: sanitizeSku(req.body.sku || ""),
       jobId: generation.job_id,
       generationId,
-      actorId: req.user.id
+      actorId: req.user.id,
+      approval: approvalResult.approval,
+      heroAsset,
+      source: "web_review_page"
     });
 
-    res.status(201).json({ ok: true, approval, task });
+    res.status(approvalResult.duplicate ? 200 : 201).json({
+      ok: true,
+      approval: approvalResult.approval,
+      duplicate: approvalResult.duplicate,
+      task
+    });
   } catch (error) {
     console.warn(error?.message || readableError(error));
     await recordAuditEvent({
@@ -1765,7 +2025,8 @@ app.post("/api/admin/jobs/:jobId/mark-failed", requireUser, requireAdminUser, as
 app.post(
   "/api/generate/start",
   requireUser,
-  upload.fields([
+  rateLimit({ keyPrefix: "generate-start", windowMs: 60_000, max: 12, userScoped: true }),
+  handleImageUploadFields([
     { name: "productImages", maxCount: 10 },
     { name: "modelImages", maxCount: 5 }
   ]),
@@ -1856,13 +2117,13 @@ app.post(
         }
       });
     } catch (error) {
-      console.error(error);
+      console.error("Generate start failed:", readableError(error));
       logGenerateDiagnostic("error", {
         userId: req.user?.id || "",
         email: req.user?.email || "",
         reason: readableError(error)
       });
-      res.status(500).json({ ok: false, code: "generate_start_failed", error: readableError(error) });
+      res.status(500).json({ ok: false, code: "generate_start_failed", error: "เริ่มงาน Generate ไม่สำเร็จ" });
     }
   }
 );
@@ -1880,12 +2141,17 @@ app.get("/api/generate/jobs/:jobId", requireUser, async (req, res) => {
 app.post(
   "/api/generate",
   requireUser,
-  upload.fields([
+  rateLimit({ keyPrefix: "generate-legacy", windowMs: 60_000, max: 8, userScoped: true }),
+  handleImageUploadFields([
     { name: "productImages", maxCount: 10 },
     { name: "modelImages", maxCount: 5 }
   ]),
   async (req, res) => {
   try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
+    }
     const validation = validateGenerateRequest(req);
     if (validation) return res.status(validation.status).json({ ok: false, code: validation.code || "invalid_request", error: validation.error });
     const data = await runGeneration({
@@ -1910,7 +2176,7 @@ app.post(
   }
 );
 
-app.get("/api/ops", requireUser, (_req, res) => {
+app.get("/api/ops", requireUser, requireAdminUser, (_req, res) => {
   res.json({
     ok: true,
     queue: {
@@ -2074,13 +2340,15 @@ app.post("/api/approve", requireUser, async (req, res) => {
     const jobName = sanitizeFileName(String(req.body.jobName || "approved-image"));
     const sku = sanitizeSku(String(req.body.sku || ""));
     if (!imageUrl) return sendApiError(res, 400, "image_url_required", "Missing imageUrl.");
+    const urlValidation = validateRemoteImageUrl(imageUrl);
+    if (!urlValidation.ok) return sendApiError(res, 400, urlValidation.code, urlValidation.error);
 
-    const extension = extensionFromUrl(imageUrl) || "png";
+    const extension = extensionFromUrl(urlValidation.url) || "png";
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `${stamp}_${jobName}.${extension}`;
     const approvedPath = path.join(approvedDir, fileName);
 
-    await downloadFile(imageUrl, approvedPath);
+    await downloadFile(urlValidation.url, approvedPath);
     const approvedFileStat = await fs.stat(approvedPath);
 
     let drivePath = null;
@@ -2146,7 +2414,7 @@ app.post("/api/approve", requireUser, async (req, res) => {
         eventJson: { error: readableError(error), jobId: String(req.body.jobId || req.body.job_id || "").trim() || null }
       });
     }
-    res.status(500).json({ ok: false, code: "approve_failed", error: readableError(error) });
+    res.status(500).json({ ok: false, code: "approve_failed", error: "Approve/export ไม่สำเร็จ" });
   }
 });
 
@@ -2181,9 +2449,17 @@ function validateGenerateRequest(req) {
   if (!process.env.FAL_KEY) {
     return { status: 400, code: "missing_fal_key", error: "Server ยังไม่พร้อมสำหรับ Generate กรุณาติดต่อผู้ดูแลระบบ" };
   }
+  const uploadValidation = validateUploadedImageFiles(req.files || {});
+  if (!uploadValidation.ok) {
+    return { status: 415, code: uploadValidation.code, error: uploadValidation.error };
+  }
   const productFiles = req.files?.productImages || [];
   if (!productFiles.length) {
     return { status: 400, code: "missing_product_image", error: "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป" };
+  }
+  const unsafeExtraUrls = collectUnsafeImageUrls(req.body?.extraImageUrls);
+  if (unsafeExtraUrls.length) {
+    return { status: 400, code: "invalid_reference_url", error: "URL รูปภาพอ้างอิงบางรายการไม่ปลอดภัยหรือไม่รองรับ" };
   }
   const prompt = String(req.body.prompt || "").trim();
   if (!prompt) {
@@ -2938,6 +3214,42 @@ async function retryJobExport({ jobId, adminUserId }) {
   if (error) throw error;
   if (!job) throw publicError(404, "job_not_found", "ไม่พบงานที่ต้องการ retry export");
 
+  const { data: existingExportAssets, error: existingExportError } = await supabaseAdmin
+    .from("assets")
+    .select("id, type, bucket, public_url, storage_key, file_name, created_at")
+    .eq("job_id", jobId)
+    .eq("type", "approved_export")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (existingExportError) throw existingExportError;
+  const existingExport = shouldSkipRetryExport(existingExportAssets || []);
+  if (existingExport.skip) {
+    await recordAuditEvent({
+      actorId: adminUserId,
+      jobId,
+      eventType: "export_retry_skipped",
+      eventJson: {
+        reason: "existing_export_link_available",
+        asset_id: existingExport.existing?.assetId || null
+      }
+    });
+    return {
+      jobId,
+      generationId: null,
+      status: existingExport.existing?.status || "exported",
+      skipped: true,
+      message: "มี export link อยู่แล้ว จึงไม่สร้างไฟล์ซ้ำ",
+      exportUrl: existingExport.existing?.exportUrl || "",
+      googleDriveFile: existingExport.existing?.status === "google_drive"
+        ? {
+          id: existingExport.existing.asset?.storage_key || existingExport.existing.assetId || null,
+          name: existingExport.existing.asset?.file_name || null,
+          webViewLink: existingExport.existing.exportUrl
+        }
+        : null
+    };
+  }
+
   const source = await findRetryExportSource(jobId);
   if (!source?.imageUrl) {
     await recordAuditEvent({
@@ -3133,7 +3445,7 @@ async function readProductionBatchItemsBySku(skus = []) {
   if (batchIds.length) {
     const { data: batches, error: batchError } = await supabaseAdmin
       .from("automation_batches")
-      .select("id, batch_key, created_at")
+      .select("id, batch_key, status, created_at")
       .in("id", batchIds)
       .limit(1000);
     if (batchError) throw batchError;
@@ -3149,6 +3461,7 @@ async function readProductionBatchItemsBySku(skus = []) {
       id: item.id,
       batchId: item.batch_id || "",
       batchKey: batch.batch_key || item.batch_id || "",
+      batchStatus: batch.status || "",
       status: item.status || "",
       metadata: isPlainObject(item.metadata) ? item.metadata : {},
       updatedAt: item.updated_at || item.created_at || batch.created_at || null
@@ -3297,13 +3610,381 @@ function safeHttpsUrl(value = "") {
   return /^https:\/\//i.test(url) ? url : "";
 }
 
+function getPublicBaseUrl() {
+  return cleanOptionalString(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL).replace(/\/+$/, "");
+}
+
+async function readAutomationBatchReviewContext(batchIdOrKey) {
+  const batchId = cleanOptionalString(batchIdOrKey);
+  if (!batchId) return { batch: null, items: [], tasks: [] };
+  const batchQuery = supabaseAdmin
+    .from("automation_batches")
+    .select("*");
+  const { data: batch, error: batchError } = await (isValidUuid(batchId)
+    ? batchQuery.eq("id", batchId)
+    : batchQuery.eq("batch_key", batchId)
+  ).maybeSingle();
+  if (batchError) throw batchError;
+  if (!batch?.id) return { batch: null, items: [], tasks: [] };
+
+  const [itemsResult, tasksResult] = await Promise.all([
+    supabaseAdmin
+      .from("automation_batch_items")
+      .select("*")
+      .eq("batch_id", batch.id)
+      .order("created_at", { ascending: true }),
+    supabaseAdmin
+      .from("automation_tasks")
+      .select("id, task_type, status, priority, batch_id, batch_item_id, job_id, generation_id, dedupe_key, payload, attempts, max_attempts, available_at, locked_at, last_error, completed_at, created_at, updated_at")
+      .eq("batch_id", batch.id)
+      .order("created_at", { ascending: false })
+      .limit(200)
+  ]);
+  if (itemsResult.error) throw itemsResult.error;
+  if (tasksResult.error) throw tasksResult.error;
+  return {
+    batch,
+    items: itemsResult.data || [],
+    tasks: tasksResult.data || []
+  };
+}
+
+async function readAutomationBatchItemActionContext(itemId) {
+  const normalizedItemId = cleanOptionalString(itemId);
+  if (!isValidUuid(normalizedItemId)) return { batch: null, item: null, items: [], tasks: [] };
+  const { data: item, error: itemError } = await supabaseAdmin
+    .from("automation_batch_items")
+    .select("*")
+    .eq("id", normalizedItemId)
+    .maybeSingle();
+  if (itemError) throw itemError;
+  if (!item?.id) return { batch: null, item: null, items: [], tasks: [] };
+  const context = await readAutomationBatchReviewContext(item.batch_id);
+  return {
+    ...context,
+    item: (context.items || []).find((entry) => entry.id === item.id) || item
+  };
+}
+
+function normalizeAutomationBatchItemForWorkflow(item = {}) {
+  const metadata = isPlainObject(item.metadata) ? item.metadata : {};
+  return {
+    id: item.id || "",
+    batch_id: item.batch_id || "",
+    sku: item.sku || metadata.sku || "",
+    status: item.status || "",
+    product_name: item.product_name || metadata.product_name || "",
+    product_type: item.product_type || metadata.product_type || "",
+    target_site: item.target_site || metadata.target_site || "",
+    reference_url: metadata.reference_url || metadata.reference_manifest?.source_url || "",
+    reference_drive_id: metadata.reference_drive_id || metadata.reference_manifest?.drive_file_id || "",
+    metadata
+  };
+}
+
+async function confirmAutomationBatchFromReview({ batch = {}, actorId = "" } = {}) {
+  if (!batch?.id) return null;
+  const approvedAt = batch.approved_at || new Date().toISOString();
+  const existingMetadata = isPlainObject(batch.metadata) ? batch.metadata : {};
+  const { error: batchError } = await supabaseAdmin
+    .from("automation_batches")
+    .update({
+      status: "approved",
+      approved_at: approvedAt,
+      metadata: {
+        ...existingMetadata,
+        review_action: {
+          source: "batch_review_api",
+          last_action: "confirm_batch",
+          actor_id: actorId || null,
+          recorded_at: new Date().toISOString()
+        }
+      }
+    })
+    .eq("id", batch.id);
+  if (batchError) throw batchError;
+
+  const action = { action: "approve_batch", batchId: batch.batch_key || batch.id };
+  const liveBlockers = [];
+  if (!isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED")) liveBlockers.push("AI_GENERATION_LIVE_ENABLED_not_true");
+  if (isDryRun("AI_GENERATION_DRY_RUN", true)) liveBlockers.push("AI_GENERATION_DRY_RUN_true");
+  if (!cleanOptionalString(process.env.FAL_KEY)) liveBlockers.push("missing_FAL_KEY");
+  const liveHeroRequested = !liveBlockers.length;
+  const taskRequests = buildLineBatchApprovalTaskRequests({
+    action,
+    automationBatchId: batch.id,
+    lineUserId: batch.requested_by_line_user_id || null,
+    actorId,
+    liveGenerationRequested: liveHeroRequested,
+    liveGenerationConfirmed: liveHeroRequested,
+    dryRun: isDryRun("AI_GENERATION_DRY_RUN", true) || isDryRun("WORDPRESS_DRY_RUN", true)
+  });
+  for (const taskRequest of taskRequests) await enqueueAutomationTask(taskRequest);
+  await recordAuditEvent({
+    actorId,
+    eventType: "automation_batch_confirmed",
+    eventJson: {
+      source: "batch_review_api",
+      automation_batch_id: batch.id,
+      batch_id: batch.batch_key || batch.id,
+      live_generation_requested: liveHeroRequested,
+      live_blockers: liveBlockers
+    }
+  });
+  return { ok: true, liveHeroRequested, liveBlockers };
+}
+
+async function cancelAutomationBatchFromReview({ batch = {}, actorId = "" } = {}) {
+  if (!batch?.id) return null;
+  const existingMetadata = isPlainObject(batch.metadata) ? batch.metadata : {};
+  const recordedAt = new Date().toISOString();
+  const { error: batchError } = await supabaseAdmin
+    .from("automation_batches")
+    .update({
+      status: "cancelled",
+      rejected_at: batch.rejected_at || recordedAt,
+      metadata: {
+        ...existingMetadata,
+        review_action: {
+          source: "batch_review_api",
+          last_action: "cancel_batch",
+          actor_id: actorId || null,
+          recorded_at: recordedAt
+        }
+      }
+    })
+    .eq("id", batch.id);
+  if (batchError) throw batchError;
+
+  const { error: itemsError } = await supabaseAdmin
+    .from("automation_batch_items")
+    .update({ status: "skipped" })
+    .eq("batch_id", batch.id)
+    .in("status", ["draft", "received", "awaiting_approval", "selected", "missing_reference"]);
+  if (itemsError) throw itemsError;
+
+  await enqueueAutomationTask({
+    taskType: "cancel_batch",
+    batchId: batch.id,
+    dedupeKey: `batch-review:cancel:${batch.id}`,
+    status: "completed",
+    payload: {
+      source: "batch_review_api",
+      action: "cancel_batch",
+      batch_id: batch.batch_key || batch.id,
+      actor_id: actorId || null,
+      completed_reason: "Batch cancelled from Batch Review API before generation"
+    }
+  });
+  await recordAuditEvent({
+    actorId,
+    eventType: "automation_batch_cancelled",
+    eventJson: {
+      source: "batch_review_api",
+      automation_batch_id: batch.id,
+      batch_id: batch.batch_key || batch.id
+    }
+  });
+  return { ok: true };
+}
+
+async function skipAutomationBatchItemFromReview({ item = {}, actorId = "" } = {}) {
+  if (!item?.id) return null;
+  const existingMetadata = isPlainObject(item.metadata) ? item.metadata : {};
+  const recordedAt = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("automation_batch_items")
+    .update({
+      status: "skipped",
+      metadata: {
+        ...existingMetadata,
+        review_action: {
+          source: "batch_review_api",
+          last_action: "skip_item",
+          actor_id: actorId || null,
+          recorded_at: recordedAt
+        }
+      }
+    })
+    .eq("id", item.id)
+    .select("id, sku, status")
+    .single();
+  if (error) throw error;
+  await enqueueAutomationTask({
+    taskType: "skip_batch_item",
+    batchId: item.batch_id || null,
+    batchItemId: item.id,
+    dedupeKey: `batch-review:skip:${item.id}`,
+    status: "completed",
+    payload: {
+      source: "batch_review_api",
+      action: "skip_item",
+      sku: item.sku || "",
+      actor_id: actorId || null,
+      completed_reason: "SKU skipped from Batch Review before generation"
+    }
+  });
+  return data;
+}
+
+function hasBatchReviewRetryTaskForItem(tasks = [], itemId = "") {
+  const targetItemId = cleanOptionalString(itemId);
+  if (!targetItemId) return false;
+  return (tasks || []).some((task) => {
+    if (cleanOptionalString(task.batch_item_id) !== targetItemId) return false;
+    const payload = isPlainObject(task.payload) ? task.payload : {};
+    if (payload.source !== "batch_review_api") return false;
+    if (!["approve_hero", "regenerate_hero"].includes(cleanOptionalString(payload.action))) return false;
+    return ["queued", "running", "completed", "done"].includes(String(task.status || "").trim().toLowerCase());
+  });
+}
+
+async function retryAutomationBatchItemFromReview({ batch = {}, item = {}, itemState = "", actorId = "" } = {}) {
+  if (!batch?.id || !item?.id) return null;
+  const supportRetry = itemState === "support_failed";
+  const action = supportRetry ? "approve_hero" : "regenerate_hero";
+  const nextStatus = supportRetry ? "hero_approved" : "needs_hero_regeneration";
+  const existingMetadata = isPlainObject(item.metadata) ? item.metadata : {};
+  const recordedAt = new Date().toISOString();
+  const { error: itemError } = await supabaseAdmin
+    .from("automation_batch_items")
+    .update({
+      status: nextStatus,
+      metadata: {
+        ...existingMetadata,
+        review_action: {
+          source: "batch_review_api",
+          last_action: "retry_item",
+          retry_action: action,
+          actor_id: actorId || null,
+          recorded_at: recordedAt
+        }
+      }
+    })
+    .eq("id", item.id);
+  if (itemError) throw itemError;
+
+  const generationId = cleanOptionalString(
+    existingMetadata.web_review_action?.generation_id ||
+    existingMetadata.line_action?.generation_id ||
+    existingMetadata.hero_review_hero_asset?.generation_id
+  );
+  const task = await enqueueAutomationTask({
+    taskType: GENERATE_BATCH_TASK,
+    batchId: batch.id,
+    batchItemId: item.id,
+    generationId: isValidUuid(generationId) ? generationId : null,
+    dedupeKey: `batch-review:retry:${item.id}:${itemState}`,
+    priority: supportRetry ? 125 : 130,
+    payload: {
+      source: "batch_review_api",
+      action,
+      batch_id: batch.batch_key || batch.id,
+      sku: item.sku || "",
+      actor_id: actorId || null,
+      generation_id: generationId || null,
+      generation_phase: supportRetry ? "support_after_failed_retry" : "hero_regeneration_after_failed_retry",
+      request_mode: supportRetry ? "support-only-after-approved-hero" : "hero-regeneration-only",
+      requires_approved_hero_anchor: supportRetry,
+      auto_enqueue_live_support: supportRetry,
+      auto_enqueue_live_hero: !supportRetry,
+      live_generation_requested: false,
+      live_generation_confirmed: false,
+      dry_run: true,
+      completed_reason: "Retry requested from Batch Review API; no live generation runs inside the request handler"
+    }
+  });
+  await recordAuditEvent({
+    actorId,
+    eventType: "automation_batch_item_retry_requested",
+    eventJson: {
+      source: "batch_review_api",
+      automation_batch_id: batch.id,
+      batch_item_id: item.id,
+      sku: item.sku || "",
+      item_state: itemState,
+      task_id: task?.id || null
+    }
+  });
+  return task;
+}
+
+async function readGenerationForAutomationAction(generationId) {
+  if (!generationId) return null;
+  const { data, error } = await supabaseAdmin
+    .from("generations")
+    .select("id, job_id, kind, request_id, status, image_asset_id, created_by, completed_at, created_at")
+    .eq("id", generationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function readHeroAssetForGeneration(generation = {}) {
+  if (!generation?.job_id && !generation?.image_asset_id) return null;
+  if (generation.image_asset_id) {
+    const { data, error } = await supabaseAdmin
+      .from("assets")
+      .select("*")
+      .eq("id", generation.image_asset_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  if (!generation.job_id) return null;
+  const { data, error } = await supabaseAdmin
+    .from("assets")
+    .select("*")
+    .eq("job_id", generation.job_id)
+    .eq("type", "hero_generated")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+async function ensureHeroApprovalRecord({ generation = {}, actorId = "", exportPath = null, note = null } = {}) {
+  const generationId = generation?.id || "";
+  if (!generationId) return { approval: null, duplicate: false, error: new Error("generation_required") };
+
+  const existingApprovalResult = await supabaseAdmin
+    .from("approvals")
+    .select("*")
+    .eq("generation_id", generationId)
+    .order("approved_at", { ascending: false })
+    .limit(1);
+  if (existingApprovalResult.error) return { approval: null, duplicate: false, error: existingApprovalResult.error };
+  if (existingApprovalResult.data?.length) {
+    return { approval: existingApprovalResult.data[0], duplicate: true, error: null };
+  }
+
+  const payload = {
+    generation_id: generationId,
+    approved_by: actorId || generation.created_by || null,
+    approved_at: new Date().toISOString(),
+    export_path: exportPath,
+    note
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("approvals")
+    .insert(payload)
+    .select("*")
+    .single();
+  return { approval: data || null, duplicate: false, error: error || null };
+}
+
 async function maybeEnqueueHeroReviewAutomationTask({
   action,
   batchId,
   sku,
   jobId,
   generationId,
-  actorId
+  actorId,
+  approval = null,
+  heroAsset = null,
+  source = "web_review_page"
 } = {}) {
   if (!batchId || !sku) return null;
   const resolvedBatchId = await resolveAutomationBatchIdForReview(batchId);
@@ -3325,10 +4006,10 @@ async function maybeEnqueueHeroReviewAutomationTask({
     batchId: resolvedBatchId,
     jobId,
     generationId,
-    dedupeKey: `web-review:${action}:${resolvedBatchId}:${sku}:${generationId}`,
+    dedupeKey: `${source || "hero-review"}:${action}:${resolvedBatchId}:${sku}:${generationId}`,
     priority: approve ? 125 : 130,
     payload: {
-      source: "web_review_page",
+      source,
       action,
       batch_id: resolvedBatchId,
       batch_key: batchId === resolvedBatchId ? null : batchId,
@@ -3344,13 +4025,23 @@ async function maybeEnqueueHeroReviewAutomationTask({
       live_generation_confirmed: liveSupportConfirmed || liveHeroConfirmed,
       dry_run: true,
       completed_reason: approve
-        ? "Hero approved from web review page; support generation plan can now attach reference plus approved hero anchor"
-        : "Hero regeneration requested from web review page"
+        ? "Hero approved from review action; support generation plan can now attach reference plus approved hero anchor"
+        : "Hero regeneration requested from review action"
     }
   });
 
   if (approve || regenerate) {
-    await updateAutomationBatchItemFromReviewAction({ action, batchId: resolvedBatchId, sku, actorId, generationId });
+    await updateAutomationBatchItemFromReviewAction({
+      action,
+      batchId: resolvedBatchId,
+      sku,
+      actorId,
+      generationId,
+      approval,
+      heroAsset,
+      jobId,
+      source
+    });
   }
   return task;
 }
@@ -3368,7 +4059,17 @@ async function resolveAutomationBatchIdForReview(batchId) {
   return data?.id || "";
 }
 
-async function updateAutomationBatchItemFromReviewAction({ action, batchId, sku, actorId, generationId }) {
+async function updateAutomationBatchItemFromReviewAction({
+  action,
+  batchId,
+  sku,
+  actorId,
+  generationId,
+  approval = null,
+  heroAsset = null,
+  jobId = null,
+  source = "web_review_page"
+}) {
   if (!batchId || !sku) return null;
   const existingResult = await supabaseAdmin
     .from("automation_batch_items")
@@ -3379,16 +4080,26 @@ async function updateAutomationBatchItemFromReviewAction({ action, batchId, sku,
   if (existingResult.error) throw existingResult.error;
   if (!existingResult.data?.id) return null;
 
-  const metadata = {
-    ...(isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {}),
-    web_review_action: {
-      source: "web_review_page",
-      last_action: action,
-      actor_id: actorId || null,
-      generation_id: generationId || null,
-      recorded_at: new Date().toISOString()
-    }
-  };
+  const existingMetadata = isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {};
+  const recordedAt = new Date().toISOString();
+  const anchor = action === "approve_hero"
+    ? buildApprovedHeroAnchor({
+      generation: { id: generationId, job_id: jobId, image_asset_id: heroAsset?.id || heroAsset?.asset_id || null },
+      asset: heroAsset || {},
+      approval: approval || {},
+      sku,
+      source,
+      actorId,
+      approvedAt: recordedAt
+    })
+    : null;
+  const metadata = mergeApprovedHeroAnchorMetadata(existingMetadata, anchor, {
+    actionSource: source,
+    actorId,
+    generationId,
+    action,
+    recordedAt
+  });
 
   const { data, error } = await supabaseAdmin
     .from("automation_batch_items")
@@ -3404,7 +4115,7 @@ async function getOwnedGeneration(generationId, userId) {
   if (!generationId || !userId) return null;
   const { data, error } = await supabaseAdmin
     .from("generations")
-    .select("id, job_id, created_by")
+    .select("id, job_id, kind, request_id, status, image_asset_id, created_by, completed_at, created_at")
     .eq("id", generationId)
     .eq("created_by", userId)
     .maybeSingle();
@@ -3416,7 +4127,7 @@ async function getOwnedGeneration(generationId, userId) {
   if (!profile.ok || profile.profile?.role !== "admin") return null;
   const adminResult = await supabaseAdmin
     .from("generations")
-    .select("id, job_id, created_by")
+    .select("id, job_id, kind, request_id, status, image_asset_id, created_by, completed_at, created_at")
     .eq("id", generationId)
     .maybeSingle();
   if (adminResult.error) throw adminResult.error;
@@ -3551,12 +4262,7 @@ function isLineWebhookConfigured() {
 }
 
 function verifyLineSignature(rawBody, signature) {
-  if (!lineChannelSecret || !signature) return false;
-  const expected = createHmac("sha256", lineChannelSecret).update(rawBody).digest("base64");
-  const expectedBuffer = Buffer.from(expected);
-  const signatureBuffer = Buffer.from(String(signature));
-  if (expectedBuffer.length !== signatureBuffer.length) return false;
-  return timingSafeEqual(expectedBuffer, signatureBuffer);
+  return verifyHmacSha256Base64(rawBody, signature, lineChannelSecret);
 }
 
 function verifyLineImageProxySignature({ fileId, exp, sig } = {}) {
@@ -3579,6 +4285,31 @@ function isValidDriveFileId(value = "") {
 async function handleLineWebhookPayload(payload) {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   await Promise.all(events.map((event) => handleLineWebhookEvent(event, payload)));
+}
+
+function dedupeLineWebhookPayload(payload = {}) {
+  pruneSeenLineWebhookEventIds();
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  const freshEvents = [];
+  for (const event of events) {
+    const eventId = cleanOptionalString(event?.webhookEventId);
+    if (!eventId) {
+      freshEvents.push(event);
+      continue;
+    }
+    if (seenLineWebhookEventIds.has(eventId)) continue;
+    seenLineWebhookEventIds.set(eventId, Date.now());
+    freshEvents.push(event);
+  }
+  return { ...payload, events: freshEvents };
+}
+
+function pruneSeenLineWebhookEventIds() {
+  const ttlMs = 60 * 60 * 1000;
+  const now = Date.now();
+  for (const [eventId, seenAt] of seenLineWebhookEventIds.entries()) {
+    if (now - seenAt > ttlMs) seenLineWebhookEventIds.delete(eventId);
+  }
 }
 
 async function handleLineWebhookEvent(event, payload) {
@@ -3763,7 +4494,7 @@ async function pushLineKeywordBatchIntakeMessages({ result, targetLineUserId }) 
   const to = cleanOptionalString(targetLineUserId);
   if (!to || !lineChannelAccessToken) return;
   const messages = result?.ok
-    ? [buildPilotBatchFlex(result.batch), ...buildLineKeywordBatchTextMessages({ result })]
+    ? [buildLineKeywordBatchReviewFlex({ result, reviewBaseUrl: getPublicBaseUrl() })]
     : buildLineKeywordBatchTextMessages({ result });
   if (!messages.length) return;
   await pushLineMessage({ to, messages });
@@ -3788,6 +4519,7 @@ function normalizeLineAction(action) {
 function lineAuditEventTypeForAction(action) {
   const allowed = new Set([
     "approve_batch",
+    "cancel_batch",
     "needs_review",
     "reject_batch",
     "approve_sku",
@@ -3808,12 +4540,112 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
 
   try {
     if (action.action === "approve_hero" || action.action === "regenerate_hero") {
-      actionResult = {
-        recorded: false,
-        ignored: true,
-        reason: "line_hero_decisions_disabled",
-        currentAction: ""
-      };
+      const resolvedBatchId = await resolveAutomationBatchIdForReview(action.batchId);
+      const generation = action.generationId
+        ? await readGenerationForAutomationAction(action.generationId)
+        : null;
+      const actorId = resolveLineAutomationActorId() || generation?.created_by || "";
+      let approvalResult = { approval: null, duplicate: false, error: null };
+      let heroAsset = null;
+      const blockers = [];
+
+      if (!resolvedBatchId) blockers.push("automation_batch_not_found");
+      if (!action.sku) blockers.push("missing_sku");
+      if (!generation) blockers.push("generation_not_found");
+
+      if (generation) {
+        heroAsset = await readHeroAssetForGeneration(generation);
+        if (action.action === "approve_hero") {
+          approvalResult = await ensureHeroApprovalRecord({ generation, actorId });
+          if (approvalResult.error) blockers.push("approval_record_failed");
+        }
+      }
+
+      let task = null;
+      if (!blockers.length) {
+        task = await maybeEnqueueHeroReviewAutomationTask({
+          action: action.action,
+          batchId: resolvedBatchId,
+          sku: action.sku,
+          jobId: generation.job_id,
+          generationId: generation.id,
+          actorId,
+          approval: approvalResult.approval,
+          heroAsset,
+          source: "line"
+        });
+      }
+
+      actionResult = blockers.length
+        ? {
+          recorded: false,
+          ignored: false,
+          blockers: Array.from(new Set(blockers)),
+          error: approvalResult.error ? readableError(approvalResult.error) : ""
+        }
+        : {
+          recorded: true,
+          ignored: false,
+          status: batchItemStatusForLineAction(action.action),
+          duplicate: Boolean(approvalResult.duplicate),
+          approvalId: approvalResult.approval?.id || null,
+          taskId: task?.id || null,
+          nextStage: action.action === "approve_hero" ? "support_generation" : "hero_regeneration"
+        };
+      await recordAuditEvent({
+        actorId: null,
+        jobId: generation?.job_id || null,
+        generationId: generation?.id || null,
+        eventType: "line_automation_action_recorded",
+        eventJson: {
+          ...baseEventJson,
+          action: action.action,
+          batch_id: action.batchId,
+          sku: action.sku,
+          audit_event_type: eventType,
+          automation_batch_id: resolvedBatchId || null,
+          action_result: actionResult
+        }
+      });
+      return actionResult;
+    }
+
+    if (action.action === "cancel_batch") {
+      const context = await readAutomationBatchReviewContext(action.batchId);
+      const review = buildBatchReviewPayload({
+        ...context,
+        profile: { role: "staff" },
+        hrefBase: getPublicBaseUrl()
+      });
+      const hasActiveGeneration = context.tasks.some((task) => ["queued", "running"].includes(String(task.status || "").toLowerCase()));
+      const alreadyCancelled = ["cancelled"].includes(review.state) || ["cancelled", "rejected"].includes(String(context.batch?.status || "").trim().toLowerCase());
+      if (!context.batch?.id) {
+        actionResult = { recorded: false, ignored: false, blockers: ["automation_batch_not_found"] };
+      } else if (alreadyCancelled) {
+        actionResult = { recorded: true, ignored: true, reason: "batch_already_cancelled" };
+      } else if (!isBatchCancelable({
+        batchState: review.state,
+        batchStatus: context.batch.status,
+        hasActiveGeneration
+      })) {
+        actionResult = { recorded: false, ignored: false, blockers: ["batch_cancel_not_allowed"] };
+      } else {
+        await cancelAutomationBatchFromReview({ batch: context.batch, actorId: null });
+        await enqueueAutomationTask({
+          taskType: "cancel_batch",
+          batchId: context.batch.id,
+          dedupeKey: `line:cancel_batch:${action.batchId}`,
+          status: "completed",
+          payload: {
+            source: "line",
+            action: action.action,
+            batch_id: action.batchId,
+            line_user_id: baseEventJson.line_user_id,
+            completed_reason: "Recorded cancellation from LINE"
+          }
+        });
+        actionResult = { recorded: true, ignored: false };
+      }
       await recordAuditEvent({
         actorId: null,
         eventType: "line_automation_action_recorded",
@@ -3823,7 +4655,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           batch_id: action.batchId,
           sku: action.sku,
           audit_event_type: eventType,
-          automation_batch_id: null,
+          automation_batch_id: context.batch?.id || null,
           action_result: actionResult
         }
       });
@@ -3880,18 +4712,20 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
       actionResult = { recorded: true, ignored: false };
     }
 
-    if (action.action === "reject_batch") {
+    if (action.action === "reject_batch" || action.action === "cancel_batch") {
       await enqueueAutomationTask({
-        taskType: "reject_batch",
+        taskType: action.action === "cancel_batch" ? "cancel_batch" : "reject_batch",
         batchId: batch?.id || null,
-        dedupeKey: `line:reject_batch:${action.batchId}`,
+        dedupeKey: `line:${action.action}:${action.batchId}`,
         status: "completed",
         payload: {
           source: "line",
           action: action.action,
           batch_id: action.batchId,
           line_user_id: baseEventJson.line_user_id,
-          completed_reason: "Recorded rejection from LINE"
+          completed_reason: action.action === "cancel_batch"
+            ? "Recorded cancellation from LINE"
+            : "Recorded rejection from LINE"
         }
       });
       actionResult = { recorded: true, ignored: false };
@@ -3991,7 +4825,7 @@ async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
   };
 
   if (action.action === "approve_batch") patch.approved_at = new Date().toISOString();
-  if (action.action === "reject_batch") patch.rejected_at = new Date().toISOString();
+  if (action.action === "reject_batch" || action.action === "cancel_batch") patch.rejected_at = new Date().toISOString();
 
   const { data, error } = await supabaseAdmin
     .from("automation_batches")
@@ -4092,6 +4926,7 @@ function heroReviewDecisionActionForStatus(status) {
 
 function automationBatchStatusForAction(action) {
   if (action === "approve_batch") return "approved";
+  if (action === "cancel_batch") return "cancelled";
   if (action === "needs_review") return "needs_review";
   if (action === "reject_batch") return "rejected";
   if (action === "approve_hero") return "hero_reviewed";
@@ -4144,6 +4979,7 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
   if (!replyToken || !lineChannelAccessToken) return;
   const labelByAction = {
     approve_batch: "Approve batch",
+    cancel_batch: "Cancel batch",
     needs_review: "Needs review",
     reject_batch: "Reject batch",
     approve_hero: "Approve hero",
@@ -4161,6 +4997,7 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
       batchLine,
       skuLine,
       currentActionLabel ? `มีผลตัดสินใจแล้ว: ${currentActionLabel}` : "",
+      actionResult.reason === "batch_already_cancelled" ? "Batch นี้ถูกยกเลิกแล้ว" : "",
       actionResult.reason === "line_hero_decisions_disabled" ? "ปุ่มตัดสินใจใน LINE ถูกปิดแล้วเพื่อกัน action เก่า/ผิดลำดับ" : "",
       actionResult.reason === "stale_hero_review_action" ? "ปุ่มนี้มาจาก hero version เก่า" : "",
       "ให้ใช้หน้า Review เป็นจุดตัดสินใจหลัก"
@@ -4210,12 +5047,39 @@ function buildLinePostbackAcknowledgementLines({ action, actionLabel, batchLine,
     return lines;
   }
 
+  if (Array.isArray(actionResult.blockers) && actionResult.blockers.length) {
+    lines.push(`ยังไปต่อไม่ได้: ${actionResult.blockers.join(", ")}`);
+    return lines;
+  }
+
+  if (action.action === "approve_hero") {
+    lines.push(actionResult.duplicate ? "Hero นี้ approve แล้ว ระบบใช้ approval เดิม" : "บันทึก Hero approval แล้ว");
+    lines.push("ขั้นถัดไปคือ Support generation ตาม gate rules");
+    return lines;
+  }
+
+  if (action.action === "regenerate_hero") {
+    lines.push("บันทึกคำขอ Regenerate Hero แล้ว");
+    lines.push("ขั้นถัดไปคือ Hero generation ใหม่ตาม gate rules");
+    return lines;
+  }
+
+  if (action.action === "cancel_batch") {
+    lines.push("ยกเลิก Batch แล้ว");
+    lines.push("กดซ้ำได้ ระบบจะไม่สร้างงานซ้ำ");
+    return lines;
+  }
+
   lines.push("บันทึก action แล้ว");
   return lines;
 }
 
 function startEmbeddedAutomationWorker() {
   if (!automationEmbeddedWorkerEnabled) return;
+  const workerRuntime = resolveWorkerRuntimeConfig(process.env);
+  for (const warning of buildWorkerModeStartupWarnings(workerRuntime)) {
+    console.warn(`[automation-worker] ${warning.code}: ${warning.message}`);
+  }
   if (!isSupabaseAutomationConfigured()) {
     automationEmbeddedWorkerLastError = "Supabase automation env is incomplete.";
     console.warn("[automation-worker] embedded worker disabled: Supabase automation env is incomplete.");
@@ -5226,11 +6090,16 @@ async function uploadLocalFileToSupabaseStorage({ bucket, localPath, storageKey,
 }
 
 async function uploadRemoteImageToSupabaseStorage({ bucket, imageUrl, storageKey }) {
-  const response = await fetch(imageUrl);
+  const urlValidation = validateRemoteImageUrl(imageUrl);
+  if (!urlValidation.ok) throw publicError(400, urlValidation.code, urlValidation.error);
+  const response = await fetch(urlValidation.url);
   if (!response.ok) {
     throw new Error(`Failed to download image for Supabase Storage: ${response.status} ${response.statusText}`);
   }
   const contentType = response.headers.get("content-type") || "image/png";
+  if (!/^image\/(jpeg|jpg|png|webp)$/i.test(contentType)) {
+    throw publicError(415, "unsupported_remote_image_type", "Remote file is not a supported image.");
+  }
   const imageBuffer = Buffer.from(await response.arrayBuffer());
   const { error } = await supabaseAdmin.storage
     .from(bucket)
@@ -5339,22 +6208,53 @@ function isNoRowsError(error) {
 }
 
 function parseExtraImageUrls(value) {
+  return parseSafeImageUrls(value, { limit: 6 });
+}
+
+function collectUnsafeImageUrls(value) {
   if (!value) return [];
-  if (Array.isArray(value)) {
-    return value
-      .map((url) => String(url || "").trim())
-      .filter((url) => /^https?:\/\//i.test(url))
-      .slice(0, 6);
-  }
+  const urls = Array.isArray(value) ? value : parseJsonArray(value);
+  return urls
+    .map((url) => validateRemoteImageUrl(url))
+    .filter((result) => !result.ok);
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
   try {
-    const urls = JSON.parse(String(value));
-    if (!Array.isArray(urls)) return [];
-    return urls
-      .map((url) => String(url || "").trim())
-      .filter((url) => /^https?:\/\//i.test(url))
-      .slice(0, 6);
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function rateLimit({ keyPrefix, windowMs, max, userScoped = false }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    pruneRateLimitBuckets(now);
+    const identity = userScoped
+      ? req.user?.id || req.ip || "anonymous"
+      : req.ip || req.headers["x-forwarded-for"] || "unknown";
+    const key = `${keyPrefix}:${identity}`;
+    const bucket = rateLimitBuckets.get(key) || { count: 0, resetAt: now + windowMs };
+    if (now > bucket.resetAt) {
+      bucket.count = 0;
+      bucket.resetAt = now + windowMs;
+    }
+    bucket.count += 1;
+    rateLimitBuckets.set(key, bucket);
+    if (bucket.count > max) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
+      return sendApiError(res, 429, "rate_limited", "มี request มากเกินไป กรุณารอสักครู่แล้วลองใหม่");
+    }
+    return next();
+  };
+}
+
+function pruneRateLimitBuckets(now = Date.now()) {
+  for (const [key, bucket] of rateLimitBuckets.entries()) {
+    if (now > bucket.resetAt + 60_000) rateLimitBuckets.delete(key);
   }
 }
 
@@ -5388,9 +6288,19 @@ async function uploadFilesToFal(files) {
 }
 
 async function downloadFile(url, destinationPath) {
-  const response = await fetch(url);
+  const urlValidation = validateRemoteImageUrl(url);
+  if (!urlValidation.ok) throw publicError(400, urlValidation.code, urlValidation.error);
+  const response = await fetch(urlValidation.url);
   if (!response.ok || !response.body) {
     throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType && !/^image\/(jpeg|jpg|png|webp)$/i.test(contentType)) {
+    throw publicError(415, "unsupported_remote_image_type", "Remote file is not a supported image.");
+  }
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > 20 * 1024 * 1024) {
+    throw publicError(413, "remote_image_too_large", "Remote image is too large.");
   }
   await pipeline(response.body, createWriteStream(destinationPath));
 }
@@ -6659,7 +7569,7 @@ async function buildProductionJobsView(query = {}) {
       limit: readLimit
     }),
     readMonitoringRows("generations", [
-      "id, job_id, kind, request_id, status, created_by, created_at, updated_at, completed_at, error_message",
+      "id, job_id, kind, request_id, status, image_asset_id, created_by, created_at, updated_at, completed_at, error_message",
       "id, job_id, kind, request_id, status, created_by, created_at, completed_at, error_message"
     ], {
       since: contextSince,
@@ -6952,6 +7862,269 @@ function summarizeProductionSupportReview(batchItem = {}, supportCount = 0) {
   };
 }
 
+function buildProductionWorkflowContracts({
+  job,
+  generations,
+  assets,
+  heroGeneration,
+  supportGenerations,
+  reviewGeneration,
+  approval,
+  exportUrl,
+  exportStatus,
+  supportReview,
+  batchItem
+} = {}) {
+  const hrefs = {
+    jobs: "#jobs",
+    batch: batchItem?.batchKey ? `#batch?batch_id=${encodeURIComponent(batchItem.batchKey)}` : "#jobs",
+    review: buildProductionReviewHref({ batchItem, reviewGeneration, job }),
+    export: buildProductionReviewHref({ batchItem, reviewGeneration, job }),
+    reference: buildProductionReviewHref({ batchItem, reviewGeneration, job })
+  };
+  const item = buildProductionWorkflowItemSnapshot({
+    job,
+    generations,
+    assets,
+    heroGeneration,
+    supportGenerations,
+    reviewGeneration,
+    approval,
+    exportUrl,
+    exportStatus,
+    supportReview,
+    batchItem,
+    reviewHref: hrefs.review
+  });
+  const itemContract = resolveItemWorkflowState({
+    item,
+    tasks: [],
+    hrefs
+  });
+  const batchContract = resolveBatchWorkflowState({
+    batch: {
+      id: batchItem?.batchId || "",
+      batch_id: batchItem?.batchId || "",
+      batch_key: batchItem?.batchKey || "",
+      status: deriveProductionWorkflowBatchStatus({ batchItem, itemContract, exportStatus })
+    },
+    items: [item],
+    tasks: [],
+    hrefs
+  });
+  return {
+    item: itemContract,
+    batch: batchContract
+  };
+}
+
+function buildProductionReviewHref({ batchItem = {}, reviewGeneration = {}, job = {} } = {}) {
+  const generationId = cleanOptionalString(reviewGeneration?.id);
+  if (!generationId) return "";
+  const params = new URLSearchParams();
+  params.set("generation_id", generationId);
+  if (batchItem.batchKey || batchItem.batchId) params.set("batch_id", batchItem.batchKey || batchItem.batchId);
+  const sku = cleanOptionalString(job?.sku || job?.form_json?.sku);
+  if (sku) params.set("sku", sku);
+  return `#review?${params.toString()}`;
+}
+
+function buildProductionWorkflowItemSnapshot({
+  job,
+  generations,
+  assets,
+  heroGeneration,
+  supportGenerations,
+  reviewGeneration,
+  approval,
+  exportUrl,
+  exportStatus,
+  supportReview,
+  batchItem,
+  reviewHref
+} = {}) {
+  const metadata = isPlainObject(batchItem?.metadata) ? batchItem.metadata : {};
+  const referenceAssets = buildProductionWorkflowReferenceAssets({ metadata, assets });
+  const heroAsset = buildProductionWorkflowHeroAsset({
+    metadata,
+    assets,
+    heroGeneration,
+    reviewGeneration,
+    approval
+  });
+  const supportAssets = buildProductionWorkflowSupportAssets({
+    metadata,
+    assets,
+    supportGenerations
+  });
+
+  return {
+    id: batchItem?.id || job?.id || "",
+    sku: safeProductionText(job?.sku || job?.form_json?.sku || ""),
+    status: deriveProductionWorkflowItemStatus({
+      job,
+      latestGeneration: generations?.[0],
+      heroGeneration,
+      supportGenerations,
+      approval,
+      exportUrl,
+      exportStatus,
+      supportReview,
+      batchItem
+    }),
+    reference_url: cleanOptionalString(
+      metadata.reference_url ||
+      metadata.reference_manifest?.source_url ||
+      job?.form_json?.referenceUrl ||
+      job?.form_json?.reference_url
+    ),
+    reference_drive_id: cleanOptionalString(
+      metadata.reference_drive_id ||
+      metadata.reference_manifest?.drive_file_id ||
+      extractDriveIdFromUrl(metadata.reference_url || metadata.reference_manifest?.source_url || "")
+    ),
+    export_url: exportUrl || "",
+    review_href: reviewHref || "",
+    metadata: {
+      reference_assets: referenceAssets,
+      selected_reference_assets: firstArray(
+        metadata.selected_reference_assets,
+        metadata.reference_resolution?.selected_reference_assets
+      ),
+      hero_review_hero_asset: heroAsset || metadata.hero_review_hero_asset || null,
+      hero_generation: heroGeneration
+        ? { id: heroGeneration.id, status: heroGeneration.status, kind: heroGeneration.kind }
+        : metadata.hero_generation || null,
+      support_assets: supportAssets,
+      support_generation: supportAssets.length
+        ? { ...(isPlainObject(metadata.support_generation) ? metadata.support_generation : {}), status: "support_ready_for_review" }
+        : metadata.support_generation || null,
+      review_set_status: metadata.review_set_status || "",
+      support_review_decision_state: metadata.support_review_decision_state || null,
+      support_candidate_manifest: metadata.support_candidate_manifest || metadata.candidate_manifest || null,
+      candidate_manifest_status: supportReview?.candidateManifestStatus || metadata.candidate_manifest_status || "",
+      media_export_preflight_gate: metadata.media_export_preflight_gate || null,
+      media_export_preflight_status: supportReview?.mediaPreflightStatus || metadata.media_export_preflight_status || "",
+      blockers: firstArray(metadata.blockers, metadata.generation_blockers)
+    }
+  };
+}
+
+function deriveProductionWorkflowBatchStatus({ batchItem = {}, itemContract = {}, exportStatus = "" } = {}) {
+  if (exportStatus === "exported" || exportStatus === "google_drive") return "exported";
+  if (batchItem?.batchStatus) return batchItem.batchStatus;
+  if (["support_approved", "exported"].includes(itemContract.state)) return "ready_for_media_manifest_preflight";
+  if (["support_waiting_review", "support_ready", "hero_approved"].includes(itemContract.state)) return "approved";
+  return batchItem?.status || "";
+}
+
+function deriveProductionWorkflowItemStatus({
+  job = {},
+  latestGeneration = {},
+  heroGeneration = {},
+  supportGenerations = [],
+  approval = null,
+  exportUrl = "",
+  exportStatus = "",
+  supportReview = {},
+  batchItem = {}
+} = {}) {
+  if (exportUrl || exportStatus === "exported" || exportStatus === "google_drive") return "exported";
+  if (supportReview?.supportReviewStatus === "candidate_manifest_ready") return "support_approved_for_candidate_manifest";
+  if (supportReview?.supportReviewStatus === "pending") return "support_ready_for_review";
+  if ((supportGenerations || []).some((generation) => isFailedStatus(generation.status))) return "support_failed";
+  if (isFailedStatus(heroGeneration?.status || latestGeneration?.status || job?.status)) return "hero_failed";
+  if (approval) return "hero_approved";
+  const batchItemStatus = cleanOptionalString(batchItem?.status).toLowerCase();
+  if (["needs_hero_regeneration", "missing_reference", "hero_failed", "support_failed"].includes(batchItemStatus)) {
+    return batchItemStatus;
+  }
+  if (isSuccessfulGenerationStatus(heroGeneration?.status || latestGeneration?.status)) return "selected";
+  return batchItemStatus || job?.status || "selected";
+}
+
+function buildProductionWorkflowReferenceAssets({ metadata = {}, assets = [] } = {}) {
+  const metadataReferences = firstArray(
+    metadata.hero_review_reference_assets,
+    metadata.selected_reference_assets,
+    metadata.reference_assets,
+    metadata.reference_images,
+    metadata.reference_resolution?.selected_reference_assets
+  );
+  const assetReferences = (assets || [])
+    .filter((asset) => isReferenceReviewAsset(asset))
+    .map((asset) => normalizeProductionWorkflowAsset(asset, { source_role: "product_reference" }))
+    .filter(Boolean);
+  return mergeReviewReferenceAssets(metadataReferences, assetReferences);
+}
+
+function buildProductionWorkflowHeroAsset({ metadata = {}, assets = [], heroGeneration = {}, reviewGeneration = {}, approval = null } = {}) {
+  if (metadata.hero_review_hero_asset) {
+    return {
+      ...metadata.hero_review_hero_asset,
+      approved: Boolean(approval || metadata.hero_review_hero_asset.approved),
+      generation_id: metadata.hero_review_hero_asset.generation_id || heroGeneration?.id || reviewGeneration?.id || ""
+    };
+  }
+  const generation = heroGeneration || reviewGeneration || {};
+  const asset = assets.find((candidate) => candidate.id && candidate.id === generation?.image_asset_id) ||
+    assets.find((candidate) => String(candidate.type || "").toLowerCase() === "hero_generated") ||
+    null;
+  if (!generation?.id && !asset?.id) return null;
+  return {
+    asset_id: asset?.id || generation?.image_asset_id || "",
+    generation_id: generation?.id || "",
+    request_id: generation?.request_id || "",
+    type: asset?.type || "hero_generated",
+    public_url: safeUrl(asset?.public_url || asset?.storage_key || ""),
+    source_url: safeUrl(asset?.public_url || asset?.storage_key || ""),
+    approved: Boolean(approval)
+  };
+}
+
+function buildProductionWorkflowSupportAssets({ metadata = {}, assets = [], supportGenerations = [] } = {}) {
+  const metadataSupportAssets = firstArray(
+    metadata.support_assets,
+    metadata.support_generation?.support_assets
+  );
+  const supportGenerationByAssetId = new Map(
+    (supportGenerations || [])
+      .filter((generation) => generation.image_asset_id)
+      .map((generation) => [generation.image_asset_id, generation])
+  );
+  const generatedSupportAssets = (assets || [])
+    .filter((asset) => {
+      const type = String(asset.type || "").toLowerCase();
+      return type.includes("support") || supportGenerationByAssetId.has(asset.id);
+    })
+    .map((asset) => {
+      const generation = supportGenerationByAssetId.get(asset.id) || {};
+      return normalizeProductionWorkflowAsset(asset, {
+        kind: "support",
+        slot: extractSupportSlot({ asset, generation }),
+        generation_id: generation.id || "",
+        request_id: generation.request_id || ""
+      });
+    })
+    .filter(Boolean);
+  return mergeSupportAssets(metadataSupportAssets, generatedSupportAssets);
+}
+
+function normalizeProductionWorkflowAsset(asset = {}, extra = {}) {
+  if (!isPlainObject(asset)) return null;
+  return {
+    ...asset,
+    ...extra,
+    asset_id: asset.asset_id || asset.id || extra.asset_id || "",
+    generation_id: asset.generation_id || extra.generation_id || "",
+    request_id: asset.request_id || extra.request_id || "",
+    type: asset.type || extra.type || "",
+    public_url: safeUrl(asset.public_url || asset.url || asset.source_url || asset.storage_key || ""),
+    source_url: safeUrl(asset.source_url || asset.public_url || asset.url || asset.storage_key || ""),
+    file_name: asset.file_name || asset.name || asset.source_name || ""
+  };
+}
+
 function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, batchItem, profile }) {
   const sortedGenerations = [...generations].sort((a, b) => new Date(b.completed_at || b.created_at || 0) - new Date(a.completed_at || a.created_at || 0));
   const latestGeneration = sortedGenerations[0] || null;
@@ -6984,6 +8157,19 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     batchItem?.updatedAt,
     ...auditEvents.map((event) => event.created_at)
   ]);
+  const workflow = buildProductionWorkflowContracts({
+    job,
+    generations: sortedGenerations,
+    assets,
+    heroGeneration,
+    supportGenerations: visibleSupportGenerations,
+    reviewGeneration,
+    approval,
+    exportUrl,
+    exportStatus,
+    supportReview,
+    batchItem
+  });
 
   return {
     id: job.id,
@@ -7013,6 +8199,13 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     supportReviewStatus: supportReview.supportReviewStatus,
     candidateManifestStatus: supportReview.candidateManifestStatus,
     mediaPreflightStatus: supportReview.mediaPreflightStatus,
+    workflow,
+    workflowState: workflow.item.state,
+    workflowStateLabelTh: workflow.item.label_th,
+    workflowNextAction: workflow.item.next_action,
+    batchWorkflowState: workflow.batch.state,
+    batchWorkflowStateLabelTh: workflow.batch.label_th,
+    batchWorkflowNextAction: workflow.batch.next_action,
     exportStatus,
     exportUrl,
     exportActionLabel: exportStatus === "export_failed" ? "Retry Export" : "Export",

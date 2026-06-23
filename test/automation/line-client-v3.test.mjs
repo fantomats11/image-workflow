@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildHeroReviewFlex,
   buildHeroReviewMessages,
+  buildLineKeywordBatchReviewFlex,
   buildPilotBatchFlex,
   buildReferenceMatchFlex,
   buildWordPressMediaAttachExecutionPlanFlex,
@@ -83,6 +84,99 @@ test("reference match flex encodes postback data for URLSearchParams", () => {
     return params.get("action");
   });
   assert.deepEqual(actions, ["approve_sku", "needs_review", "reject_sku"]);
+});
+
+test("LINE keyword batch review flex links operator to Batch Review", () => {
+  const flex = buildLineKeywordBatchReviewFlex({
+    reviewBaseUrl: "https://image-workflow.onrender.com",
+    result: {
+      ok: true,
+      batch: {
+        batch_id: "line-keyword-20260623T010203Z",
+        selection: {
+          requested_counts: [{ label: "รองเท้า", count: 1 }, { label: "เสื้อ", count: 1 }],
+          selected_size: 2
+        },
+        items: [
+          { sku: "RAC-001", product_name: "Snow Boot" },
+          { sku: "GM-001", product_name: "Down Jacket" }
+        ]
+      },
+      blockers: []
+    }
+  });
+
+  const text = JSON.stringify(flex);
+  assert.match(text, /สร้าง Batch แล้ว/);
+  assert.match(text, /เปิด Batch Review/);
+  assert.match(text, /https:\/\/image-workflow\.onrender\.com\/#batch\?batch_id=line-keyword-20260623T010203Z/);
+  assert.match(text, /RAC-001/);
+  assert.match(text, /GM-001/);
+  assert.doesNotMatch(text, /Approve batch/);
+  assert.doesNotMatch(text, /approve_batch/);
+
+  const footerButtons = flex.contents.footer.contents;
+  assert.equal(footerButtons[0].action.type, "uri");
+  assert.equal(footerButtons[1].action.type, "postback");
+  const cancelParams = new URLSearchParams(footerButtons[1].action.data);
+  assert.equal(cancelParams.get("action"), "cancel_batch");
+  assert.equal(cancelParams.get("batch_id"), "line-keyword-20260623T010203Z");
+});
+
+test("LINE keyword batch review flex summarizes over three SKUs instead of listing all", () => {
+  const flex = buildLineKeywordBatchReviewFlex({
+    reviewBaseUrl: "https://image-workflow.onrender.com",
+    result: {
+      ok: true,
+      batch: {
+        batch_id: "line-keyword-many",
+        selection: {
+          requested_counts: [{ label: "รองเท้า", count: 4 }],
+          selected_size: 4
+        },
+        items: [
+          { sku: "SKU-001", product_name: "Item 1" },
+          { sku: "SKU-002", product_name: "Item 2" },
+          { sku: "SKU-003", product_name: "Item 3" },
+          { sku: "SKU-004", product_name: "Item 4" }
+        ]
+      },
+      blockers: []
+    }
+  });
+
+  const text = JSON.stringify(flex);
+  assert.match(text, /เลือกแล้ว 4 SKU/);
+  assert.doesNotMatch(text, /SKU-001/);
+  assert.doesNotMatch(text, /SKU-004/);
+});
+
+test("LINE keyword batch review flex uses staff-safe blocker summary", () => {
+  const flex = buildLineKeywordBatchReviewFlex({
+    reviewBaseUrl: "https://image-workflow.onrender.com",
+    result: {
+      ok: true,
+      batch: {
+        batch_id: "line-keyword-shortfall",
+        selection: {
+          requested_counts: [{ label: "รองเท้า", count: 5 }],
+          selected_size: 2,
+          shortfalls: [{ code: "category_shortfall", message: "internal detail should not be needed" }]
+        },
+        items: [
+          { sku: "SKU-001", product_name: "Item 1" },
+          { sku: "SKU-002", product_name: "Item 2" }
+        ]
+      },
+      blockers: [{ code: "category_shortfall", message: "raw shortfall details" }]
+    }
+  });
+
+  const text = JSON.stringify(flex);
+  assert.match(text, /มีบางรายการต้องตรวจ reference ก่อนเริ่ม/);
+  assert.match(text, /รายละเอียดและรายการที่ต้องแก้ อยู่ใน Batch Review/);
+  assert.doesNotMatch(text, /raw shortfall details/);
+  assert.doesNotMatch(text, /internal detail should not be needed/);
 });
 
 test("hero review flex shows hero plus references without chat decision buttons", () => {

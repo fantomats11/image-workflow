@@ -18,6 +18,8 @@
     "execute:generation": "node scripts/automation/run-live-generation-executor.mjs",
     "persist:generation": "node scripts/automation/persist-live-generation-execution.mjs",
     "smoke:generation": "node scripts/automation/run-live-generation-smoke-test.mjs",
+    "e2e:readiness": "node scripts/automation/run-e2e-readiness-check.mjs",
+    "e2e:pilot-smoke": "node scripts/automation/run-e2e-pilot-smoke.mjs",
     "build:ai-hub-review": "node scripts/automation/build-ai-hub-image-review-bundle.mjs",
     "plan:ai-hub-review-actions": "node scripts/automation/build-ai-hub-review-action-plan.mjs",
     "build:ai-hub-workspace": "node scripts/automation/build-ai-hub-review-workspace.mjs",

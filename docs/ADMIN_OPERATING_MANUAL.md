@@ -2,7 +2,9 @@
 
 เอกสารนี้สำหรับ owner/operator/admin ที่ดูแลระบบ image-workflow บน production ใช้สำหรับจัดการ user, Google Drive, Monitoring, Costs, Jobs, Asset Library และ recovery โดยไม่กระทบ workflow ที่ทีมใช้งานจริง
 
-เอกสารที่เกี่ยวข้อง: [Production Checklist](./PRODUCTION_CHECKLIST.md), [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
+สถานะเอกสาร 2026-06-18: ใช้คู่มือนี้ร่วมกับ [Current Truth](./CURRENT_TRUTH.md) เสมอ เพราะ UI และ workflow ปัจจุบันเปลี่ยนเป็น LINE-first batch path แล้ว โดย WordPress/WooCommerce ยังเป็น preflight/dry-run เท่านั้น
+
+เอกสารที่เกี่ยวข้อง: [Current Truth](./CURRENT_TRUTH.md), [Production Launch Gate](./PRODUCTION_LAUNCH_GATE.md), [Rollback And Incident Playbook](./ROLLBACK_AND_INCIDENT_PLAYBOOK.md), [Production Checklist](./PRODUCTION_CHECKLIST.md), [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
 
 ## สิทธิ์ของ admin
 
@@ -16,9 +18,18 @@ Admin ทำได้ทุกอย่างที่ staff ทำได้ แ
 | **Costs** | ดู estimated cost, retry cost, failed/retry impact |
 | **งานทั้งหมด** | เห็น recovery controls ในงานที่แก้ได้ |
 | Recovery | ใช้ **Retry**, **Retry Export**, **Mark Failed** |
-| API | ตรวจ `/api/health` แบบ safe status |
+| API | ตรวจ `/api/health` แบบ safe status และ `/api/ops` สำหรับ queue/storage status เฉพาะ admin |
 
 ข้อควรระวัง: admin action หลายอย่างกระทบ production ทันที โดยเฉพาะ role, inactive, reset password และ recovery
+
+## Security boundary ที่ต้องรู้
+
+- Staff ห้ามเห็น **ตั้งค่า**, **Monitoring**, **Costs** และเรียก admin-only API โดยตรงไม่ได้
+- LINE webhook ต้องผ่าน signature verification ก่อนระบบอ่าน payload
+- ระบบมี basic duplicate event guard สำหรับ LINE webhook redelivery ใน process เดียวกัน
+- Upload สำหรับ generation รับเฉพาะ `JPG`, `PNG`, `WebP` และไม่เกิน 20MB ต่อไฟล์
+- Remote image URL ที่ใช้ approve/export ต้องเป็น `http` หรือ `https` public URL เท่านั้น ไม่อนุญาต localhost/private network
+- `/api/health` แสดงเฉพาะ boolean/config status ที่ปลอดภัย ห้ามใส่ secret/token/key ใน response หรือ screenshot ที่แชร์นอกทีม
 
 ## วิธีสร้าง user ใหม่
 
@@ -167,6 +178,7 @@ Admin ทำได้ทุกอย่างที่ staff ทำได้ แ
 | --- | --- |
 | Operational status | ภาพรวมว่า production ปกติหรือมีปัญหา |
 | Google Drive health | export พร้อมหรือ disconnected |
+| Worker mode ใน `/api/health` | production pilot ควรเป็น `dedicated_worker`, `embedded_worker_enabled=false`, `dedicated_worker_expected=true` |
 | Stuck jobs | งาน queued/running/generating เกินประมาณ 30 นาที |
 | Failed items | งานหรือ export ที่ล้มเหลวและควร recovery |
 | Recent system events | ลำดับเหตุการณ์ล่าสุด |

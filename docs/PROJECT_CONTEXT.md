@@ -39,11 +39,14 @@ Use the Codex skill:
 
 Read these docs before starting a new phase:
 
+- `docs/CURRENT_TRUTH.md`
 - `docs/HANDOFF_CURRENT.md`
 - `docs/AUTOMATION_COPILOT_ARCHITECTURE.md`
 - `docs/PROJECT_CONTEXT.md`
 - `docs/ADMIN_OPERATING_MANUAL.md`
 - `docs/STAFF_SOP.md`
+
+As of 2026-06-18, `docs/CURRENT_TRUTH.md` is the canonical current-state summary. Older docs remain useful context, but may contain historical UI names or pre-LINE-first flow descriptions.
 
 ## Important Note
 

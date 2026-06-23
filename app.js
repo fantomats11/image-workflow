@@ -332,6 +332,12 @@ const els = {
   addQueueButton: document.getElementById("addQueueButton"),
   resetButton: document.getElementById("resetButton"),
   clearHistoryButton: document.getElementById("clearHistoryButton"),
+  refreshNextActionsButton: document.getElementById("refreshNextActionsButton"),
+  nextActionsLoadingState: document.getElementById("nextActionsLoadingState"),
+  nextActionsErrorState: document.getElementById("nextActionsErrorState"),
+  nextActionsEmptyState: document.getElementById("nextActionsEmptyState"),
+  nextActionsGrid: document.getElementById("nextActionsGrid"),
+  nextActionsAdminSummary: document.getElementById("nextActionsAdminSummary"),
   refreshJobsButton: document.getElementById("refreshJobsButton"),
   jobsRangeControls: document.getElementById("jobsRangeControls"),
   jobsPageSize: document.getElementById("jobsPageSize"),
@@ -438,6 +444,18 @@ const els = {
   heroReviewSupportSet: document.getElementById("heroReviewSupportSet"),
   heroReviewSupportCount: document.getElementById("heroReviewSupportCount"),
   heroReviewSupportAssets: document.getElementById("heroReviewSupportAssets"),
+  batchReviewTitle: document.getElementById("batchReviewTitle"),
+  batchReviewRequest: document.getElementById("batchReviewRequest"),
+  batchReviewStatus: document.getElementById("batchReviewStatus"),
+  batchReviewNextAction: document.getElementById("batchReviewNextAction"),
+  batchReviewPrimaryButton: document.getElementById("batchReviewPrimaryButton"),
+  batchReviewLoadingState: document.getElementById("batchReviewLoadingState"),
+  batchReviewErrorState: document.getElementById("batchReviewErrorState"),
+  batchProgressGrid: document.getElementById("batchProgressGrid"),
+  batchReviewBlockers: document.getElementById("batchReviewBlockers"),
+  batchSkuGrid: document.getElementById("batchSkuGrid"),
+  batchDebugDrawer: document.getElementById("batchDebugDrawer"),
+  batchDebugContent: document.getElementById("batchDebugContent"),
   supportReviewSaveButton: document.getElementById("supportReviewSaveButton"),
   heroReviewDecisionDock: document.getElementById("heroReviewDecisionDock"),
   heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
@@ -485,6 +503,13 @@ let dbJobHistory = [];
 let jobHistory = localJobHistory;
 let jobHistoryError = "";
 let latestJobsData = null;
+let latestNextActionsData = null;
+let nextActionsError = "";
+let nextActionsLoading = false;
+let latestBatchReviewData = null;
+let batchReviewError = "";
+let batchReviewLoading = false;
+let batchReviewActionInProgress = false;
 let selectedJobsRange = "today";
 let selectedJobsPage = 1;
 let selectedJobsPageSize = 10;
@@ -517,6 +542,7 @@ let passwordSetupRequired = false;
 let passwordChangeInProgress = false;
 let authFlowInProgress = false;
 let authResolutionPromise = null;
+let initialOperatorRouteApplied = false;
 let appActionsBound = false;
 let globalDiagnosticsBound = false;
 const appStates = ["boot", "auth-loading", "logged-out", "blocked", "password-required", "app-ready", "logging-out"];
@@ -536,6 +562,7 @@ const appState = {
 };
 
 const pageMeta = {
+  next: { eyebrow: "งานที่ต้องทำต่อ", title: "My Next Actions" },
   create: { eyebrow: "เครื่องมือสร้างภาพ", title: "สร้างภาพสินค้า" },
   jobs: { eyebrow: "ศูนย์ควบคุมงานภาพ", title: "ศูนย์งานภาพ" },
   assets: { eyebrow: "คลังภาพ", title: "คลังภาพ" },
@@ -543,6 +570,7 @@ const pageMeta = {
   costs: { eyebrow: "ต้นทุน", title: "ต้นทุนและการใช้งาน" },
   monitoring: { eyebrow: "สถานะระบบ", title: "ติดตามระบบ" },
   review: { eyebrow: "ตรวจ Hero", title: "ตรวจ Hero ก่อนสร้าง Support" },
+  batch: { eyebrow: "ตรวจชุดงาน", title: "Batch Review" },
   settings: { eyebrow: "ผู้ดูแลระบบ", title: "ตั้งค่าระบบภาพ" }
 };
 
@@ -754,6 +782,7 @@ async function resolveAuthGate(reason = "") {
   showAuthGate("app-ready", "auth:profile-ready");
   updateAuthUi(currentSession);
   initAppActionsWhenReady();
+  applyInitialOperatorRoute();
   refreshJobHistory();
   refreshMetrics();
   updateWorkflowGate();
@@ -797,6 +826,7 @@ async function refreshSessionProfileAndAppState() {
   showAuthGate("app-ready", "auth:refreshed-app-ready");
   updateAuthUi(currentSession);
   initAppActionsWhenReady();
+  applyInitialOperatorRoute();
   updateWorkflowGate();
   navigateToPage(getPageFromHash());
   refreshJobHistory();
@@ -871,9 +901,13 @@ function clearFrontendAuthState() {
   dbJobHistory = [];
   jobHistoryError = "";
   latestJobsData = null;
+  latestNextActionsData = null;
   latestAssetsData = null;
   latestMetricData = null;
   latestMonitoringData = null;
+  nextActionsError = "";
+  nextActionsLoading = false;
+  initialOperatorRouteApplied = false;
   resetTransientWorkflowState();
   jobHistory = mergeJobHistory();
   renderHistory();
@@ -1123,6 +1157,16 @@ function applyRoleUi() {
   if (els.staffManagementSection) els.staffManagementSection.hidden = !isAdmin();
 }
 
+function applyInitialOperatorRoute() {
+  if (initialOperatorRouteApplied) return;
+  initialOperatorRouteApplied = true;
+  const page = getPageFromHash();
+  if (page === "batch" || page === "review") return;
+  if (window.location.hash !== "#next") {
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}#next`);
+  }
+}
+
 function getProfileErrorMessage(error) {
   if (error?.code === "profile_missing") {
     return "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
@@ -1252,7 +1296,8 @@ async function refreshSystemStatus() {
 
 function getPageFromHash() {
   const page = window.location.hash.replace("#", "").trim().split("?")[0];
-  return pageMeta[page] ? page : "jobs";
+  if (page === "batch-review") return "batch";
+  return pageMeta[page] ? page : "next";
 }
 
 function getHashParams() {
@@ -1262,10 +1307,10 @@ function getHashParams() {
 }
 
 function navigateToPage(page) {
-  let targetPage = pageMeta[page] ? page : "jobs";
+  let targetPage = pageMeta[page] ? page : "next";
   if ((targetPage === "settings" || targetPage === "monitoring" || targetPage === "costs") && !isAdmin()) {
-    targetPage = "jobs";
-    if (window.location.hash !== "#jobs") window.location.hash = "jobs";
+    targetPage = "next";
+    if (window.location.hash !== "#next") window.location.hash = "next";
   }
   els.pageViews.forEach((view) => {
     view.classList.toggle("active", view.dataset.page === targetPage);
@@ -1276,6 +1321,10 @@ function navigateToPage(page) {
   els.topbarEyebrow.textContent = pageMeta[targetPage].eyebrow;
   els.topbarTitle.textContent = pageMeta[targetPage].title;
 
+  if (targetPage === "next") {
+    renderNextActions();
+    if (isAppReady()) refreshNextActions();
+  }
   if (targetPage === "jobs") {
     renderHistory();
     if (isAppReady()) refreshJobHistory();
@@ -1285,6 +1334,7 @@ function navigateToPage(page) {
     if (isAppReady()) refreshAssetLibrary();
   }
   if (targetPage === "review" && isAppReady()) loadHeroReviewPage();
+  if (targetPage === "batch" && isAppReady()) loadBatchReviewPage();
   if (targetPage === "kpi") refreshMetrics();
   if (targetPage === "costs" && isAdmin()) refreshCosts();
   if (targetPage === "monitoring" && isAdmin()) refreshMonitoring();
@@ -1356,6 +1406,9 @@ function bindEvents() {
   if (els.heroReviewApproveButton) els.heroReviewApproveButton.addEventListener("click", approveHeroFromReviewPage);
   if (els.heroReviewRegenerateButton) els.heroReviewRegenerateButton.addEventListener("click", regenerateHeroFromReviewPage);
   if (els.supportReviewSaveButton) els.supportReviewSaveButton.addEventListener("click", saveSupportReviewDecisions);
+  if (els.batchReviewPrimaryButton) els.batchReviewPrimaryButton.addEventListener("click", handleBatchPrimaryAction);
+  if (els.batchSkuGrid) els.batchSkuGrid.addEventListener("click", handleBatchItemActionClick);
+  if (els.refreshNextActionsButton) els.refreshNextActionsButton.addEventListener("click", refreshNextActions);
 
   els.copyButton.addEventListener("click", async () => {
     if (!currentPrompt) buildPrompt();
@@ -3596,6 +3649,239 @@ async function refreshJobHistory() {
   }
 }
 
+async function refreshNextActions() {
+  if (!isAppReady() || !els.nextActionsGrid) return;
+  nextActionsLoading = true;
+  nextActionsError = "";
+  renderNextActions();
+  try {
+    const params = new URLSearchParams({
+      range: "30d",
+      page: "1",
+      pageSize: "50",
+      status: "",
+      q: ""
+    });
+    const response = await authFetch(`/api/jobs?${params.toString()}`);
+    const data = await readJsonResponse(response, "โหลดงานที่ต้องทำต่อไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "โหลดงานที่ต้องทำต่อไม่สำเร็จ"));
+
+    latestNextActionsData = data;
+    nextActionsError = "";
+  } catch (error) {
+    latestNextActionsData = null;
+    nextActionsError = getSafeAuthErrorMessage(error);
+  } finally {
+    nextActionsLoading = false;
+    renderNextActions();
+  }
+}
+
+function renderNextActions() {
+  if (!els.nextActionsGrid) return;
+  const jobs = latestNextActionsData?.jobs || [];
+  const cards = buildNextActionCards(jobs);
+
+  if (els.nextActionsLoadingState) els.nextActionsLoadingState.hidden = !nextActionsLoading;
+  if (els.nextActionsErrorState) {
+    els.nextActionsErrorState.hidden = !nextActionsError;
+    els.nextActionsErrorState.textContent = nextActionsError
+      ? `โหลดงานที่ต้องทำต่อไม่สำเร็จ: ${nextActionsError}`
+      : "";
+  }
+  if (els.nextActionsEmptyState) {
+    els.nextActionsEmptyState.hidden = nextActionsLoading || Boolean(nextActionsError) || cards.length > 0;
+  }
+
+  els.nextActionsGrid.innerHTML = cards.length
+    ? cards.map(renderNextActionCard).join("")
+    : "";
+  renderNextActionsAdminSummary(jobs);
+}
+
+function buildNextActionCards(jobs = []) {
+  const buckets = getNextActionBuckets();
+  const grouped = new Map(buckets.map((bucket) => [bucket.key, []]));
+
+  jobs.forEach((job) => {
+    const bucket = buckets.find((item) => item.match(job));
+    if (!bucket) return;
+    grouped.get(bucket.key).push(job);
+  });
+
+  return buckets
+    .map((bucket) => {
+      const bucketJobs = grouped.get(bucket.key) || [];
+      if (!bucketJobs.length) return null;
+      const firstJob = bucketJobs[0];
+      return {
+        ...bucket,
+        count: bucketJobs.length,
+        jobs: bucketJobs,
+        href: getNextActionHref(firstJob, bucket)
+      };
+    })
+    .filter(Boolean);
+}
+
+function getNextActionBuckets() {
+  return [
+    {
+      key: "batch_review",
+      tone: "info",
+      label: "รอตรวจ Batch",
+      helper: "ตรวจ SKU ที่ LINE เลือกมาก่อนเริ่มสร้าง Hero",
+      match: (job) => {
+        const state = getBatchWorkflowState(job);
+        const actionType = getWorkflowActionType(getBatchWorkflowNextAction(job));
+        return ["draft_created", "waiting_batch_review", "ready_to_confirm"].includes(state) ||
+          ["open_batch_review", "review_batch", "confirm_batch"].includes(actionType);
+      }
+    },
+    {
+      key: "hero_review",
+      tone: "warning",
+      label: "รอตรวจ Hero",
+      helper: "เปิดภาพ Hero เพื่อตัดสินใจ approve หรือ regenerate",
+      match: (job) => getItemWorkflowState(job) === "hero_waiting_review" || isHeroReviewReady(job)
+    },
+    {
+      key: "support_generation",
+      tone: "ok",
+      label: "Hero approved แล้ว พร้อมสร้าง Support",
+      helper: "Hero ผ่านแล้ว งานถัดไปคือปลดล็อกหรือสร้างภาพ Support",
+      match: (job) => {
+        const state = getItemWorkflowState(job);
+        return ["hero_approved", "support_ready", "support_queued", "support_generating"].includes(state) ||
+          isSupportGenerationWaiting(job);
+      }
+    },
+    {
+      key: "support_review",
+      tone: "warning",
+      label: "รอตรวจ Support",
+      helper: "ตรวจชุดภาพ Support ก่อนอนุมัติและส่งออก",
+      match: (job) => getItemWorkflowState(job) === "support_waiting_review" || isSupportReviewReady(job)
+    },
+    {
+      key: "export_problem",
+      tone: "danger",
+      label: "Export มีปัญหา",
+      helper: "มีงานส่งออกไม่สำเร็จ ต้องให้ admin ตรวจหรือ retry",
+      match: isExportProblemJob
+    },
+    {
+      key: "failed",
+      tone: "danger",
+      label: "งาน failed ที่ควรแจ้ง admin",
+      helper: "งานสร้างภาพหรือ workflow ไม่สำเร็จ ควรส่งต่อให้ admin ตรวจ",
+      match: isFailedNextActionJob
+    }
+  ];
+}
+
+function renderNextActionCard(card) {
+  const firstJob = card.jobs[0] || {};
+  const skuLabel = firstJob.sku ? `SKU ${firstJob.sku}` : `งาน ${firstJob.shortId || shortId(firstJob.id) || "-"}`;
+  const productLabel = firstJob.productName || firstJob.product_name || firstJob.sku || "ยังไม่มีชื่อสินค้า";
+  return `
+    <article class="next-action-card ${escapeHtml(card.tone)}">
+      <div class="next-action-card-header">
+        <div>
+          <span class="next-action-label">${escapeHtml(card.label)}</span>
+          <strong>${formatThaiNumber(card.count)} งาน</strong>
+        </div>
+        <span class="next-action-count">${formatThaiNumber(card.count)}</span>
+      </div>
+      <p>${escapeHtml(card.helper)}</p>
+      <div class="next-action-meta">
+        <span>${escapeHtml(productLabel)}</span>
+        <span>${escapeHtml(skuLabel)}</span>
+        <span>${escapeHtml(formatJobTime(firstJob.latestActivityAt || firstJob.updatedAt || firstJob.createdAt))}</span>
+      </div>
+      <a class="primary-button compact next-action-button" href="${escapeHtml(card.href || "#jobs")}">เปิดงานที่ต้องทำ</a>
+    </article>
+  `;
+}
+
+function renderNextActionsAdminSummary(jobs = []) {
+  if (!els.nextActionsAdminSummary) return;
+  if (!isAdmin()) {
+    els.nextActionsAdminSummary.hidden = true;
+    els.nextActionsAdminSummary.innerHTML = "";
+    return;
+  }
+  const exportProblems = jobs.filter(isExportProblemJob).length;
+  const failedJobs = jobs.filter(isFailedNextActionJob).length;
+  const recoverableJobs = jobs.filter((job) => job.canRetryExport || job.canMarkFailed).length;
+  const hasSummary = exportProblems || failedJobs || recoverableJobs;
+  els.nextActionsAdminSummary.hidden = !hasSummary;
+  els.nextActionsAdminSummary.innerHTML = hasSummary
+    ? `
+      <strong>Admin summary</strong>
+      <span>Export มีปัญหา ${formatThaiNumber(exportProblems)} งาน</span>
+      <span>Failed ${formatThaiNumber(failedJobs)} งาน</span>
+      <span>งานที่มี recovery action ${formatThaiNumber(recoverableJobs)} งาน</span>
+    `
+    : "";
+}
+
+function getItemWorkflowState(job = {}) {
+  return String(job.workflow?.item?.state || job.workflowState || job.itemWorkflowState || "").toLowerCase();
+}
+
+function getBatchWorkflowState(job = {}) {
+  return String(job.workflow?.batch?.state || job.batchWorkflowState || "").toLowerCase();
+}
+
+function getWorkflowNextAction(job = {}) {
+  return job.workflow?.item?.next_action || job.workflowNextAction || job.next_action || null;
+}
+
+function getBatchWorkflowNextAction(job = {}) {
+  return job.workflow?.batch?.next_action || job.batchWorkflowNextAction || null;
+}
+
+function getWorkflowActionType(action = {}) {
+  return String(action?.type || "").toLowerCase();
+}
+
+function getNextActionHref(job = {}, bucket = {}) {
+  const itemAction = getWorkflowNextAction(job);
+  const batchAction = getBatchWorkflowNextAction(job);
+  if (bucket.key === "batch_review") {
+    const href = normalizeWorkflowHashHref(batchAction?.href || itemAction?.href || "");
+    if (href) return href;
+    const batchId = job.batchKey || job.batchId || job.batch_id || "";
+    return batchId ? `#batch?batch_id=${encodeURIComponent(batchId)}` : "#jobs";
+  }
+  const workflowHref = normalizeWorkflowHashHref(itemAction?.href || "");
+  if (workflowHref) return workflowHref;
+  if (["hero_review", "support_generation", "support_review", "failed"].includes(bucket.key)) {
+    return buildJobReviewHref(job) || "#jobs";
+  }
+  return "#jobs";
+}
+
+function isExportProblemJob(job = {}) {
+  const exportStatus = String(job.exportStatus || job.export_status || "").toLowerCase();
+  return Boolean(job.canRetryExport) || /failed|error|blocked/.test(exportStatus);
+}
+
+function isFailedNextActionJob(job = {}) {
+  const state = getItemWorkflowState(job);
+  const statusText = [
+    state,
+    job.status,
+    job.generationStatus,
+    job.heroStatus,
+    job.supportStatus,
+    job.workflowState
+  ].filter(Boolean).join(" ").toLowerCase();
+  return ["hero_failed", "support_failed", "failed", "partially_failed"].includes(state) ||
+    /\bfailed\b|ไม่สำเร็จ/.test(statusText);
+}
+
 function mergeJobHistory() {
   return [...dbJobHistory, ...localJobHistory].slice(0, 100);
 }
@@ -3695,6 +3981,326 @@ function renderProductionFlowBoard(items = []) {
       <small>${escapeHtml(stage.helper)}</small>
     </article>
   `).join("");
+}
+
+async function loadBatchReviewPage() {
+  if (!els.batchReviewStatus) return;
+  const params = getHashParams();
+  const batchId = params.get("batch_id") || params.get("batchId") || "";
+  latestBatchReviewData = null;
+  batchReviewError = "";
+  if (!batchId) {
+    batchReviewError = "ลิงก์นี้ไม่มี batch_id";
+    renderBatchReviewPage();
+    return;
+  }
+
+  batchReviewLoading = true;
+  renderBatchReviewPage();
+  try {
+    const response = await authFetch(`/api/automation/batches/${encodeURIComponent(batchId)}/review`);
+    const data = await readJsonResponse(response, "โหลด Batch Review ไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "โหลด Batch Review ไม่สำเร็จ"));
+    latestBatchReviewData = data;
+    batchReviewError = "";
+  } catch (error) {
+    latestBatchReviewData = null;
+    batchReviewError = getSafeAuthErrorMessage(error);
+  } finally {
+    batchReviewLoading = false;
+    renderBatchReviewPage();
+  }
+}
+
+function renderBatchReviewPage() {
+  if (!els.batchReviewTitle) return;
+  const data = latestBatchReviewData;
+  const batch = data?.batch || {};
+  const itemCards = Array.isArray(data?.item_cards) ? data.item_cards : [];
+  const stateLabel = data?.label_th || getBatchEmptyStateLabel();
+
+  els.batchReviewLoadingState.hidden = !batchReviewLoading;
+  els.batchReviewErrorState.hidden = !batchReviewError;
+  els.batchReviewErrorState.textContent = getBatchErrorCopy(batchReviewError);
+  els.batchReviewStatus.textContent = stateLabel;
+  els.batchReviewTitle.textContent = data ? `Batch ${shortId(batch.batch_id || batch.id || "")}` : "ตรวจชุดงานจาก LINE";
+  els.batchReviewRequest.textContent = data
+    ? `Source: ${formatBatchSource(batch.source)} · Request: ${batch.raw_request_text || "-"}`
+    : "ตรวจรายการ SKU ที่ LINE เลือกมา ก่อนเริ่มสร้าง Hero";
+  els.batchReviewNextAction.textContent = data?.next_action?.label_th || getBatchEmptyActionLabel();
+  renderBatchPrimaryButton(data);
+  renderBatchProgress(data);
+  renderBatchBlockers(data?.blockers || []);
+  renderBatchSkuCards(itemCards);
+  renderBatchDebug(data);
+}
+
+function getBatchEmptyStateLabel() {
+  if (batchReviewLoading) return "กำลังโหลด";
+  if (batchReviewError) return batchReviewError.includes("ไม่มีสิทธิ์") ? "ไม่มีสิทธิ์" : "โหลดไม่สำเร็จ";
+  return "รอข้อมูล";
+}
+
+function getBatchEmptyActionLabel() {
+  if (batchReviewLoading) return "กำลังโหลด Batch";
+  if (batchReviewError) return "ตรวจลิงก์หรือสิทธิ์";
+  return "รอข้อมูล Batch";
+}
+
+function getBatchErrorCopy(message = "") {
+  if (!message) return "";
+  if (/not found|ไม่พบ|batch_not_found/i.test(message)) return "ไม่พบ Batch นี้ กรุณาตรวจลิงก์จาก LINE อีกครั้ง";
+  if (/permission|forbidden|ไม่มีสิทธิ์|401|403/i.test(message)) return "ไม่มีสิทธิ์ดู Batch นี้ กรุณาติดต่อ admin";
+  return message.includes("batch_id") ? message : `ระบบยังสร้าง review summary ไม่ได้: ${message}`;
+}
+
+function renderBatchPrimaryButton(data) {
+  if (!els.batchReviewPrimaryButton) return;
+  const action = data?.next_action || {};
+  const type = action.type || "";
+  const enabledAction = getBatchPrimaryAction(type, data);
+  els.batchReviewPrimaryButton.textContent = getBatchPrimaryLabel(type, action.label_th);
+  els.batchReviewPrimaryButton.dataset.batchAction = enabledAction;
+  els.batchReviewPrimaryButton.dataset.href = normalizeWorkflowHashHref(action.href || "");
+  els.batchReviewPrimaryButton.dataset.batchId = data?.batch?.batch_id || data?.batch?.id || "";
+  els.batchReviewPrimaryButton.disabled = batchReviewLoading || batchReviewActionInProgress || !enabledAction;
+}
+
+function getBatchPrimaryAction(type, data = {}) {
+  if (type === "confirm_batch") return "confirm_batch";
+  if (["open_review", "open_export_preflight", "resolve_reference"].includes(type)) return "navigate";
+  if (type === "wait_system") return "";
+  if (type === "none") return "";
+  if (!data?.ok) return "";
+  return "";
+}
+
+function getBatchPrimaryLabel(type, fallback = "") {
+  const labels = {
+    confirm_batch: "ตรวจรายการแล้วเริ่ม Hero",
+    open_review: fallback || "เปิดหน้าตรวจ",
+    open_export_preflight: "เปิดไฟล์ export",
+    resolve_reference: "เปิดคลังภาพอ้างอิง",
+    wait_system: "รอระบบทำงาน",
+    none: "ไม่ต้องทำอะไรต่อ"
+  };
+  return labels[type] || fallback || "รอข้อมูล";
+}
+
+function renderBatchProgress(data) {
+  if (!els.batchProgressGrid) return;
+  const cards = buildBatchProgressCards(data);
+  els.batchProgressGrid.innerHTML = cards.map((card) => `
+    <article class="batch-progress-card ${card.count ? "active" : ""}">
+      <span>${escapeHtml(card.label)}</span>
+      <strong>${formatThaiNumber(card.count)}</strong>
+    </article>
+  `).join("");
+}
+
+function buildBatchProgressCards(data = {}) {
+  const items = Array.isArray(data?.item_cards) ? data.item_cards : [];
+  const countState = (states) => items.filter((item) => states.includes(item.state)).length;
+  const progress = data?.progress || {};
+  return [
+    { label: "เลือกแล้ว", count: Number(progress.selected_items || items.filter((item) => item.selected).length || 0) },
+    { label: "ข้าม", count: Number(progress.skipped_items || countState(["skipped"])) },
+    { label: "Hero สร้างแล้ว", count: countState(["hero_waiting_review", "hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
+    { label: "รอตรวจ Hero", count: countState(["hero_waiting_review"]) },
+    { label: "Hero อนุมัติแล้ว", count: countState(["hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
+    { label: "Support พร้อม", count: countState(["support_ready", "support_generating"]) },
+    { label: "Support สร้างแล้ว", count: countState(["support_waiting_review", "support_approved", "exported"]) },
+    { label: "Support/Export ผ่าน", count: countState(["support_approved", "exported"]) },
+    { label: "ไม่สำเร็จ", count: Number(progress.failed_items || countState(["hero_failed", "support_failed"])) }
+  ];
+}
+
+function renderBatchBlockers(blockers = []) {
+  if (!els.batchReviewBlockers) return;
+  els.batchReviewBlockers.hidden = !blockers.length;
+  els.batchReviewBlockers.innerHTML = blockers.length
+    ? blockers.map((blocker) => `<span>${escapeHtml(blocker.label_th || blocker.code || "ติดเงื่อนไข")}</span>`).join("")
+    : "";
+}
+
+function renderBatchSkuCards(items = []) {
+  if (!els.batchSkuGrid) return;
+  if (batchReviewLoading) {
+    els.batchSkuGrid.innerHTML = '<p class="empty-state">กำลังโหลดรายการ SKU...</p>';
+    return;
+  }
+  if (batchReviewError) {
+    els.batchSkuGrid.innerHTML = `<p class="empty-state">${escapeHtml(getBatchErrorCopy(batchReviewError))}</p>`;
+    return;
+  }
+  if (latestBatchReviewData?.state === "cancelled") {
+    els.batchSkuGrid.innerHTML = '<p class="empty-state">Batch นี้ถูกยกเลิกแล้ว ไม่มีงานที่ต้องทำต่อ</p>';
+    return;
+  }
+  if (!items.length) {
+    els.batchSkuGrid.innerHTML = '<p class="empty-state">ยังไม่มี SKU ในชุดงานนี้</p>';
+    return;
+  }
+  els.batchSkuGrid.innerHTML = items.map(renderBatchSkuCard).join("");
+}
+
+function renderBatchSkuCard(item = {}) {
+  const blockers = Array.isArray(item.blockers) ? item.blockers : [];
+  const itemActions = Array.isArray(item.allowed_actions) ? item.allowed_actions : [];
+  return `
+    <article class="batch-sku-card ${escapeHtml(item.state || "selected")}">
+      <div class="batch-sku-card-main">
+        <div>
+          <span class="batch-sku-code">${escapeHtml(item.sku || "-")}</span>
+          <strong>${escapeHtml(item.product_name || "ยังไม่มีชื่อสินค้า")}</strong>
+          <small>${escapeHtml(formatBranchLabel(item))} · ${escapeHtml(item.product_type || "-")}${item.subcategory ? ` · ${escapeHtml(item.subcategory)}` : ""}</small>
+        </div>
+        <span class="batch-item-state">${escapeHtml(item.label_th || "-")}</span>
+      </div>
+      <div class="batch-sku-status-grid">
+        ${renderBatchItemStatus("Reference", getReferenceStatusLabel(item))}
+        ${renderBatchItemStatus("Hero", getHeroStatusLabel(item.state))}
+        ${renderBatchItemStatus("Support", getSupportStatusLabel(item.state))}
+      </div>
+      ${blockers.length ? `<div class="batch-item-blockers">${blockers.map((blocker) => `<span>${escapeHtml(blocker.label_th || blocker.code || "ติดเงื่อนไข")}</span>`).join("")}</div>` : ""}
+      ${itemActions.length ? `<div class="batch-item-actions">${itemActions.map((action) => renderBatchItemActionButton(action, item)).join("")}</div>` : ""}
+    </article>
+  `;
+}
+
+function renderBatchItemStatus(label, value) {
+  return `
+    <div>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderBatchItemActionButton(action = {}, item = {}) {
+  const type = action.type || "";
+  if (!["skip_item", "retry_item"].includes(type)) return "";
+  return `
+    <button
+      class="ghost-button compact"
+      type="button"
+      data-batch-item-action="${escapeHtml(type)}"
+      data-item-id="${escapeHtml(item.id || "")}"
+    >${escapeHtml(action.label_th || (type === "skip_item" ? "ข้าม SKU นี้" : "ลองสร้างใหม่"))}</button>
+  `;
+}
+
+function getReferenceStatusLabel(item = {}) {
+  if (item.reference?.has_reference) return "มีภาพอ้างอิง";
+  if ((item.blockers || []).some((blocker) => blocker.code === "missing_reference_assets")) return "ไม่มีภาพอ้างอิง";
+  return "รอตรวจภาพอ้างอิง";
+}
+
+function getHeroStatusLabel(state = "") {
+  if (["hero_waiting_review"].includes(state)) return "รอตรวจ Hero";
+  if (["hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"].includes(state)) return "อนุมัติแล้ว";
+  if (state === "hero_generating") return "กำลังสร้าง";
+  if (state === "hero_failed") return "สร้างไม่สำเร็จ";
+  if (state === "skipped") return "ข้าม";
+  return "ยังไม่เริ่ม";
+}
+
+function getSupportStatusLabel(state = "") {
+  if (state === "support_ready") return "พร้อมสร้าง";
+  if (state === "support_generating") return "กำลังสร้าง";
+  if (state === "support_waiting_review") return "รอตรวจ Support";
+  if (["support_approved", "exported"].includes(state)) return "อนุมัติแล้ว";
+  if (state === "support_failed") return "สร้างไม่สำเร็จ";
+  if (state === "support_blocked_waiting_hero") return "รออนุมัติ Hero";
+  if (state === "skipped") return "ข้าม";
+  return "ล็อกอยู่";
+}
+
+function formatBatchSource(source = "") {
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("line")) return "LINE";
+  return source || "-";
+}
+
+function formatBranchLabel(item = {}) {
+  return item.brand_label || item.target_site || item.brand_id || "-";
+}
+
+function renderBatchDebug(data = {}) {
+  if (!els.batchDebugDrawer || !els.batchDebugContent) return;
+  const debug = data?.debug || null;
+  els.batchDebugDrawer.hidden = !debug;
+  els.batchDebugContent.textContent = debug ? JSON.stringify(debug, null, 2) : "";
+}
+
+async function handleBatchPrimaryAction() {
+  const button = els.batchReviewPrimaryButton;
+  if (!button || button.disabled) return;
+  const action = button.dataset.batchAction || "";
+  if (action === "navigate") {
+    navigateToWorkflowHref(button.dataset.href || "#jobs");
+    return;
+  }
+  if (action !== "confirm_batch") return;
+  await runBatchReviewAction({
+    url: `/api/automation/batches/${encodeURIComponent(button.dataset.batchId || "")}/confirm`,
+    message: "กำลังยืนยันชุด SKU..."
+  });
+}
+
+async function handleBatchItemActionClick(event) {
+  const button = event.target.closest("[data-batch-item-action]");
+  if (!button || batchReviewActionInProgress) return;
+  const itemId = button.dataset.itemId || "";
+  const action = button.dataset.batchItemAction || "";
+  if (!itemId || !["skip_item", "retry_item"].includes(action)) return;
+  await runBatchReviewAction({
+    url: `/api/automation/batch-items/${encodeURIComponent(itemId)}/${action === "skip_item" ? "skip" : "retry"}`,
+    message: action === "skip_item" ? "กำลังข้าม SKU..." : "กำลังส่งคำขอลองใหม่..."
+  });
+}
+
+async function runBatchReviewAction({ url = "", message = "" } = {}) {
+  if (!url || batchReviewActionInProgress) return;
+  batchReviewActionInProgress = true;
+  batchReviewError = "";
+  if (els.batchReviewNextAction) els.batchReviewNextAction.textContent = message || "กำลังดำเนินการ...";
+  renderBatchPrimaryButton(latestBatchReviewData);
+  try {
+    const response = await authFetch(url, { method: "POST", headers: { "Content-Type": "application/json" } });
+    const data = await readJsonResponse(response, "ดำเนินการไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "ดำเนินการไม่สำเร็จ"));
+    latestBatchReviewData = data;
+    batchReviewError = "";
+  } catch (error) {
+    batchReviewError = getSafeAuthErrorMessage(error);
+  } finally {
+    batchReviewActionInProgress = false;
+    renderBatchReviewPage();
+  }
+}
+
+function normalizeWorkflowHashHref(href = "") {
+  const value = String(href || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value, window.location.origin);
+    const hash = url.hash || value;
+    if (hash.startsWith("#batch-review")) return hash.replace("#batch-review", "#batch");
+    return hash.startsWith("#") ? hash : value;
+  } catch {
+    return value.startsWith("#batch-review") ? value.replace("#batch-review", "#batch") : value;
+  }
+}
+
+function navigateToWorkflowHref(href = "") {
+  const target = normalizeWorkflowHashHref(href) || "#jobs";
+  if (target.startsWith("#")) {
+    window.location.hash = target.slice(1);
+    navigateToPage(getPageFromHash());
+    return;
+  }
+  window.open(target, "_blank", "noopener");
 }
 
 async function refreshAssetLibrary() {

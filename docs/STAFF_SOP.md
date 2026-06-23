@@ -2,20 +2,25 @@
 
 เอกสารนี้สำหรับทีมงานทั่วไปที่ใช้ระบบ image-workflow ทุกวัน เช่น สร้างภาพสินค้า ตรวจภาพ Approve และเปิดภาพจากคลังภาพหรือ Google Drive
 
-เอกสารที่เกี่ยวข้อง: [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
+สถานะเอกสาร 2026-06-18: production MVP ปัจจุบันเริ่มจาก LINE keyword batch ไม่ใช่การกรอกงานเองในหน้าเว็บเป็น path หลัก ส่วนขั้นตอน manual ด้านล่างยังเก็บไว้เป็น historical/admin fallback จนกว่าจะ rewrite SOP ทั้งเล่ม
+
+เอกสารที่เกี่ยวข้อง: [Current Truth](./CURRENT_TRUTH.md), [Production Launch Gate](./PRODUCTION_LAUNCH_GATE.md), [Troubleshooting](./TROUBLESHOOTING.md), [Final Launch Review](./FINAL_LAUNCH_REVIEW.md)
 
 ## ระบบนี้ใช้ทำอะไร
 
 ระบบนี้ใช้สร้างภาพสินค้าแบบ workflow จริงบน production:
 
-1. กรอกข้อมูลงานและ reference ในหน้า **สร้างภาพ**
-2. กด **Generate Hero** เพื่อสร้างภาพหลัก
-3. ตรวจคุณภาพภาพ Hero
-4. กด **Approve + Save** เพื่อบันทึกและ export
-5. กด **Generate Support Set** เพื่อสร้างภาพมุมเสริม
-6. ตรวจภาพ Support
-7. กด **Approve Support Set**
-8. ตามงานที่หน้า **งานทั้งหมด** และเปิดภาพที่หน้า **คลังภาพ**
+1. ส่งคำสั่ง LINE keyword batch เช่น `BATCH รองเท้า=1 เสื้อ=1`
+2. ตรวจ Batch Review และ confirm selected SKUs
+3. ระบบสร้าง Hero จริง
+4. เปิดหน้า Review เพื่อตรวจ Hero เทียบ reference
+5. กดอนุมัติ Hero หรือสั่งสร้าง Hero ใหม่
+6. เมื่อ Hero approved แล้ว ระบบจึงสร้าง Support
+7. ตรวจ Support ในหน้า Review
+8. อนุมัติ/สั่งสร้างใหม่/ไม่ใช้ภาพ Support ก่อนเข้า export/preflight
+9. ตามงานที่หน้า **Automation Inbox** และเปิดภาพที่หน้า **คลังภาพ**
+
+หมายเหตุ: WordPress/WooCommerce live write ยังไม่เปิดใช้งานใน production phase นี้
 
 ## สิทธิ์ของ staff
 
@@ -88,8 +93,8 @@
 2. ในส่วน **ตั้งค่างานและอัปโหลด Reference** กรอกข้อมูลที่จำเป็น เช่น ผู้ทำงาน, SKU, brand, category, subtype, image type, color, key feature, model profile, shot type, image size, quality
 3. ใส่ reference ด้วยวิธีใดวิธีหนึ่ง:
    - วาง Google Drive URL หรือชื่อไฟล์ในช่อง reference
-   - อัปโหลดภาพสินค้าในช่อง Product reference
-   - อัปโหลดภาพ model reference ถ้างานนั้นต้องใช้
+   - อัปโหลดภาพสินค้าในช่อง Product reference โดยใช้ไฟล์ `JPG`, `PNG`, หรือ `WebP` เท่านั้น
+   - อัปโหลดภาพ model reference ถ้างานนั้นต้องใช้ โดยใช้ไฟล์ `JPG`, `PNG`, หรือ `WebP` เท่านั้น
 4. ตรวจ notes ให้ชัด เช่น จุดที่ห้ามเปลี่ยน สี โลโก้ หรือ feature สำคัญ
 5. กด **Generate Hero**
 6. รอจนระบบสร้างภาพเสร็จ ห้ามกดซ้ำระหว่าง loading

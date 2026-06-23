@@ -81,9 +81,17 @@ test("reports shortfalls when the catalog snapshot cannot satisfy a keyword batc
     now: NOW
   });
 
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
   assert.deepEqual(result.blockers.map((blocker) => blocker.code), ["category_shortfall", "category_shortfall"]);
   assert.equal(result.batch.items.length, 1);
+  assert.match(result.batch.selection.shortfalls[0].message, /พร้อมใช้/);
+  assert.match(buildLineKeywordBatchIntakeResult({
+    text: "BATCH shoes=2 apparel=1",
+    generationRows: [
+      catalogRow({ sku: "SHOE-001", type: "รองเท้า", process: "FALSE", referenceUrl: "https://drive.example/shoe-1" })
+    ],
+    now: NOW
+  }).replyText, /มีบางรายการต้องตรวจ reference ก่อนเริ่ม/);
 });
 
 test("intake result turns a recognized LINE message into a registerable batch", () => {
@@ -101,7 +109,8 @@ test("intake result turns a recognized LINE message into a registerable batch", 
   assert.equal(result.ok, true);
   assert.equal(result.batch.items.length, 2);
   assert.equal(result.batch.selection.line_user_id, "U-line-user");
-  assert.match(result.replyText, /สร้าง batch จาก LINE keyword แล้ว/);
+  assert.match(result.replyText, /สร้าง Batch แล้ว/);
+  assert.match(result.replyText, /เปิด Batch Review/);
 });
 
 test("catalog snapshot loader falls back to packaged keyword catalog when outputs are absent", async () => {

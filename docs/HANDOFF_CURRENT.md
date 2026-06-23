@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-12
 
+> Status note, 2026-06-18: this handoff is historical context. For the current production truth, read `docs/CURRENT_TRUTH.md` first. In particular, the current MVP path is LINE keyword batch -> web Hero Review -> approved Hero unlocks Support -> Support Review -> export/preflight. WordPress/WooCommerce live writes are still out of scope.
+
 Use this file to resume the Rent A Coat / GO Mall image workflow project without rereading the full conversation thread.
 
 ## Start Here

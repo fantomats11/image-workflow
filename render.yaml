@@ -20,10 +20,16 @@ services:
         value: true
       - key: WORDPRESS_DRY_RUN
         value: true
+      - key: WORDPRESS_LIVE_WRITES_ENABLED
+        value: false
       - key: SUPABASE_AUTOMATION_ACTOR_ID
         value: 8aa5dfb5-605d-4072-83e2-ec443e86295f
       - key: AUTOMATION_EMBEDDED_WORKER
+        value: false
+      - key: AUTOMATION_DEDICATED_WORKER_EXPECTED
         value: true
+      - key: ALLOW_MULTIPLE_WORKERS
+        value: false
       - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
         value: 5000
       - key: SUPABASE_URL
@@ -71,11 +77,19 @@ services:
         value: true
       - key: WORDPRESS_DRY_RUN
         value: true
+      - key: WORDPRESS_LIVE_WRITES_ENABLED
+        value: false
       - key: SUPABASE_AUTOMATION_ACTOR_ID
         fromService:
           type: web
           name: image-workflow
           envVarKey: SUPABASE_AUTOMATION_ACTOR_ID
+      - key: AUTOMATION_EMBEDDED_WORKER
+        value: false
+      - key: AUTOMATION_DEDICATED_WORKER_EXPECTED
+        value: true
+      - key: ALLOW_MULTIPLE_WORKERS
+        value: false
       - key: AUTOMATION_WORKER_POLL_INTERVAL_MS
         value: 5000
       - key: SUPABASE_URL

@@ -382,6 +382,136 @@ test("buildPilotGenerationExecutionPlan blocks LINE-approved support when hero a
   assert.equal(support.model_input_files[1].source_name, "RAC-REMOTE-HERO_front.jpg");
 });
 
+test("buildPilotGenerationExecutionPlan unlocks support from persisted approved hero anchor metadata", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: {
+      id: "task-metadata-anchor",
+      task_type: "generate_batch",
+      batch_id: "batch-1",
+      payload: {
+        action: "approve_hero",
+        sku: "R23CBT0048",
+        generation_id: "generation-approved"
+      }
+    },
+    batchItems: [{
+      sku: "R23CBT0048",
+      brand_id: "go_mall",
+      target_site: "gomall",
+      product_name: "Columbia Down Jacket",
+      product_type: "sale",
+      category: "เสื้อ",
+      reference_url: "https://drive.google.com/drive/folders/jacket-ref",
+      support_shots: "side_fit_on_model",
+      status: "hero_approved",
+      metadata: {
+        web_review_action: { last_action: "approve_hero", generation_id: "generation-approved" },
+        approved_hero_anchor: {
+          id: "asset-approved-anchor",
+          asset_id: "asset-approved-anchor",
+          sku: "R23CBT0048",
+          type: "hero_generated",
+          kind: "hero",
+          shot_key: "hero",
+          status: "approved",
+          local_path: "/tmp/R23CBT0048/approved-hero.png",
+          public_url: "https://cdn.example.com/approved-hero.png",
+          file_name: "approved-hero.png",
+          file_size: 42,
+          approval_id: "approval-1",
+          approved_at: "2026-06-18T03:00:00Z"
+        }
+      }
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "R23CBT0048",
+        staged_reference_assets: [{
+          drive_file_id: "jacket-front",
+          source_name: "R23CBT0048_Front.jpg",
+          local_path: "/tmp/R23CBT0048/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    }
+  });
+
+  const support = plan.items[0].generation_requests[0];
+  assert.equal(plan.summary.pending_hero_approval_for_support, 0);
+  assert.equal(plan.items[0].support_requires_hero_approval, false);
+  assert.equal(support.request_status, "ready_for_live_generation");
+  assert.equal(support.approved_hero_anchor.id, "asset-approved-anchor");
+  assert.equal(support.model_input_files[0].source_role, "approved_hero_anchor");
+  assert.equal(support.model_input_files[0].asset_id, "asset-approved-anchor");
+  assert.equal(support.model_input_files[1].source_role, "product_reference");
+});
+
+test("buildPilotGenerationExecutionPlan blocks metadata approved hero anchor when only remote URL is available", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: {
+      id: "task-metadata-remote-anchor",
+      task_type: "generate_batch",
+      batch_id: "batch-1",
+      payload: {
+        action: "approve_hero",
+        sku: "R24CBF0013",
+        generation_id: "generation-remote"
+      }
+    },
+    batchItems: [{
+      sku: "R24CBF0013",
+      brand_id: "rent_a_coat",
+      target_site: "rentacoat",
+      product_name: "Snow Boot",
+      product_type: "rental",
+      category: "รองเท้า",
+      reference_url: "https://drive.google.com/drive/folders/boot-ref",
+      support_shots: "front_pair",
+      status: "hero_approved",
+      metadata: {
+        line_action: { last_action: "approve_hero", generation_id: "generation-remote" },
+        approved_hero_anchor: {
+          id: "asset-remote-anchor",
+          asset_id: "asset-remote-anchor",
+          sku: "R24CBF0013",
+          type: "hero_generated",
+          kind: "hero",
+          shot_key: "hero",
+          status: "approved",
+          public_url: "https://cdn.example.com/remote-hero.png",
+          approval_id: "approval-remote",
+          approved_at: "2026-06-18T03:00:00Z"
+        }
+      }
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "R24CBF0013",
+        staged_reference_assets: [{
+          drive_file_id: "boot-front",
+          source_name: "R24CBF0013_Front.jpg",
+          local_path: "/tmp/R24CBF0013/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "abc",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    }
+  });
+
+  const support = plan.items[0].generation_requests[0];
+  assert.equal(plan.summary.pending_hero_approval_for_support, 0);
+  assert.equal(plan.items[0].support_requires_hero_approval, false);
+  assert.deepEqual(support.blockers, ["approved_hero_anchor_requires_local_file"]);
+  assert.equal(support.model_input_files[0].source_role, "approved_hero_anchor");
+  assert.equal(support.model_input_files[0].staging_status, "missing_local_file");
+  assert.equal(support.model_input_files[1].source_role, "product_reference");
+});
+
 test("buildPilotGenerationExecutionPlan uses resolved Drive reference files and requires model input staging", () => {
   const plan = buildPilotGenerationExecutionPlan({
     task: { id: "task-4", task_type: "generate_batch", batch_id: "batch-1" },

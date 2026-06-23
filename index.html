@@ -62,7 +62,8 @@
         </div>
 
         <nav class="nav-list" id="pageNav">
-          <a class="active" href="#jobs" data-page-link="jobs">ศูนย์งานภาพ</a>
+          <a class="active" href="#next" data-page-link="next">งานที่ต้องทำต่อ</a>
+          <a href="#jobs" data-page-link="jobs">ศูนย์งานภาพ</a>
           <a href="#assets" data-page-link="assets">คลังภาพ</a>
           <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
           <a href="#costs" data-page-link="costs">ต้นทุน</a>
@@ -428,7 +429,62 @@
           </section>
         </section>
 
-        <section class="page-view active automation-inbox-page" id="page-jobs" data-page="jobs">
+        <section class="page-view" id="page-batch" data-page="batch">
+          <section class="panel page-panel batch-review-page" id="batchReviewPage">
+            <div class="batch-review-header">
+              <div>
+                <p class="eyebrow">Batch Review</p>
+                <h3 id="batchReviewTitle">ตรวจชุดงานจาก LINE</h3>
+                <p id="batchReviewRequest">กำลังโหลดข้อมูลชุดงาน...</p>
+              </div>
+              <span class="workflow-status" id="batchReviewStatus">กำลังโหลด</span>
+            </div>
+
+            <div class="batch-review-state" id="batchReviewState">
+              <div>
+                <span>ขั้นตอนถัดไป</span>
+                <strong id="batchReviewNextAction">กำลังโหลด Batch</strong>
+              </div>
+              <button class="primary-button" type="button" id="batchReviewPrimaryButton">กำลังโหลด</button>
+            </div>
+
+            <div class="kpi-state" id="batchReviewLoadingState">กำลังโหลด Batch...</div>
+            <div class="kpi-state danger" id="batchReviewErrorState" hidden>โหลด Batch ไม่สำเร็จ</div>
+
+            <div class="batch-progress-grid" id="batchProgressGrid" aria-label="Batch progress summary"></div>
+
+            <div class="batch-blockers" id="batchReviewBlockers" hidden></div>
+
+            <div class="batch-sku-grid" id="batchSkuGrid">
+              <p class="empty-state">ยังไม่มี SKU ในชุดงานนี้</p>
+            </div>
+
+            <details class="batch-debug-drawer" id="batchDebugDrawer" hidden>
+              <summary>Debug สำหรับ admin</summary>
+              <pre id="batchDebugContent"></pre>
+            </details>
+          </section>
+        </section>
+
+        <section class="page-view active next-actions-page" id="page-next" data-page="next">
+          <section class="panel page-panel next-actions-panel" id="nextActions">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">งานที่ต้องทำต่อ</p>
+                <h3>My Next Actions</h3>
+              </div>
+              <button class="ghost-button compact" type="button" id="refreshNextActionsButton">รีเฟรช</button>
+            </div>
+            <div class="section-note">เปิดหน้านี้เพื่อดูงานที่ต้องกดต่อก่อน ไม่ต้องไล่ดู dashboard หรือฟอร์มสร้างภาพเอง</div>
+            <div class="kpi-state" id="nextActionsLoadingState" hidden>กำลังโหลดงานที่ต้องทำต่อ...</div>
+            <div class="kpi-state danger" id="nextActionsErrorState" hidden>โหลดงานที่ต้องทำต่อไม่สำเร็จ</div>
+            <div class="kpi-state" id="nextActionsEmptyState" hidden>วันนี้ยังไม่มีงานที่ต้องทำต่อ</div>
+            <div class="next-actions-grid" id="nextActionsGrid"></div>
+            <div class="next-actions-admin-summary" id="nextActionsAdminSummary" hidden></div>
+          </section>
+        </section>
+
+        <section class="page-view automation-inbox-page" id="page-jobs" data-page="jobs">
           <section class="panel page-panel jobs-panel" id="jobs">
             <div class="panel-heading">
               <div>
