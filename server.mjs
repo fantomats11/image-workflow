@@ -910,7 +910,11 @@ async function readWebSkuPickerItem(sku = "") {
 }
 
 async function buildWebSkuReferencePayload(item = {}) {
-  const folderId = cleanOptionalString(item.reference_drive_id || extractDriveIdFromUrl(item.reference_url || ""));
+  const folderId = cleanOptionalString(
+    extractDriveIdFromUrl(item.reference_drive_id || "")
+    || item.reference_drive_id
+    || extractDriveIdFromUrl(item.reference_url || "")
+  );
   let resolvedReferenceAssets = [];
   let resolutionSummary = {
     google_drive_checked: false,

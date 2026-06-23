@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   buildReferenceKey,
   buildWebSkuReferenceContract,
   findWebSkuPickerItemBySku,
+  loadWebSkuPickerCatalogSnapshot,
   normalizeWebSkuPickerRows,
   searchWebSkuPickerCatalog
 } from "../../lib/automation/web-sku-picker-catalog.mjs";
@@ -123,6 +127,38 @@ test("normalizeWebSkuPickerRows marks unverified references as warning", () => {
 
   assert.equal(normalized[0].reference_readiness.status, "warning");
   assert(normalized[0].reference_readiness.warnings.some((warning) => warning.code === "reference_not_verified"));
+});
+
+test("normalizeWebSkuPickerRows extracts Drive folder ids from URL-shaped reference ids", () => {
+  const normalized = normalizeWebSkuPickerRows([
+    catalogRow({
+      sku: "DRIVEURL001",
+      product_name: "Drive URL Reference Boot",
+      reference_url: "",
+      reference_drive_id: "https://drive.google.com/drive/folders/1bujKCgf5YUNRHYEAWH-gxQwwTIuoY876"
+    })
+  ]);
+
+  assert.equal(normalized[0].reference_drive_id, "1bujKCgf5YUNRHYEAWH-gxQwwTIuoY876");
+  assert.equal(normalized[0].references[0].source, "google_drive");
+});
+
+test("loadWebSkuPickerCatalogSnapshot prefers refreshed outputs snapshot before packaged fallback", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-"));
+  await fs.writeFile(
+    path.join(outputsDir, "generation-input-catalog.csv"),
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "LIVE001,Live Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/live-folder-id,live-folder-id,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const snapshot = await loadWebSkuPickerCatalogSnapshot({ outputsDir });
+
+  assert.equal(snapshot.source, "outputs_dir");
+  assert.equal(snapshot.rows.length, 1);
+  assert.equal(snapshot.rows[0].sku, "LIVE001");
 });
 
 test("buildWebSkuReferenceContract creates stageable Drive cards without exposing raw key", () => {
