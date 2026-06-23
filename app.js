@@ -129,14 +129,16 @@ const productSubtypes = {
   ]
 };
 
+const DEFAULT_IMAGE_TYPE = "ภาพสินค้าเด่น / ไม่มีโมเดล";
+
 const imageTypes = {
-  "สินค้าเดี่ยวบนพื้นขาว": {
+  [DEFAULT_IMAGE_TYPE]: {
     mode: "Off-model",
-    prompt: "Create a clean e-commerce catalog hero image on a warm white background. No model. The product must be centered, premium, evenly lit, and ready for a rental and retail website."
+    prompt: "สร้างภาพสินค้าเดี่ยวแบบ product-first สำหรับตรวจขาย/เช่าออนไลน์ ไม่มีโมเดล ไม่มีข้อความ ให้สินค้าเป็นจุดเด่นหลัก อ้างอิงภาพสินค้าจริงเป็นหลัก"
   },
   "ใส่กับโมเดล": {
     mode: "On-model",
-    prompt: "Create a clean on-model e-commerce catalog hero image with a modern Thai influencer feel. Use attractive, approachable Thai model casting with bright cheerful facial expression, lively eyes, natural confident smile, fresh makeup, neat hair styling, and friendly social-commerce energy. The product is still the hero and must be worn naturally, but the model casting should feel aspirational, stylish, and warm rather than plain."
+    prompt: "สร้างภาพรีวิวสินค้าขณะสวมใส่ ให้ดูเรียล เข้าถึงง่าย และเหมาะกับลูกค้าไทยที่เตรียมเดินทางเมืองหนาว สินค้ายังเป็นจุดเด่นหลักและต้องตรงกับภาพอ้างอิง"
   },
   "Close-up จุดเด่น": {
     mode: "Support",
@@ -144,11 +146,11 @@ const imageTypes = {
   },
   "มุมด้านหลัง": {
     mode: "Support",
-    prompt: "Create a back view support image. Change only the shot type. Keep the same product, same background, same lighting, and same catalog style."
+    prompt: "Create a back view support image. Change only the shot type. Keep the same product identity, lighting direction, and approved hero set feel."
   },
   "มุมด้านข้าง": {
     mode: "Support",
-    prompt: "Create a side view support image. Change only the shot type. Keep the same product, same background, same lighting, and same catalog style."
+    prompt: "Create a side view support image. Change only the shot type. Keep the same product identity, lighting direction, and approved hero set feel."
   },
   "เปิดให้เห็นด้านใน": {
     mode: "Support",
@@ -158,36 +160,36 @@ const imageTypes = {
 
 const brandProfiles = {
   "go-mall": {
-    label: "GO Mall - พื้นขาว + โมเดล",
+    label: "GO Mall - ภาพสินค้า + โมเดลได้",
     shortName: "GO Mall",
     forceOffModel: false,
-    backgroundRule: "Brand CI background: clean bright white studio background, not gray and not cream. Keep it crisp, commercial, and web-catalog friendly.",
+    backgroundRule: "Scene rule: keep the image clean, uncluttered, product-first, and easy to inspect. Let the model choose a natural product-review setting from the references and prompt.",
     modelRule: "Model casting: friendly social-commerce energy.",
-    styleRule: "Visual style: clean white e-commerce catalog, clear retail readability, modern Thai shopping feel, product-forward and easy to compare."
+    styleRule: "Visual style: clear retail readability, modern Thai shopping feel, product-forward, realistic, and easy to compare."
   },
   "winterra": {
-    label: "Winterra - พื้นครีม + โมเดล",
+    label: "Winterra - ภาพพรีเมียม + โมเดลได้",
     shortName: "Winterra",
     forceOffModel: false,
-    backgroundRule: "Brand CI background: warm cream studio background, soft ivory-beige tone, not pure white and not gray. Keep the cream tone subtle, premium, and consistent.",
+    backgroundRule: "Scene rule: keep the image refined, clean, uncluttered, product-first, and consistent with the approved hero set.",
     modelRule: "Model casting: slightly more premium, calm, refined, and aspirational.",
-    styleRule: "Visual style: warm cream premium e-commerce catalog, softer and more refined than bright white retail catalog, modern winter travel retail, product-forward and polished."
+    styleRule: "Visual style: premium winter travel retail, realistic, product-forward, polished, and easy to inspect."
   },
   "rent-a-coat": {
-    label: "Rent A Coat - พื้นเทาอ่อน + ไม่มีโมเดล",
+    label: "Rent A Coat - สินค้าเด่น / ไม่มีโมเดล",
     shortName: "Rent A Coat",
     forceOffModel: true,
-    backgroundRule: "Brand CI background: light neutral gray studio background, soft gray tone, not pure white and not cream. Keep product edges clean and shadow subtle.",
+    backgroundRule: "Scene rule: product-only, clean, practical, uncluttered, and easy to inspect. Do not add a model, face, body parts, mannequin, or lifestyle scene.",
     modelRule: "Model casting: no human model for this brand profile. Product-only images only, including hero and support shots.",
-    styleRule: "Visual style: light gray product-only rental catalog, practical, clear, comparison-friendly, no model, no face, no lifestyle scene."
+    styleRule: "Visual style: product-only rental catalog, practical, clear, realistic, comparison-friendly, no model, no face, no lifestyle scene."
   },
   custom: {
-    label: "Custom / ไม่ล็อก CI",
+    label: "Custom / ไม่ล็อกฉาก",
     shortName: "Custom",
     forceOffModel: false,
-    backgroundRule: "Brand CI background: warm white e-commerce catalog background.",
+    backgroundRule: "Scene rule: do not lock a specific background. Keep the image clean, product-first, realistic, and aligned with the approved hero set.",
     modelRule: "Model casting: use a modern Thai influencer feel where visible, cheerful and radiant expression when the face is shown.",
-    styleRule: "Custom style: warm white e-commerce catalog, soft studio lighting, clean premium winter retail look."
+    styleRule: "Custom style: clean premium winter retail look, realistic material texture, and clear product readability."
   }
 };
 
@@ -251,7 +253,7 @@ const qcItems = [
   ["สินค้าเหมือนภาพอ้างอิง", "โครง สี สัดส่วน และวัสดุต้องไม่เปลี่ยน"],
   ["โลโก้/แบรนด์ถูกต้อง", "ห้ามสร้างโลโก้ปลอม หรือทำโลโก้จริงเพี้ยน"],
   ["หมวดสินค้าถูกต้อง", "ช็อตต้องเหมาะกับหมวด เช่น รองเท้าเห็นพื้น/คู่ครบ"],
-  ["พื้นหลังและแสงไปทางเดียวกัน", "ใช้ warm white catalog style เป็นแกน"],
+  ["ภาพสะอาดและสินค้าเด่น", "ฉากหรือบริบทต้องไม่แย่งความเด่นจากสินค้า"],
   ["ไม่มีสิ่งแปลกปลอม", "ห้ามเพิ่มสินค้า คน หรือพร็อพที่ไม่ได้ขอ"],
   ["รายละเอียดจุดเด่นเห็นชัด", "เช่น บุขน ซิป ฮู้ด พื้นรองเท้า ป้ายแบรนด์"],
   ["พร้อมลงเว็บ", "คม ชัด ไม่เบี้ยว ไม่ crop ผิด และอ่านง่าย"]
@@ -2770,13 +2772,13 @@ function getUnisexCropDirection(category) {
 }
 
 function getCiSafetyRule() {
-  return "CI safety rule: the selected visual profile is only for background color, lighting, casting, crop, and mood. Do not add any store/business brand name, store/business logo, watermark, hangtag, packaging, sign, advertising text, or graphic badge to the image. Preserve real product logos, product labels, product patches, and product text only when they already exist on the attached product reference or approved hero. If the product has no real brand mark in the reference and no product brand is provided, keep the product completely unbranded.";
+  return "CI safety rule: the selected visual profile is only for scene cleanliness, lighting, casting, crop, and mood. Do not add any store/business brand name, store/business logo, watermark, hangtag, packaging, sign, advertising text, or graphic badge to the image. Preserve real product logos, product labels, product patches, and product text only when they already exist on the attached product reference or approved hero. If the product has no real brand mark in the reference and no product brand is provided, keep the product completely unbranded.";
 }
 
 function applyBrandProfileUiHints() {
   const brandProfile = getSelectedBrandProfile();
   if (brandProfile.forceOffModel && els.imageType.value === "ใส่กับโมเดล") {
-    els.imageType.value = "สินค้าเดี่ยวบนพื้นขาว";
+    els.imageType.value = DEFAULT_IMAGE_TYPE;
   }
   els.modelImages.disabled = brandProfile.forceOffModel;
 }
@@ -2789,132 +2791,108 @@ function getJobBaseName(fallback) {
 }
 
 function buildPrompt() {
-  const selectedType = imageTypes[els.imageType.value] || imageTypes["สินค้าเดี่ยวบนพื้นขาว"];
-  const selectedCategory = categories[els.category.value] || categories["เสื้อแจ็คเก็ต / เสื้อท่อนบน"];
-  const selectedSubtype = getSelectedSubtype();
-  const brandProfile = getSelectedBrandProfile();
-  const effectiveMode = getEffectiveMode(selectedType, brandProfile);
-  const isOnModel = effectiveMode === "On-model";
-  const categoryModule = isOnModel ? selectedCategory.on : selectedCategory.off;
-  const brand = els.brandName.value.trim();
-  const keyFeature = els.keyFeature.value.trim() || "key product details visible in the reference image";
-  const color = els.color.value.trim() || "the exact product color from the image reference";
-  const shotType = els.shotType.value === "ระบบเลือกให้อัตโนมัติ" ? "the most suitable catalog angle" : els.shotType.value;
-  const imageRef = els.imageReference.value.trim() || "[attached image reference]";
-  const productCount = els.productImages.files?.length || 0;
-  const modelCount = brandProfile.forceOffModel ? 0 : els.modelImages.files?.length || 0;
-  const notes = els.notes.value.trim();
-  const model = els.modelProfile.value;
-
-  const brandRule = brand
-    ? `Preserve the authentic ${brand} branding, logo patches, labels, and recognizable design details exactly. Do not invent or alter branding.`
-    : "Product mark rule: if the reference product visibly has a real logo, label, patch, badge, woven tag, or printed product text, preserve it exactly as a product detail. If no such mark exists in the reference, do not add any fake logos, patches, labels, or brand marks.";
-
-  const modelRule = isOnModel
-    ? getModelDirection(els.category.value, model, brandProfile)
-    : brandProfile.forceOffModel ? brandProfile.modelRule : "No human model. Product-only catalog image.";
-
-  const heroRule = getHeroRule(els.category.value, effectiveMode);
-  const outputRule = isOnModel && isUnisexModelProfile(model)
-    ? "Output rules: image must be web-ready, high detail, clean edges, no warped product, no incorrect text, no fake branding, no unrelated duplicate products, no extra people beyond the one man and one woman, and no distorted anatomy. For this Unisex shot only, two worn copies of the same reference product are allowed so the garment reads as suitable for both men and women."
-    : "Output rules: image must be web-ready, high detail, clean edges, no warped product, no incorrect text, no fake branding, no duplicate products, no distorted anatomy.";
-
-  currentPrompt = [
-    `Use ${imageRef} as the exact product identity reference.`,
-    getBrandImagePrompt(selectedType, brandProfile, effectiveMode),
-    "",
-    getCiSafetyRule(),
-    `Category: ${els.category.value}`,
-    `Product subtype: ${selectedSubtype.label}`,
-    `Color: ${color}`,
-    `Key feature: ${keyFeature}`,
-    `Requested shot: ${shotType}`,
-    `Attached product reference images: ${productCount || "none yet"} image(s). Product references are the strict source of truth for product identity, color, logo, silhouette, materials, construction, and details.`,
-    `Attached model reference images: ${modelCount || "none"} image(s). Model references are used only for model face, expression, styling direction, body proportion, and pose consistency when on-model output is requested.`,
-    "",
-    categoryModule,
-    getSubtypePromptRule(),
-    modelRule,
-    brandRule,
-    getCiSafetyRule(),
-    heroRule,
-    getLayeringRule(els.category.value, effectiveMode),
-    getStylingVariationRule(els.category.value, effectiveMode),
-    "",
-    `Global style rules: ${brandProfile.backgroundRule} ${brandProfile.styleRule} Soft studio lighting, realistic material texture, centered composition, sharp product details, no extra objects unless requested.`,
-    "Product preservation rules: keep the same silhouette, proportions, construction, fabric, seams, pockets, zipper, outsole, lining, labels, color, and all visible details from the reference. Do not redesign the product.",
-    outputRule,
-    notes ? `Additional staff note: ${notes}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
+  const selectedType = imageTypes[els.imageType.value] || imageTypes[DEFAULT_IMAGE_TYPE];
+  const effectiveMode = getEffectiveMode(selectedType, getSelectedBrandProfile());
+  currentPrompt = buildManualHeroPromptV3();
   els.promptOutput.textContent = currentPrompt;
-  updateMeta(effectiveMode, els.category.value, getRisk(brand, keyFeature));
+  updateMeta(effectiveMode, els.category.value, getRisk(els.brandName.value.trim(), els.keyFeature.value.trim()));
   return currentPrompt;
 }
 
 function buildSupportPrompt(shot, shotIndex, totalShots) {
-  const selectedType = imageTypes[els.imageType.value] || imageTypes["สินค้าเดี่ยวบนพื้นขาว"];
-  const selectedCategory = categories[els.category.value] || categories["เสื้อแจ็คเก็ต / เสื้อท่อนบน"];
-  const selectedSubtype = getSelectedSubtype();
-  const brandProfile = getSelectedBrandProfile();
-  const baseMode = getEffectiveMode(selectedType, brandProfile);
-  const isOnModel = baseMode === "On-model";
-  const brand = els.brandName.value.trim();
-  const keyFeature = els.keyFeature.value.trim() || "the product's most important visible detail";
-  const color = els.color.value.trim() || "the exact product color from the reference";
-  const notes = els.notes.value.trim();
-  const model = els.modelProfile?.value || "ระบบเลือกโมเดลให้เหมาะกับสินค้า";
-  const isUnisex = isOnModel && isUnisexModelProfile(model);
-  const categoryModule = isOnModel ? selectedCategory.on : selectedCategory.off;
-
-  const brandRule = brand
-    ? `Preserve the authentic ${brand} branding, logo patches, labels, and recognizable design details exactly when they are visible in the approved hero or product references and physically belong in this requested shot.`
-    : "Product mark rule: preserve any real logo, label, patch, badge, woven tag, or printed product text that is visible on the approved hero or product references and physically belongs in this requested shot. Do not add fake logos or new brand marks that are not in the references.";
-
   return [
-    `Create support image ${shotIndex} of ${totalShots} for the same product page.`,
-    "The first reference image is the approved hero image. Treat it as the primary identity and style anchor for this support set.",
-    isUnisex
-      ? "Hero identity lock: preserve the same two-person Unisex casting from the approved hero image whenever people are visible: one man and one woman, same age range, skin tone impression, body proportions, hair impression, styling energy, and overall look. Do not replace them with different people or add extra people."
-      : isOnModel
-      ? "Hero identity lock: preserve the same model/person from the approved hero image whenever a person is visible. Keep the same face identity, age range, skin tone, body proportion, hair impression, styling energy, and overall look. Do not create a different model, different face, different ethnicity, or different person."
-      : "Hero identity lock: preserve the same product-only presentation from the approved hero image. Do not add a human model, face, body part, mannequin, or lifestyle scene unless the requested shot explicitly requires minimal wearing context.",
-    "Use the attached real product reference images as the strict source of truth for product identity. If the hero image and product reference conflict, follow the real product reference.",
+    "อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว",
+    buildManualSupportCreateLine(shot),
+    buildManualSupportTruthLine(),
+    "ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง"
+  ].join("\n");
+}
+
+function buildManualHeroPromptV3() {
+  return [
+    buildLeanThaiHeroPromptBase(),
+    buildManualHeroSmallProductCameraLine()
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildLeanThaiHeroPromptBase() {
+  return [
+    "อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล สื่อถึงการใช้งานจริงของสินค้า ให้ความรู้สึกเข้าถึงง่าย น่าเชื่อถือ พร้อมจัดองค์ประกอบภาพให้ดึงดูดและเหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด",
     "",
-    getCiSafetyRule(),
-    `Category: ${els.category.value}`,
-    `Product subtype: ${selectedSubtype.label}`,
-    `Color: ${color}`,
-    `Key feature: ${keyFeature}`,
-    `Support shot requested: ${shot}`,
-    "",
-    brandProfile.backgroundRule,
-    brandProfile.styleRule,
-    getCiSafetyRule(),
-    categoryModule,
-    getSubtypePromptRule(),
-    getSupportShotInstruction(els.category.value, shot),
-    getSupportLabelSafetyRule(shot),
-    getSupportCropRule(els.category.value, shot),
-    isUnisex
-      ? `Model direction: if people are visible, keep the same Unisex pair from the approved hero. ${getUnisexCropDirection(els.category.value)} ${brandProfile.modelRule} Keep the product readable on both the man and woman, but allow tight product-only detail crops when the requested support shot is about construction, lining, texture, sole, seam, zipper, or material technology.`
-      : isOnModel
-      ? `Model direction: keep the same person from the approved hero. ${getCropDirection(els.category.value)} ${brandProfile.modelRule} Keep the same influencer-level freshness and believable winter layering as the hero.`
-      : brandProfile.forceOffModel
-        ? "No human model for this brand profile. Product-only support images only."
-        : "No human model unless the requested shot specifically needs body context to explain scale or wearing position.",
-    brandRule,
-    getLayeringRule(els.category.value, baseMode),
-    getStylingVariationRule(els.category.value, baseMode),
-    "",
-    "Consistency lock: keep the same product identity, product color, material texture, proportions, real product logos/labels/patches only when visible in the hero/reference and physically correct for the requested shot, approved hero model identity when present, and selected visual CI catalog style across the whole set.",
-    "Change only the requested shot/crop/angle/detail. Do not redesign the product, do not change the person from the hero, do not add unrelated props, do not invent text, and do not create fake branding.",
-    notes ? `Additional staff note: ${notes}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
+    "กลุ่มเป้าหมาย: ผู้เดินทางท่องเที่ยวต่างประเทศเป็นประจำ",
+    "ธุรกิจเช่า จำหน่ายชุดกันหนาวและอุปกรณ์กันหนาวครบวงจรในไทย เน้นกลุ่มเป้าหมายระดับกลางถึงสูง"
+  ].join("\n");
+}
+
+function buildManualHeroSmallProductCameraLine() {
+  const group = resolveManualProductUseCaseGroup();
+  const lines = {
+    gloves: "สำหรับถุงมือ ใช้มุมภาพระยะใกล้หรือครอปที่โฟกัสสินค้าเป็นหลัก ให้ถุงมือเด่นที่สุดในภาพ",
+    hat: "สำหรับหมวก ใช้มุมภาพระยะใกล้หรือครอปช่วงศีรษะและไหล่ ให้หมวกเด่นที่สุดในภาพ",
+    scarf_accessory: "สำหรับผ้าพันคอหรือผ้าคลุมคอ ใช้มุมภาพระยะใกล้จากคอถึงอกหรือช่วงลำตัวบน ให้สินค้าเด่นที่สุดในภาพ",
+    socks: "สำหรับถุงเท้า ใช้มุมภาพระยะใกล้จากน่องถึงเท้าหรือครอปที่โฟกัสสินค้า ให้ถุงเท้าเด่นที่สุดในภาพ"
+  };
+  return lines[group] || "";
+}
+
+function buildManualSupportCreateLine(shot) {
+  const shotDescription = describeManualSupportShotV3(shot);
+  return `สร้างภาพ ${shotDescription}`;
+}
+
+function buildManualSupportTruthLine() {
+  const category = els.category.value || "";
+  if (category.includes("เสื้อ")) {
+    return "สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+  }
+  if (category.includes("รองเท้า")) {
+    return "สี ทรง ความสูง วัสดุ เชือกหรือสายรัด ป้ายแบรนด์จริง พื้นรองเท้า และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+  }
+  return "สี ทรง วัสดุ โลโก้ ป้ายจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+}
+
+function describeManualSupportShotV3(shot) {
+  const group = resolveManualProductUseCaseGroup();
+  const normalizedShot = String(shot || "").trim();
+  if (normalizedShot === "ด้านข้าง") {
+    if (group === "footwear") return "รองเท้ามุมด้านข้าง ให้เห็นทรง ความสูง พื้นรองเท้า หัวรองเท้า เชือกหรือสายรัด และสัดส่วนเมื่อใช้งานจริง";
+    if (group === "upper_outerwear" || group === "long_outerwear") return "นางแบบสวมสินค้าจากมุมด้านข้างหรือเฉียง 45 องศา ให้เห็นทรง ความหนา ความยาว การเข้ารูปจริง และโลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขนถ้ามีในภาพต้นฉบับ";
+    return "สินค้ามุมด้านข้างหรือเฉียง 45 องศา ให้เห็นทรง ความหนา ความยาว และสัดส่วนการใช้งานจริงอย่างชัดเจน";
+  }
+  if (normalizedShot === "มุมบน") {
+    if (group === "footwear") return "รองเท้ามุมด้านบน ให้เห็นช่องเปิด เชือกหรือสายรัด วัสดุด้านบน และรูปทรงหัวรองเท้า";
+    return "มุมด้านบนของสินค้า ให้เห็นรูปทรง วัสดุ ผิวสัมผัส และรายละเอียดที่ภาพหลักไม่เห็น";
+  }
+  if (normalizedShot === "พื้นรองเท้า") {
+    return "พื้นรองเท้าแบบสินค้าเดี่ยว ให้เห็นลายพื้น ความหนา ส้น ขอบพื้น และรายละเอียดการยึดเกาะอย่างชัดเจน";
+  }
+  if (normalizedShot === "โคลสอัพจุดเด่น") {
+    if (group === "upper_outerwear" || group === "long_outerwear") return "ภาพ extreme close-up เดี่ยวจากสินค้าชุดเดียวกับภาพหลัก ให้เห็นวัสดุ ซิป ขอบคอ ปลายแขน ซับใน ขนเฟอร์ งานเย็บ หรือตัวเลข/ข้อความเทคนิคจริงถ้ามี";
+    return "ภาพ close-up เดี่ยวของวัสดุ พื้นผิว งานเย็บ ขอบ ซิป ป้ายจริง หรือดีเทลสำคัญของสินค้า";
+  }
+  if (normalizedShot === "ภาพใช้งานจริงแบบ lifestyle") {
+    return "การใช้งานจริงของสินค้าในบริบทเมืองหนาว ให้เห็นสัดส่วน วิธีใช้ และให้ภาพแตกต่างจากภาพหลัก";
+  }
+  if (normalizedShot === "ช็อตโชว์วัสดุกันน้ำ") {
+    return "ภาพ close-up เดี่ยวของวัสดุ พื้นผิว และโครงสร้างที่สื่อคุณสมบัติกันน้ำหรือกันหิมะ โดยยังยึดสินค้าจริงจากภาพต้นฉบับ";
+  }
+  return `${normalizedShot || "ภาพเสริมสินค้า"} ให้เห็นข้อมูลใหม่ที่ช่วยลูกค้าตัดสินใจ โดยไม่ซ้ำกับภาพหลัก`;
+}
+
+function resolveManualProductUseCaseGroup() {
+  const category = String(els.category?.value || "").trim();
+  const subtype = String(getSelectedSubtype()?.label || "").trim();
+  const productName = String(selectedCatalogSku?.product_name || els.skuPickerSearch?.value || "").trim();
+  const text = `${category} ${subtype} ${productName}`.toLowerCase();
+  if (/รองเท้า|boot|บูท|shoe|sorel|snow boot/.test(text)) return "footwear";
+  if (/ถุงมือ|glove/.test(text)) return "gloves";
+  if (/หมวก|hat|beanie/.test(text)) return "hat";
+  if (/ผ้าพันคอ|scarf|neck warmer/.test(text)) return "scarf_accessory";
+  if (/ถุงเท้า|sock/.test(text)) return "socks";
+  if (/พาร์กา|parka|long coat|เสื้อโค้ทยาว|โค้ทยาว/.test(text)) return "long_outerwear";
+  if (/เสื้อ|jacket|coat|puffer|down|parka|sweater/.test(text)) return "upper_outerwear";
+  if (/กางเกง|pants|trousers/.test(text)) return "pants";
+  return "generic";
 }
 
 function getSupportShotInstruction(category, shot) {
