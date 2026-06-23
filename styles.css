@@ -569,6 +569,10 @@ label {
   gap: 14px;
 }
 
+.form-grid-full {
+  grid-column: 1 / -1;
+}
+
 .sku-picker-panel {
   display: grid;
   gap: 8px;
@@ -671,6 +675,7 @@ label {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 
 .catalog-reference-header strong {
@@ -687,15 +692,16 @@ label {
 
 .catalog-reference-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px;
   margin-top: 8px;
 }
 
 .catalog-reference-card {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   gap: 8px;
+  align-items: start;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-muted);
@@ -710,7 +716,10 @@ label {
 .catalog-reference-preview {
   display: grid;
   place-items: center;
-  min-height: 84px;
+  width: 96px;
+  height: 96px;
+  min-height: 0;
+  align-self: start;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -759,6 +768,16 @@ label {
 
 .danger-text {
   color: var(--danger) !important;
+}
+
+@media (max-width: 720px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-reference-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .full-width {
