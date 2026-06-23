@@ -142,6 +142,24 @@
                     <input id="productSku" type="text" placeholder="ไม่บังคับ ใช้ตั้งชื่อไฟล์เท่านั้น" />
                   </label>
 
+                  <div class="sku-picker-panel">
+                    <label for="skuPickerSearch">เลือก SKU จาก catalog</label>
+                    <div class="sku-picker-search">
+                      <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
+                      <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
+                    </div>
+                    <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU"></div>
+                    <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
+                    <div class="catalog-reference-panel" id="catalogReferencePanel" hidden>
+                      <div class="catalog-reference-header">
+                        <strong>Reference จาก catalog/Drive</strong>
+                        <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้ reference ชุดนี้กับ Hero</button>
+                      </div>
+                      <div class="catalog-reference-status" id="catalogReferenceStatus">เลือก SKU เพื่อโหลด reference</div>
+                      <div class="catalog-reference-grid" id="catalogReferenceCards"></div>
+                    </div>
+                  </div>
+
                   <label>
                     แบรนด์ปลายทาง / CI ภาพ
                     <select id="brandProfile"></select>

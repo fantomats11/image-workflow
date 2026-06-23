@@ -26,17 +26,45 @@ PR12 นี้เป็น Conditional Go candidate เท่านั้น ไ
 
 ## Go / No-Go recommendation
 
-คำแนะนำ: Conditional Go สำหรับ controlled internal pilot
+คำแนะนำ PR15: เปลี่ยน recommended pilot เป็น Web-first Single-SKU ก่อน ไม่ใช่ LINE-first batch
 
-เงื่อนไขก่อนเริ่ม pilot:
+เหตุผล:
 
-1. รัน production smoke จริง 1 batch ผ่าน LINE OA จริง: `BATCH รองเท้า=1 เสื้อ=1`
-2. ยืนยัน `/api/health` บน production ว่า worker mode, live generation, Google Drive, LINE และ WordPress guards ตรง launch gate
-3. ยืนยัน Google Drive export/retry export อย่างน้อย 1 SKU
-4. บันทึกผล smoke ใน `docs/PRODUCTION_LAUNCH_GATE.md` หรือ production run log
-5. เติม smoke evidence ใน `docs/PRODUCTION_SMOKE_RECORD_TEMPLATE.md`
+- Production ยังไม่มี dedicated worker service running สำหรับ LINE-first automation path
+- Owner เลือก pivot เป็น Web-first pilot เพื่อให้ flow สะอาดและใช้งานจริงเร็วขึ้น
+- Pilot แรกควรเป็น 1 SKU ต่อ 1 งาน เพื่อพิสูจน์ Hero, Support, Export/Drive และ WordPress/WooCommerce preflight ทีละขั้น
 
-No-Go สำหรับ wider rollout ตอนนี้ เพราะยังมีความเสี่ยงด้าน UX/SOP และยังไม่มีหลักฐาน manual production smoke ครบ flow จาก environment จริงใน repo
+Current recommended pilot:
+
+```text
+Login web
+-> เลือก SKU เดียวจาก clean/matched sheet/catalog
+-> ตรวจ reference
+-> Generate Hero
+-> QC / Approve Hero
+-> Generate Support
+-> QC / Approve Support
+-> Export/Drive
+-> WordPress/WooCommerce preflight proposal
+```
+
+อ่าน contract ใหม่:
+
+- `docs/WEB_FIRST_SINGLE_SKU_PILOT.md`
+- `docs/WEB_FIRST_SINGLE_SKU_SMOKE_TEST.md`
+
+เงื่อนไขก่อนเริ่ม Web-first smoke:
+
+1. SKU picker/read-only catalog lookup ต้องค้นหาและเลือก 1 SKU ได้บน production
+2. Selected SKU ต้อง carry canonical product data และ reference readiness บน production
+3. Staff ต้องเห็น product reference ก่อน Generate Hero
+4. Support ต้องรอ approved Hero
+5. Export/Drive ต้องสำเร็จหรือมี safe failure path
+6. WordPress/WooCommerce ยังเป็น preflight proposal เท่านั้น
+
+PR16 เพิ่ม helper/API/UI สำหรับ SKU picker แล้ว และ PR17 เพิ่ม Drive/catalog reference cards + server-side reference staging สำหรับ Generate Hero แล้ว แต่ยังต้องทำ Web-first smoke 1 SKU จริงก่อนเปลี่ยนสถานะ pilot เป็น Go
+
+LINE-first automation, multi-SKU batch execution และ wider rollout ยังคง No-Go จนกว่าจะมี worker service และ smoke evidence จริง
 
 ## E2E flow table
 

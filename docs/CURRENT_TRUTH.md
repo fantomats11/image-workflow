@@ -1,31 +1,50 @@
 # Current Truth
 
-Last updated: 2026-06-18
+Last updated: 2026-06-23
 
 เอกสารนี้คือ source of truth ปัจจุบันสำหรับ repo `image-workflow` ก่อนเริ่ม feature production ถัดไป ถ้าเอกสารเก่าขัดกับไฟล์นี้ ให้ถือว่าไฟล์นี้ใหม่กว่า และให้ตรวจโค้ดจริงก่อนแก้ production logic
 
 ## One-line product truth
 
-`image-workflow` คือระบบ production workflow สำหรับสร้างภาพสินค้า Rent A Coat / GO Mall โดยเริ่มจาก LINE keyword batch, ให้คนยืนยัน SKU, สร้าง Hero จริง, ให้คน approve/regenerate Hero บนหน้าเว็บ, แล้วค่อยปลดล็อก Support generation และ export/preflight
+`image-workflow` คือระบบ production workflow สำหรับสร้างภาพสินค้า Rent A Coat / GO Mall โดย current pilot decision คือ Web-first Single-SKU: staff/admin login เว็บ, เลือก SKU เดียวจาก clean/matched catalog, ตรวจ reference, สร้าง/approve Hero, สร้าง/approve Support, export ไป Drive แล้วทำ WordPress/WooCommerce preflight proposal โดยยังไม่ live write
 
-## Current MVP end-to-end path
+## Current pilot path
 
-1. Staff หรือ owner ส่งคำสั่งใน LINE เช่น `BATCH รองเท้า=1 เสื้อ=1`
-2. ระบบ parse keyword batch และเลือก SKU จาก catalog snapshot/source ที่เตรียมไว้
-3. ระบบส่ง Batch Review กลับ LINE ให้ตรวจ selected SKUs
-4. Human กด confirm/approve batch
-5. ระบบ enqueue งานสร้าง Hero จริง ถ้า live generation env พร้อม
-6. Worker สร้าง Hero ก่อนเท่านั้น
-7. ระบบส่งลิงก์ Hero Review กลับมา หรือเปิดจาก `Automation Inbox`
-8. Human ตรวจ Hero ในเว็บเทียบกับ reference product images
-9. ถ้า Hero ใช้ได้ ให้กด `อนุมัติ Hero`
-10. ถ้า Hero ใช้ไม่ได้ ให้กด `สร้าง Hero ใหม่`
-11. `approve Hero` จะปลดล็อก Support generation
-12. Support generation ต้องใช้ approved Hero เป็น model input แรก แล้วตามด้วย real product references
-13. ระบบส่ง Support Review กลับมาให้ตรวจ
-14. Human เลือกผลตรวจ Support เช่น approve/regenerate/reject
-15. เมื่อ Support พร้อม ระบบสร้าง candidate/media manifest และเข้า export/preflight gate
-16. ขั้น `approve/export` ตอนนี้หมายถึง export/preflight/readiness เท่านั้น ยังไม่ใช่ WordPress/WooCommerce live write
+1. Staff/Admin login web
+2. Staff/Admin เลือก SKU เดียวจาก clean/matched sheet หรือ catalog snapshot
+3. ระบบต้องแสดง canonical product data และ reference readiness
+4. Human ตรวจ product references ก่อน Generate Hero
+5. Human กด Generate Hero สำหรับ SKU เดียว
+6. Human ตรวจ Hero เทียบกับ real product references
+7. ถ้า Hero ใช้ได้ ให้กด approve Hero
+8. ถ้า Hero ใช้ไม่ได้ ให้ regenerate Hero
+9. Approve Hero ต้อง persist approved hero anchor
+10. Human กด Generate Support หลัง Hero approved เท่านั้น
+11. Support ต้องใช้ approved Hero เป็น input แรก แล้วตามด้วย real product references
+12. Human ตรวจ/approve Support
+13. Export/Drive เป็น output หลักของ pilot
+14. WordPress/WooCommerce ทำได้เฉพาะ preflight proposal ยังไม่ live write
+
+อ่าน contract ล่าสุดที่ `docs/WEB_FIRST_SINGLE_SKU_PILOT.md`
+
+## Deferred automation path
+
+LINE keyword batch path ยัง implemented อยู่ แต่ไม่ใช่ primary pilot path รอบนี้:
+
+```text
+LINE keyword batch
+-> Batch Review
+-> confirm selected SKUs
+-> generate Hero
+-> review Hero
+-> approve Hero
+-> unlock Support
+-> generate Support
+-> review Support
+-> approve/export
+```
+
+เหตุผลที่ defer: production ยังไม่มี dedicated worker service running และ owner ต้องการ flow ที่สะอาดกว่าโดยเริ่มจาก 1 SKU ต่อ 1 งานก่อน
 
 ## Implemented
 
@@ -39,6 +58,12 @@ Last updated: 2026-06-18
 - Web Hero Review ผ่าน `/api/review/hero`
 - Web Hero approval ผ่าน `/api/approvals`
 - Web Hero regenerate request ผ่าน `/api/review/hero/regenerate`
+- Web-first SKU picker อ่าน catalog snapshot แบบ read-only ผ่าน `GET /api/catalog/sku-search?q=...`
+- Web-first reference detail อ่านแบบ read-only ผ่าน `GET /api/catalog/sku/:sku/references`
+- SKU picker เติม canonical SKU/product/category/branch/reference metadata เข้า manual create form เท่าที่ catalog มีจริง
+- หน้า manual create แสดง reference readiness, reference cards จาก catalog/Drive และให้ staff กดใช้ stageable reference กับ Hero ได้
+- `/api/generate/start` resolve `catalogReferenceSku` + `catalogReferenceKeys` ฝั่ง server เท่านั้นก่อนแนบเป็น generation input
+- หน้า manual create block Generate Hero เมื่อ selected SKU ไม่มี usable reference และไม่มี manual upload/staged catalog reference
 - LINE `approve_hero` และ `regenerate_hero` ถูก disable แล้ว เพื่อกันปุ่มเก่า/ผิดลำดับ
 - Support generation handoff ส่งลิงก์ Review กลับ LINE
 - Support Review decisions ผ่าน `/api/review/support-decisions`
@@ -72,18 +97,22 @@ Production verified ในที่นี้ไม่ได้แปลว่า
 
 ## Pending
 
+- ทำ Web-first production smoke 1 SKU ผ่าน picker ใหม่
+- ทำ Web-first production smoke 1 SKU ที่ใช้ Drive/catalog reference staging จริง
 - ทำให้ export/preflight chain จบเป็น UX ที่เข้าใจง่ายขึ้นสำหรับ staff
 - ทำให้ Jobs/Review ใช้คำไทยทั้งหมด ยกเว้นศัพท์เฉพาะ เช่น `Hero`, `Support`, `SKU`, `WordPress`
 - ปรับ Batch Review ให้บอกชัดว่า SKU มาจาก source ไหน และทำไมถูกเลือก
 - เพิ่ม visibility ว่า approved Hero ใดถูกใช้เป็น support anchor
-- เพิ่ม visibility ว่า reference image ใดถูกใช้/ถูกตัดออก และเพราะอะไร
-- เพิ่ม automated checks สำหรับ reference dedupe และการไม่ใช้ SKU card/barcode เป็น visual truth
+- เพิ่ม browser/manual evidence ว่า reference image ใดถูกใช้/ถูกตัดออก และเพราะอะไร
+- เพิ่ม route-level tests สำหรับ reference preview/staging auth และ unknown reference key ถ้า test harness พร้อม
 - เพิ่ม test ครอบคลุม post-approval task enqueue และ support unlock
 - ปรับ Staff SOP ให้ตรงกับ LINE-first production path ทั้งเล่ม
 
 ## Explicitly out of scope
 
 - WordPress/WooCommerce live writes
+- Multi-SKU batch execution เป็น primary pilot path รอบนี้
+- LINE-first production pilot จนกว่า dedicated worker service พร้อม
 - Public customer UX
 - Full workflow editor
 - Prompt editor
@@ -139,5 +168,5 @@ Production verified ในที่นี้ไม่ได้แปลว่า
 
 1. แก้ UX copy/IA เล็กแบบไม่ refactor: Jobs + Review ให้ staff เข้าใจว่าอยู่ step ไหน
 2. เพิ่ม test สำหรับ `approve Hero -> enqueue support generation` และ `regenerate Hero -> enqueue hero regeneration`
-3. เพิ่ม reference asset diagnostics: แยก visual truth images ออกจาก tag/barcode/SKU card
+3. ทำ Web-first Hero smoke 1 SKU ด้วย catalog/Drive staged references
 4. ทำ export/preflight UI ให้บอกว่าอะไรพร้อม อะไร blocked และยังไม่ live write WordPress

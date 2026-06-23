@@ -289,6 +289,14 @@ const els = {
   form: document.getElementById("requestForm"),
   operatorName: document.getElementById("operatorName"),
   productSku: document.getElementById("productSku"),
+  skuPickerSearch: document.getElementById("skuPickerSearch"),
+  skuPickerClearButton: document.getElementById("skuPickerClearButton"),
+  skuPickerResults: document.getElementById("skuPickerResults"),
+  skuPickerStatus: document.getElementById("skuPickerStatus"),
+  catalogReferencePanel: document.getElementById("catalogReferencePanel"),
+  catalogReferenceStatus: document.getElementById("catalogReferenceStatus"),
+  catalogReferenceCards: document.getElementById("catalogReferenceCards"),
+  useCatalogReferencesButton: document.getElementById("useCatalogReferencesButton"),
   brandProfile: document.getElementById("brandProfile"),
   brandName: document.getElementById("brandName"),
   category: document.getElementById("category"),
@@ -530,6 +538,12 @@ let latestCostData = null;
 let selectedCostRange = "today";
 let selectedCostPage = 1;
 let selectedCostPageSize = 10;
+let selectedCatalogSku = null;
+let selectedCatalogReferences = [];
+let stagedCatalogReferenceKeys = [];
+let catalogReferenceLoading = false;
+let skuPickerSearchTimer = null;
+let latestSkuPickerResults = [];
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
 let createStaffInProgress = false;
@@ -609,6 +623,7 @@ async function init() {
   renderSupportShots();
   renderFilePreview(els.productImages, els.productPreview, 10);
   renderFilePreview(els.modelImages, els.modelPreview, 5);
+  renderSkuPickerStatus();
   renderHistory();
   renderAssets();
   updateAssetLibraryHelper();
@@ -905,6 +920,10 @@ function clearFrontendAuthState() {
   latestAssetsData = null;
   latestMetricData = null;
   latestMonitoringData = null;
+  selectedCatalogSku = null;
+  selectedCatalogReferences = [];
+  stagedCatalogReferenceKeys = [];
+  latestSkuPickerResults = [];
   nextActionsError = "";
   nextActionsLoading = false;
   initialOperatorRouteApplied = false;
@@ -942,6 +961,8 @@ function resetTransientWorkflowState() {
   renderSupportShots();
   renderSupportGallery();
   renderAssets();
+  renderSkuPickerStatus();
+  renderCatalogReferencePanel();
   appState.currentJobId = null;
   appState.currentGenerationId = null;
 }
@@ -972,7 +993,7 @@ function clearActionLoadingStates() {
 
 function updateActionAvailability() {
   const ready = isAppReady();
-  els.generateButton.disabled = !ready || appState.actions.generate;
+  els.generateButton.disabled = !ready || appState.actions.generate || isSelectedSkuReferenceBlockedWithoutFallback();
   els.approveButton.disabled = !ready || appState.actions.approve || !currentGeneratedImageUrl;
   els.generateSupportButton.disabled = !ready || !canGenerateSupport();
   els.approveSupportButton.disabled = !ready || !supportResults.some((item) => item.imageUrl && item.status === "done");
@@ -1144,6 +1165,257 @@ function handleGenerateHero() {
 
 function handleApproveSave() {
   return runAction("approve", approveImage, { errorTarget: els.resultStatus });
+}
+
+function isSelectedSkuReferenceBlocked() {
+  return selectedCatalogSku?.reference_readiness?.status === "blocked";
+}
+
+function hasManualProductReferenceUpload() {
+  return (els.productImages.files?.length || 0) > 0;
+}
+
+function hasStagedCatalogReferences() {
+  return stagedCatalogReferenceKeys.length > 0;
+}
+
+function isSelectedSkuReferenceBlockedWithoutFallback() {
+  return isSelectedSkuReferenceBlocked() && !hasManualProductReferenceUpload() && !hasStagedCatalogReferences();
+}
+
+function getSelectedSkuReferenceBlockerMessage() {
+  const blocker = selectedCatalogSku?.reference_readiness?.blockers?.[0];
+  return blocker?.message_th || "SKU นี้ยังไม่มี reference พร้อมใช้ กรุณาใช้ reference จาก catalog/Drive หรืออัปโหลดภาพอ้างอิงก่อน Generate Hero";
+}
+
+function renderSkuPickerStatus(message = "") {
+  if (!els.skuPickerStatus) return;
+  const readiness = selectedCatalogSku?.reference_readiness;
+  els.skuPickerStatus.classList.remove("is-ready", "is-warning", "is-blocked");
+  if (!selectedCatalogSku) {
+    els.skuPickerStatus.textContent = message || "เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ";
+    updateActionAvailability();
+    return;
+  }
+  const status = readiness?.status || "unknown";
+  const blockers = (readiness?.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
+  const warnings = (readiness?.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
+  els.skuPickerStatus.classList.add(status === "blocked" ? "is-blocked" : status === "ready" ? "is-ready" : "is-warning");
+  els.skuPickerStatus.textContent = [
+    `เลือกแล้ว: ${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
+    `สถานะ reference: ${readiness?.label_th || status}`,
+    blockers.length ? `Blocker: ${blockers.join(" · ")}` : "",
+    warnings.length ? `ต้องตรวจเอง: ${warnings.join(" · ")}` : ""
+  ].filter(Boolean).join("\n");
+  updateActionAvailability();
+}
+
+function renderCatalogReferencePanel(message = "") {
+  if (!els.catalogReferencePanel || !els.catalogReferenceCards || !els.catalogReferenceStatus) return;
+  const hasSku = Boolean(selectedCatalogSku?.sku);
+  els.catalogReferencePanel.hidden = !hasSku;
+  if (!hasSku) {
+    els.catalogReferenceCards.innerHTML = "";
+    els.catalogReferenceStatus.textContent = message || "เลือก SKU เพื่อโหลด reference";
+    if (els.useCatalogReferencesButton) els.useCatalogReferencesButton.disabled = true;
+    return;
+  }
+
+  const stageable = selectedCatalogReferences.filter((reference) => reference.stage_available && reference.reference_key);
+  const stagedCount = stagedCatalogReferenceKeys.length;
+  els.catalogReferenceStatus.textContent = message || [
+    catalogReferenceLoading ? "กำลังโหลด reference จาก catalog/Drive..." : "",
+    `พร้อมใช้กับ Hero: ${stageable.length} รูป`,
+    stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
+    "ตรวจด้วยตาว่าเป็นภาพสินค้าจริง ไม่ใช่ tag/barcode/SKU card"
+  ].filter(Boolean).join(" · ");
+  if (els.useCatalogReferencesButton) {
+    els.useCatalogReferencesButton.disabled = catalogReferenceLoading || !stageable.length;
+    els.useCatalogReferencesButton.textContent = stagedCount ? "ใช้ reference ชุดนี้แล้ว" : "ใช้ reference ชุดนี้กับ Hero";
+  }
+
+  if (!selectedCatalogReferences.length) {
+    els.catalogReferenceCards.innerHTML = `<div class="catalog-reference-empty">ยังไม่มี reference card สำหรับ SKU นี้</div>`;
+    updateActionAvailability();
+    return;
+  }
+
+  els.catalogReferenceCards.innerHTML = selectedCatalogReferences.map((reference) => {
+    const isStaged = stagedCatalogReferenceKeys.includes(reference.reference_key);
+    const warnings = (reference.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
+    const blockers = (reference.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
+    return `
+      <article class="catalog-reference-card ${isStaged ? "is-staged" : ""}">
+        <div class="catalog-reference-preview">
+          ${reference.preview_url ? `<img src="${escapeHtml(reference.preview_url)}" alt="${escapeHtml(reference.label_th || "reference image")}" loading="lazy" />` : `<span>ไม่มี preview</span>`}
+        </div>
+        <div class="catalog-reference-meta">
+          <strong>${escapeHtml(reference.label_th || "reference")}</strong>
+          <span>${escapeHtml(reference.source || "-")} · ${reference.stage_available ? "ใช้กับ Hero ได้" : "ต้องอัปโหลดเอง"}</span>
+          ${isStaged ? `<small class="success-text">แนบแล้ว</small>` : ""}
+          ${warnings.length ? `<small>${escapeHtml(warnings.slice(0, 2).join(" · "))}</small>` : ""}
+          ${blockers.length ? `<small class="danger-text">${escapeHtml(blockers.join(" · "))}</small>` : ""}
+        </div>
+      </article>
+    `;
+  }).join("");
+  updateActionAvailability();
+}
+
+async function loadCatalogReferencesForSelectedSku() {
+  if (!selectedCatalogSku?.sku) {
+    selectedCatalogReferences = [];
+    stagedCatalogReferenceKeys = [];
+    renderCatalogReferencePanel();
+    return;
+  }
+  catalogReferenceLoading = true;
+  const requestedSku = selectedCatalogSku.sku;
+  selectedCatalogReferences = [];
+  stagedCatalogReferenceKeys = [];
+  renderCatalogReferencePanel();
+  try {
+    const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
+    const data = await readJsonResponse(response, "โหลด reference ของ SKU ไม่สำเร็จ");
+    if (!response.ok || data.ok === false) throw new Error(data.error || "โหลด reference ของ SKU ไม่สำเร็จ");
+    if (selectedCatalogSku?.sku !== requestedSku) return;
+    selectedCatalogReferences = data.references || [];
+    selectedCatalogSku = {
+      ...selectedCatalogSku,
+      reference_readiness: data.reference_readiness || selectedCatalogSku.reference_readiness
+    };
+    renderSkuPickerStatus();
+    renderCatalogReferencePanel();
+  } catch (error) {
+    selectedCatalogReferences = [];
+    stagedCatalogReferenceKeys = [];
+    renderCatalogReferencePanel(getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง");
+  } finally {
+    catalogReferenceLoading = false;
+    renderCatalogReferencePanel();
+  }
+}
+
+function useCatalogReferencesForHero() {
+  const stageable = selectedCatalogReferences
+    .filter((reference) => reference.stage_available && reference.reference_key)
+    .map((reference) => reference.reference_key);
+  stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
+  renderCatalogReferencePanel(stagedCatalogReferenceKeys.length
+    ? `แนบ reference จาก catalog/Drive แล้ว ${stagedCatalogReferenceKeys.length} รูป`
+    : "ยังไม่มี reference ที่ใช้กับ Hero ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+}
+
+function renderSkuPickerResults(items = []) {
+  if (!els.skuPickerResults) return;
+  latestSkuPickerResults = items;
+  if (!items.length) {
+    els.skuPickerResults.innerHTML = "";
+    return;
+  }
+  els.skuPickerResults.innerHTML = items.map((item, index) => `
+    <button class="sku-picker-option" type="button" data-sku-picker-index="${index}" role="option">
+      <strong>${escapeHtml(item.sku)} · ${escapeHtml(item.product_name || "-")}</strong>
+      <span>${escapeHtml(item.branch || "unknown")} · ${escapeHtml(item.category || "-")} / ${escapeHtml(item.subcategory || "-")} · ${escapeHtml(item.reference_readiness?.label_th || item.reference_readiness?.status || "unknown")}</span>
+    </button>
+  `).join("");
+}
+
+async function searchCatalogSkus() {
+  const query = els.skuPickerSearch?.value?.trim() || "";
+  if (!query) {
+    renderSkuPickerResults([]);
+    if (!selectedCatalogSku) renderSkuPickerStatus();
+    return;
+  }
+  if (!isAppReady()) {
+    renderSkuPickerStatus("กรุณาเข้าสู่ระบบก่อนค้นหา SKU จาก catalog");
+    return;
+  }
+  try {
+    renderSkuPickerStatus("กำลังค้นหา SKU จาก catalog...");
+    const params = new URLSearchParams({ q: query, limit: "20" });
+    const response = await authFetch(`/api/catalog/sku-search?${params.toString()}`);
+    const data = await readJsonResponse(response, "ค้นหา SKU ไม่สำเร็จ");
+    if (!response.ok || data.ok === false) throw new Error(data.error || "ค้นหา SKU ไม่สำเร็จ");
+    renderSkuPickerResults(data.items || []);
+    if (!selectedCatalogSku) {
+      renderSkuPickerStatus((data.items || []).length ? "เลือก SKU จากผลค้นหา 1 รายการ" : "ไม่พบ SKU ใน catalog");
+    }
+  } catch (error) {
+    renderSkuPickerResults([]);
+    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ค้นหา SKU ไม่สำเร็จ");
+  }
+}
+
+function selectCatalogSku(item) {
+  if (!item?.sku) return;
+  selectedCatalogSku = item;
+  selectedCatalogReferences = [];
+  stagedCatalogReferenceKeys = [];
+  applyCatalogSkuToForm(item);
+  renderSkuPickerResults([]);
+  if (els.skuPickerSearch) els.skuPickerSearch.value = `${item.sku} · ${item.product_name || ""}`.trim();
+  renderSkuPickerStatus();
+  loadCatalogReferencesForSelectedSku();
+  if (currentPrompt) buildPrompt();
+}
+
+function clearCatalogSkuSelection() {
+  selectedCatalogSku = null;
+  selectedCatalogReferences = [];
+  stagedCatalogReferenceKeys = [];
+  latestSkuPickerResults = [];
+  if (els.skuPickerSearch) els.skuPickerSearch.value = "";
+  if (els.skuPickerResults) els.skuPickerResults.innerHTML = "";
+  renderSkuPickerStatus();
+  renderCatalogReferencePanel();
+}
+
+function applyCatalogSkuToForm(item) {
+  els.productSku.value = item.sku || "";
+  const brandProfile = brandProfileFromCatalogBranch(item.branch);
+  if (brandProfile && brandProfiles[brandProfile]) {
+    els.brandProfile.value = brandProfile;
+    applyBrandProfileUiHints();
+  }
+  const category = categoryFromCatalog(item.category, item.subcategory);
+  if (category && categories[category]) {
+    els.category.value = category;
+    renderProductSubtypeOptions();
+    applySubtypeFromCatalog(item.subcategory);
+  }
+  if (item.reference_url) els.imageReference.value = item.reference_url;
+  if (item.feature_notes && !els.keyFeature.value.trim()) els.keyFeature.value = item.feature_notes;
+  renderSupportShots();
+}
+
+function brandProfileFromCatalogBranch(branch = "") {
+  const normalized = String(branch || "").toLowerCase();
+  if (normalized.includes("go")) return "go-mall";
+  if (normalized.includes("rent")) return "rent-a-coat";
+  return "";
+}
+
+function categoryFromCatalog(category = "", subcategory = "") {
+  const text = `${category} ${subcategory}`.toLowerCase();
+  if (text.includes("รองเท้า") || text.includes("boot") || text.includes("shoe")) return "รองเท้า / บูท";
+  if (text.includes("กางเกง") || text.includes("pants")) return "กางเกง";
+  if (text.includes("ถุงมือ") || text.includes("glove")) return "ถุงมือ";
+  if (text.includes("หมวก") || text.includes("hat") || text.includes("beanie")) return "หมวก";
+  if (text.includes("ผ้าพันคอ") || text.includes("scarf")) return "ผ้าพันคอ / อุปกรณ์ชิ้นเล็ก";
+  if (text.includes("ถุงเท้า") || text.includes("sock")) return "ถุงเท้า";
+  if (text.includes("เซ็ต") || text.includes("set")) return "ชุดกันหนาวเป็นเซ็ต";
+  if (text.includes("โค้ท") || text.includes("parka") || text.includes("long coat")) return "เสื้อโค้ทยาว / พาร์กา";
+  if (text.includes("เสื้อ") || text.includes("แจ็คเก็ต") || text.includes("jacket") || text.includes("outerwear")) return "เสื้อแจ็คเก็ต / เสื้อท่อนบน";
+  return "";
+}
+
+function applySubtypeFromCatalog(subcategory = "") {
+  const normalized = String(subcategory || "").toLowerCase();
+  const options = Array.from(els.productSubtype.options || []);
+  const match = options.find((option) => normalized && option.textContent.toLowerCase().includes(normalized));
+  if (match) els.productSubtype.value = match.value;
 }
 
 function applyRoleUi() {
@@ -1608,8 +1880,32 @@ function bindEvents() {
     if (!rerunButton) return;
     rerunSupportImage(Number(rerunButton.dataset.rerunSupport));
   });
-  els.productImages.addEventListener("change", () => renderFilePreview(els.productImages, els.productPreview, 10));
+  els.productImages.addEventListener("change", () => {
+    renderFilePreview(els.productImages, els.productPreview, 10);
+    renderSkuPickerStatus();
+    renderCatalogReferencePanel();
+  });
   els.modelImages.addEventListener("change", () => renderFilePreview(els.modelImages, els.modelPreview, 5));
+  els.skuPickerSearch.addEventListener("input", () => {
+    window.clearTimeout(skuPickerSearchTimer);
+    skuPickerSearchTimer = window.setTimeout(searchCatalogSkus, 250);
+  });
+  els.skuPickerClearButton.addEventListener("click", clearCatalogSkuSelection);
+  els.useCatalogReferencesButton.addEventListener("click", useCatalogReferencesForHero);
+  els.skuPickerResults.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-sku-picker-index]");
+    if (!option) return;
+    selectCatalogSku(latestSkuPickerResults[Number(option.dataset.skuPickerIndex)]);
+  });
+  els.productSku.addEventListener("input", () => {
+    if (selectedCatalogSku && els.productSku.value.trim().toUpperCase() !== selectedCatalogSku.sku) {
+      selectedCatalogSku = null;
+      selectedCatalogReferences = [];
+      stagedCatalogReferenceKeys = [];
+      renderSkuPickerStatus("SKU ถูกแก้เองแล้ว ข้อมูล catalog ถูกปลดล็อกเป็น manual mode");
+      renderCatalogReferencePanel();
+    }
+  });
   els.keyFeature.addEventListener("input", () => renderSupportShots());
   els.notes.addEventListener("input", () => renderSupportShots());
   els.addCustomShotButton.addEventListener("click", addCustomSupportShot);
@@ -1670,6 +1966,12 @@ function bindEvents() {
     approvedHeroImageUrl = "";
     currentJobId = "";
     currentHeroGenerationId = "";
+    selectedCatalogSku = null;
+    selectedCatalogReferences = [];
+    stagedCatalogReferenceKeys = [];
+    latestSkuPickerResults = [];
+    if (els.skuPickerSearch) els.skuPickerSearch.value = "";
+    if (els.skuPickerResults) els.skuPickerResults.innerHTML = "";
     appState.currentJobId = null;
     appState.currentGenerationId = null;
     lastSubmittedQcKey = "";
@@ -1689,6 +1991,8 @@ function bindEvents() {
     renderSupportShots();
     renderSupportGallery();
     renderAssets();
+    renderSkuPickerStatus();
+    renderCatalogReferencePanel();
     updateMeta("-", "-", "waiting");
     applyBrandProfileUiHints();
   });
@@ -1848,6 +2152,15 @@ async function generateImage() {
 
   buildPrompt();
 
+  if (isSelectedSkuReferenceBlockedWithoutFallback()) {
+    const message = getSelectedSkuReferenceBlockerMessage();
+    logAction("generate", "early exit", { reason: message });
+    els.resultCard.hidden = false;
+    els.resultStatus.textContent = message;
+    renderSkuPickerStatus();
+    return;
+  }
+
   const validationMessage = validateInputFiles();
   if (validationMessage) {
     logAction("generate", "early exit", { reason: validationMessage });
@@ -1857,7 +2170,8 @@ async function generateImage() {
   }
   logAction("generate", "validation passed", {
     productFileCount: els.productImages.files?.length || 0,
-    modelFileCount: els.modelImages.files?.length || 0
+    modelFileCount: els.modelImages.files?.length || 0,
+    stagedCatalogReferenceCount: stagedCatalogReferenceKeys.length
   });
 
   els.resultCard.hidden = false;
@@ -1874,6 +2188,7 @@ async function generateImage() {
     const formData = buildGenerateFormData(currentPrompt, [], { jobKind: "hero", shot: "Hero" });
     logAction("generate", "before request", {
       productFileCount: els.productImages.files?.length || 0,
+      stagedCatalogReferenceCount: stagedCatalogReferenceKeys.length,
       currentJobId,
       currentGenerationId: currentHeroGenerationId
     });
@@ -1909,7 +2224,7 @@ async function generateImage() {
     els.emptyHero.hidden = false;
     els.resultStatus.textContent = `สร้างภาพไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || "ส่งงานสร้างภาพไม่สำเร็จ"}`;
   } finally {
-    els.generateButton.disabled = !isAppReady();
+    updateActionAvailability();
     els.approveButton.disabled = !currentGeneratedImageUrl;
     els.generateButton.textContent = "สร้าง Hero";
   }
@@ -2206,6 +2521,10 @@ function buildGenerateFormData(prompt, extraImageUrls = [], metadataOverrides = 
   if (extraImageUrls.length) {
     formData.append("extraImageUrls", JSON.stringify(extraImageUrls));
   }
+  if (selectedCatalogSku?.sku && stagedCatalogReferenceKeys.length) {
+    formData.append("catalogReferenceSku", selectedCatalogSku.sku);
+    formData.append("catalogReferenceKeys", JSON.stringify(stagedCatalogReferenceKeys));
+  }
   return formData;
 }
 
@@ -2216,6 +2535,12 @@ function getRequestMetadata(overrides = {}) {
     sku: els.productSku.value.trim(),
     productName: getJobBaseName("Untitled product"),
     brand: els.brandName.value.trim(),
+    catalogProductName: selectedCatalogSku?.product_name || "",
+    catalogSource: selectedCatalogSku?.canonical_source || "",
+    catalogBranch: selectedCatalogSku?.branch || "",
+    catalogReferenceStatus: selectedCatalogSku?.reference_readiness?.status || "",
+    catalogReferenceUrl: selectedCatalogSku?.reference_url || "",
+    catalogReferenceDriveId: selectedCatalogSku?.reference_drive_id || "",
     brandProfile: getSelectedBrandProfile().shortName,
     category: els.category.value,
     productSubtypeValue: subtype?.value || "auto",
@@ -2343,7 +2668,8 @@ function delay(ms) {
 function validateInputFiles() {
   const productFiles = Array.from(els.productImages.files || []);
   const modelFiles = getSelectedBrandProfile().forceOffModel ? [] : Array.from(els.modelImages.files || []);
-  if (!productFiles.length) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป";
+  if (isSelectedSkuReferenceBlockedWithoutFallback()) return getSelectedSkuReferenceBlockerMessage();
+  if (!productFiles.length && !hasStagedCatalogReferences()) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป หรือกดใช้ reference จาก catalog/Drive กับ Hero";
   if (productFiles.length > 10) return "ภาพสินค้าอ้างอิงใส่ได้สูงสุด 10 ภาพ";
   if (modelFiles.length > 5) return "ภาพโมเดลอ้างอิงใส่ได้สูงสุด 5 ภาพ";
   return "";

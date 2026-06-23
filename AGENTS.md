@@ -20,19 +20,26 @@
 
 ถ้า skill ไม่มี ให้รายงานว่าไม่พบ แล้วใช้เอกสารใน repo เป็น source of truth แทน ห้ามเดา business flow เอง
 
-## Current MVP path
+## Current pilot path
 
-เส้นทาง MVP ปัจจุบันคือ:
+เส้นทาง pilot ที่ owner เลือกสำหรับรอบถัดไปคือ Web-first Single-SKU:
+
+`Login web -> เลือก SKU เดียวจาก clean/matched sheet/catalog -> ตรวจ reference -> generate Hero -> review/approve Hero -> generate Support -> review/approve Support -> Export/Drive -> WordPress/WooCommerce preflight proposal`
+
+รายละเอียดอยู่ใน `docs/WEB_FIRST_SINGLE_SKU_PILOT.md`
+
+LINE-first path ยังอยู่ใน repo แต่ไม่ใช่ primary pilot path รอบนี้:
 
 `LINE keyword batch -> Batch Review -> confirm selected SKUs -> generate Hero -> review Hero -> approve Hero -> unlock Support -> generate Support -> review Support -> approve/export`
 
-รายละเอียด flow ล่าสุดอยู่ใน `docs/CURRENT_TRUTH.md`
+ห้ามลบ LINE flow เดิม แต่ให้ defer multi-SKU/LINE-first execution จนกว่า dedicated worker service และ smoke evidence พร้อม
 
 ## Operating surface ปัจจุบัน
 
-- LINE เป็น entry point และ notification surface สำหรับ batch/request/review link
+- Web app เป็น operating surface หลักสำหรับ pilot 1 SKU
+- LINE เป็น notification/review link surface ชั่วคราว ไม่ใช่ editor หลัก
 - LINE ไม่ใช่ editor หลัก และ webhook ต้องไม่ทำ long-running generation โดยตรง
-- Batch Review เป็น operating surface หลักสำหรับ operator ในการตรวจ batch, confirm selected SKUs และดู next action
+- Batch Review ยังเป็น surface สำหรับ LINE batch path เดิม แต่ไม่ใช่ primary pilot path รอบนี้
 - Hero decision หลักอยู่ที่หน้า Review ในเว็บ ไม่ใช่ปุ่ม LINE เก่า
 - Support จะพร้อมได้หลัง Hero ถูก approve แล้วเท่านั้น
 - Approved Hero ต้องเป็น input แรกของ Support

@@ -65,6 +65,12 @@ import {
   isItemSkippable
 } from "./lib/automation/batch-review-contract.mjs";
 import {
+  buildWebSkuReferenceContract,
+  findWebSkuPickerItemBySku,
+  loadWebSkuPickerCatalogSnapshot,
+  searchWebSkuPickerCatalog
+} from "./lib/automation/web-sku-picker-catalog.mjs";
+import {
   buildWorkerModeStartupWarnings,
   buildWorkerQueueSafetySummary,
   resolveWorkerRuntimeConfig
@@ -833,6 +839,185 @@ app.get("/api/me", requireUser, async (req, res) => {
     res.status(500).json({ ok: false, code: "profile_load_failed", error: "โหลดข้อมูลผู้ใช้งานไม่สำเร็จ" });
   }
 });
+
+app.get("/api/catalog/sku-search", requireUser, async (req, res) => {
+  try {
+    const query = cleanOptionalString(req.query.q);
+    if (!query) {
+      return res.json({
+        ok: true,
+        query: "",
+        total: 0,
+        items: []
+      });
+    }
+
+    const snapshot = await loadWebSkuPickerCatalogSnapshot();
+    const result = searchWebSkuPickerCatalog({
+      rows: snapshot.rows,
+      query,
+      branch: cleanOptionalString(req.query.branch),
+      category: cleanOptionalString(req.query.category),
+      limit: req.query.limit
+    });
+    res.json({
+      ...result,
+      source: snapshot.source,
+      catalog: {
+        source: snapshot.source,
+        row_count: snapshot.rows.length
+      }
+    });
+  } catch (error) {
+    console.error("SKU search failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "sku_search_failed",
+      error: "ค้นหา SKU จาก catalog ไม่สำเร็จ"
+    });
+  }
+});
+
+app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
+  try {
+    const item = await readWebSkuPickerItem(req.params.sku);
+    if (!item) {
+      return res.status(404).json({
+        ok: false,
+        code: "catalog_sku_not_found",
+        error: "ไม่พบ SKU นี้ใน catalog"
+      });
+    }
+    const referencePayload = await buildWebSkuReferencePayload(item);
+    res.json({
+      ok: true,
+      ...referencePayload
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error("SKU reference load failed:", readableError(error));
+    res.status(status).json({
+      ok: false,
+      code: error.code || "sku_reference_load_failed",
+      error: error.publicMessage || "โหลด reference ของ SKU ไม่สำเร็จ"
+    });
+  }
+});
+
+async function readWebSkuPickerItem(sku = "") {
+  const snapshot = await loadWebSkuPickerCatalogSnapshot();
+  return findWebSkuPickerItemBySku(snapshot.rows, sku);
+}
+
+async function buildWebSkuReferencePayload(item = {}) {
+  const folderId = cleanOptionalString(item.reference_drive_id || extractDriveIdFromUrl(item.reference_url || ""));
+  let resolvedReferenceAssets = [];
+  let resolutionSummary = {
+    google_drive_checked: false,
+    selected_reference_count: 0,
+    file_count: 0,
+    blockers: []
+  };
+
+  if (folderId && isValidDriveFileId(folderId)) {
+    try {
+      const drive = await getGoogleDriveClient();
+      if (drive) {
+        const files = await listGoogleDriveReferenceFiles(drive, folderId);
+        const resolution = buildReferenceAssetResolution({
+          batch: { batch_id: null },
+          batchItems: [{
+            sku: item.sku,
+            product_name: item.product_name,
+            reference_drive_id: folderId,
+            reference_url: item.reference_url
+          }],
+          filesByFolderId: { [folderId]: files }
+        });
+        const resolutionItem = resolution.items?.[0] || {};
+        resolvedReferenceAssets = resolutionItem.selected_reference_assets || [];
+        resolutionSummary = {
+          google_drive_checked: true,
+          selected_reference_count: resolvedReferenceAssets.length,
+          file_count: Number(resolutionItem.file_count || 0),
+          image_file_count: Number(resolutionItem.image_file_count || 0),
+          blockers: resolutionItem.blockers || []
+        };
+      } else {
+        resolutionSummary.blockers = ["google_drive_not_configured"];
+      }
+    } catch (error) {
+      console.warn(`Web SKU reference Drive read failed: ${readableError(error)}`);
+      resolutionSummary.blockers = ["google_drive_reference_read_failed"];
+    }
+  }
+
+  const contract = buildWebSkuReferenceContract({
+    item,
+    resolvedReferenceAssets,
+    buildPreviewUrl: ({ driveFileId = "", fileName = "" } = {}) => {
+      if (!isValidDriveFileId(driveFileId)) return "";
+      return buildSignedLineImageProxyUrl({ driveFileId, fileName });
+    }
+  });
+
+  return {
+    sku: item.sku,
+    product_name: item.product_name || "",
+    branch: item.branch || "",
+    category: item.category || "",
+    subcategory: item.subcategory || "",
+    source: "catalog_snapshot",
+    reference_source_fields: {
+      reference_drive_id_present: Boolean(item.reference_drive_id),
+      reference_url_present: Boolean(item.reference_url),
+      reference_verified: item.reference_verified || "",
+      reference_lookup_strategy: item.reference_lookup_strategy || "",
+      source_file: item.source_file || "",
+      source_row: item.source_row || ""
+    },
+    ...contract,
+    resolution_summary: resolutionSummary
+  };
+}
+
+async function resolveCatalogReferencesForGenerateRequest(req) {
+  const sku = cleanOptionalString(req.body?.catalogReferenceSku);
+  const requestedKeys = parseJsonArray(req.body?.catalogReferenceKeys)
+    .map((key) => cleanOptionalString(key))
+    .filter(Boolean);
+  if (!sku && !requestedKeys.length) return;
+  if (!sku || !requestedKeys.length) {
+    throw publicError(400, "missing_catalog_reference_selection", "กรุณาเลือก SKU และ reference ที่ต้องการใช้กับ Hero");
+  }
+
+  const item = await readWebSkuPickerItem(sku);
+  if (!item) {
+    throw publicError(404, "catalog_sku_not_found", "ไม่พบ SKU นี้ใน catalog");
+  }
+
+  const referencePayload = await buildWebSkuReferencePayload(item);
+  const referenceByKey = new Map((referencePayload.references || []).map((reference) => [reference.reference_key, reference]));
+  const selectedReferences = [];
+  for (const key of [...new Set(requestedKeys)].slice(0, 6)) {
+    const reference = referenceByKey.get(key);
+    if (!reference) {
+      throw publicError(400, "unknown_catalog_reference_key", "reference ที่เลือกไม่ตรงกับ catalog ของ SKU นี้");
+    }
+    selectedReferences.push(reference);
+  }
+
+  const nonStageable = selectedReferences.find((reference) => !reference.stage_available || !reference.generation_url);
+  if (nonStageable) {
+    throw publicError(400, "catalog_reference_not_stageable", "reference ที่เลือกยังใช้ Generate Hero โดยตรงไม่ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+  }
+
+  const catalogReferenceUrls = selectedReferences.map((reference) => reference.generation_url).filter(Boolean);
+  req.body.extraImageUrls = JSON.stringify(catalogReferenceUrls.slice(0, 6));
+  req.body.catalogReferenceResolved = "true";
+  req.body.catalogReferenceResolvedCount = String(catalogReferenceUrls.length);
+  req.body.catalogReferenceResolvedSku = item.sku;
+}
 
 app.post("/api/me/password-changed", requireUser, async (req, res) => {
   try {
@@ -2056,6 +2241,7 @@ app.post(
         mustChangePassword: profileCheck.profile.must_change_password
       });
 
+      await resolveCatalogReferencesForGenerateRequest(req);
       const validation = validateGenerateRequest(req);
       if (validation) {
         logGenerateDiagnostic("blocked", {
@@ -2117,13 +2303,18 @@ app.post(
         }
       });
     } catch (error) {
+      const status = error.status || 500;
       console.error("Generate start failed:", readableError(error));
       logGenerateDiagnostic("error", {
         userId: req.user?.id || "",
         email: req.user?.email || "",
         reason: readableError(error)
       });
-      res.status(500).json({ ok: false, code: "generate_start_failed", error: "เริ่มงาน Generate ไม่สำเร็จ" });
+      res.status(status).json({
+        ok: false,
+        code: error.code || "generate_start_failed",
+        error: error.publicMessage || "เริ่มงาน Generate ไม่สำเร็จ"
+      });
     }
   }
 );
@@ -2152,6 +2343,7 @@ app.post(
     if (!profileCheck.ok) {
       return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
     }
+    await resolveCatalogReferencesForGenerateRequest(req);
     const validation = validateGenerateRequest(req);
     if (validation) return res.status(validation.status).json({ ok: false, code: validation.code || "invalid_request", error: validation.error });
     const data = await runGeneration({
@@ -2170,8 +2362,13 @@ app.post(
     });
     res.json(data);
   } catch (error) {
+    const status = error.status || 500;
     console.error("Legacy generate failed:", readableError(error));
-    res.status(500).json({ ok: false, code: "generate_failed", error: "Generate ไม่สำเร็จ" });
+    res.status(status).json({
+      ok: false,
+      code: error.code || "generate_failed",
+      error: error.publicMessage || "Generate ไม่สำเร็จ"
+    });
   }
   }
 );
@@ -2454,7 +2651,11 @@ function validateGenerateRequest(req) {
     return { status: 415, code: uploadValidation.code, error: uploadValidation.error };
   }
   const productFiles = req.files?.productImages || [];
-  if (!productFiles.length) {
+  const resolvedCatalogReferenceCount = Number(req.body?.catalogReferenceResolvedCount || 0);
+  const hasServerResolvedCatalogReferences = req.body?.catalogReferenceResolved === "true" &&
+    resolvedCatalogReferenceCount > 0 &&
+    parseExtraImageUrls(req.body?.extraImageUrls).length > 0;
+  if (!productFiles.length && !hasServerResolvedCatalogReferences) {
     return { status: 400, code: "missing_product_image", error: "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป" };
   }
   const unsafeExtraUrls = collectUnsafeImageUrls(req.body?.extraImageUrls);
