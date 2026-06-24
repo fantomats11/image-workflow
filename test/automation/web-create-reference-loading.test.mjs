@@ -44,7 +44,8 @@ test("server resolves catalog references automatically when requested by create 
 test("server stages Drive references to Supabase Storage before Hero generation", () => {
   assert.match(serverJs, /stageCatalogDriveReferencesToSupabase/);
   assert.match(driveStagingBridgeJs, /fileId: driveFileId,\s*alt: "media"/);
-  assert.match(driveStagingBridgeJs, /\.upload\(storagePath, body/);
+  assert.match(driveStagingBridgeJs, /downloadPublicDriveImageBinary/);
+  assert.match(driveStagingBridgeJs, /\.upload\(storagePath, download\.body/);
   assert.match(driveStagingBridgeJs, /DRIVE_REFERENCE_STAGING_BUCKET = "product-references"/);
   assert.match(driveStagingBridgeJs, /staged_public_url: url/);
   assert.match(driveStagingBridgeJs, /storageUrlCreateFailed: "storage_url_create_failed"/);

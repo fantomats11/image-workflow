@@ -93,6 +93,69 @@ test("stageCatalogDriveReferencesToSupabase reports Drive alt=media failures wit
   assert.equal(result.summary.stage_available_count, 0);
 });
 
+test("stageCatalogDriveReferencesToSupabase falls back to public Drive download when alt=media is blocked", async () => {
+  const error = new Error("permission denied");
+  error.status = 403;
+  const drive = mockDrive({ "drive-front": error });
+  const storage = mockStorage();
+  const fetchCalls = [];
+
+  const result = await stageCatalogDriveReferencesToSupabase({
+    sku: "FSTR240017",
+    drive,
+    storage,
+    fetchImpl: async (url) => {
+      fetchCalls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => name.toLowerCase() === "content-type" ? "image/jpeg" : "" },
+        arrayBuffer: async () => Uint8Array.from(Buffer.from("public-drive-image")).buffer
+      };
+    },
+    files: [
+      { id: "drive-front", name: "front.jpg", mimeType: "image/jpeg" }
+    ],
+    logger: () => {}
+  });
+
+  assert.equal(result.references[0].stage_available, true);
+  assert.equal(result.references[0].blocker_code, "");
+  assert.equal(result.references[0].download_method, "public_drive_download");
+  assert.equal(result.summary.stage_available_count, 1);
+  assert.deepEqual(drive.mediaGets, [{ fileId: "drive-front", alt: "media" }]);
+  assert.equal(fetchCalls.length, 1);
+  assert.match(fetchCalls[0], /^https:\/\/drive\.google\.com\/uc\?export=download&id=drive-front/);
+  assert.deepEqual(storage.uploads.map((upload) => [upload.bucket, upload.path, upload.options.contentType]), [
+    ["product-references", "catalog/FSTR240017/drive-front-front.jpg", "image/jpeg"]
+  ]);
+});
+
+test("stageCatalogDriveReferencesToSupabase accepts public Drive octet-stream downloads when Drive metadata says image", async () => {
+  const drive = mockDrive({ "drive-front": new Error("socket closed") });
+  const storage = mockStorage();
+
+  const result = await stageCatalogDriveReferencesToSupabase({
+    sku: "FSTR240017",
+    drive,
+    storage,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => name.toLowerCase() === "content-type" ? "application/octet-stream" : "" },
+      arrayBuffer: async () => Uint8Array.from(Buffer.from("public-drive-image")).buffer
+    }),
+    files: [
+      { id: "drive-front", name: "front.jpg", mimeType: "image/jpeg" }
+    ],
+    logger: () => {}
+  });
+
+  assert.equal(result.references[0].stage_available, true);
+  assert.equal(result.references[0].download_method, "public_drive_download");
+  assert.equal(storage.uploads[0].options.contentType, "image/jpeg");
+});
+
 test("stageCatalogDriveReferencesToSupabase reports Drive permission failures with a staff-safe blocker", async () => {
   const error = new Error("permission denied");
   error.status = 403;

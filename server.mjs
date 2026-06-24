@@ -1362,6 +1362,7 @@ async function buildWebSkuReferencePayload(item = {}) {
           drive,
           storage: supabaseAdmin.storage,
           files: resolvedReferenceAssets,
+          fetchImpl: fetch,
           logger: logDriveReferenceStageDiagnostic
         });
         resolvedReferenceAssets = stageResult.references;
@@ -1427,6 +1428,7 @@ function logDriveReferenceStageDiagnostic(event = {}) {
     bucket: cleanOptionalString(event.bucket),
     storage_path: cleanOptionalString(event.storage_path),
     upload_reused: event.upload_reused === true,
+    download_method: cleanOptionalString(event.download_method),
     stage_available: event.stage_available === true,
     blocker_code: cleanOptionalString(event.blocker_code),
     error: event.error ? {
