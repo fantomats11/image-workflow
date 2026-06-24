@@ -6,6 +6,7 @@ import path from "node:path";
 const appJs = fs.readFileSync(path.resolve("app.js"), "utf8");
 const serverJs = fs.readFileSync(path.resolve("server.mjs"), "utf8");
 const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
+const driveStagingBridgeJs = fs.readFileSync(path.resolve("lib/automation/drive-reference-staging-bridge.mjs"), "utf8");
 
 test("manual create reference panel distinguishes Drive loading from SKU search", () => {
   assert.match(appJs, /กำลังโหลดไฟล์ภาพจาก Google Drive/);
@@ -41,12 +42,25 @@ test("server resolves catalog references automatically when requested by create 
 });
 
 test("server stages Drive references to Supabase Storage before Hero generation", () => {
-  assert.match(serverJs, /stageWebSkuReferenceAssetsForGeneration/);
-  assert.match(serverJs, /drive\.files\.get\(\s*\{\s*fileId: driveFileId,\s*alt: "media"/);
-  assert.match(serverJs, /\.from\(bucket\)\s*\.upload\(storageKey, uploadStream/);
-  assert.match(serverJs, /const bucket = "product-references";/);
-  assert.match(serverJs, /staged_public_url: staged\.publicUrl/);
-  assert.match(serverJs, /reference_storage_url_unavailable/);
+  assert.match(serverJs, /stageCatalogDriveReferencesToSupabase/);
+  assert.match(driveStagingBridgeJs, /fileId: driveFileId,\s*alt: "media"/);
+  assert.match(driveStagingBridgeJs, /\.upload\(storagePath, body/);
+  assert.match(driveStagingBridgeJs, /DRIVE_REFERENCE_STAGING_BUCKET = "product-references"/);
+  assert.match(driveStagingBridgeJs, /staged_public_url: url/);
+  assert.match(driveStagingBridgeJs, /storageUrlCreateFailed: "storage_url_create_failed"/);
+  assert.doesNotMatch(driveStagingBridgeJs, /upsert: true/);
+});
+
+test("server exposes a SKU reference staging endpoint with canonical catalog cache fields", () => {
+  assert.match(serverJs, /stageCatalogDriveReferencesToSupabase/);
+  assert.match(serverJs, /app\.post\("\/api\/catalog\/sku\/:sku\/references\/stage", requireUser/);
+  assert.match(serverJs, /readWebSkuPickerItemFast\(req\.params\.sku/);
+  assert.match(serverJs, /catalog\/<sku>\/<drive_file_id>-<safe_filename>/);
+  assert.match(serverJs, /drive_file_id/);
+  assert.match(serverJs, /storage_path/);
+  assert.match(serverJs, /generation_url/);
+  assert.match(serverJs, /blocker_code/);
+  assert.match(serverJs, /drive_reference_stage/);
 });
 
 test("Web-first create page is the default and visible navigation path", () => {
@@ -58,7 +72,7 @@ test("Web-first create page is the default and visible navigation path", () => {
 
 test("reference panel shows Drive source and only auto-uses stageable images", () => {
   assert.match(appJs, /function hasSelectedCatalogStageableReferences\(\)/);
-  assert.match(appJs, /selectedCatalogReferences\.some\(\(reference\) => reference\.stage_available && reference\.reference_key\)/);
+  assert.match(appJs, /selectedCatalogReferences\.some\(\(reference\) => reference\.stage_available && \(reference\.generation_url \|\| reference\.staged_url\) && reference\.reference_key\)/);
   assert.match(appJs, /เปิด Google Drive folder/);
   assert.match(appJs, /resolution_summary/);
   assert.match(appJs, /ยังไม่มีภาพ reference จาก Google Drive ที่ใช้กับ Hero ได้/);
@@ -126,6 +140,14 @@ test("manual create shows product summary before async Drive reference load fini
   assert.match(appJs, /มี Google Drive reference/);
   assert.match(appJs, /กำลังโหลด Drive reference แยกจากการเลือก SKU/);
   assert.match(appJs, /renderSkuPickerStatus\(\);\n  renderSelectedProductSummary\(\);[\s\S]*loadCatalogReferencesForSelectedSku\(\);/);
+});
+
+test("manual create stages Drive references asynchronously and opens Hero only after staged URL exists", () => {
+  assert.match(appJs, /กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero/);
+  assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references\/stage`, \{\s*method: "POST"/);
+  assert.match(appJs, /reference\.stage_available && \(reference\.generation_url \|\| reference\.staged_url\)/);
+  assert.match(appJs, /reference\.blocker_message \|\| reference\.blocker_code/);
+  assert.match(appJs, /stage สำเร็จ/);
 });
 
 test("create flow renders a compact product summary as the primary catalog path", () => {

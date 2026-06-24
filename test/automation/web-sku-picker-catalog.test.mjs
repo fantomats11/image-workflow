@@ -155,6 +155,66 @@ test("normalizeWebSkuPickerRows extracts Drive folder ids from URL-shaped refere
   assert.equal(normalized[0].references[0].source, "google_drive");
 });
 
+test("buildWebSkuReferenceContract exposes staged Drive reference fields for Hero generation", () => {
+  const contract = buildWebSkuReferenceContract({
+    item: catalogRow({
+      sku: "FSTR240017",
+      product_name: "BLUE DOG The Spirit of Adventure",
+      reference_url: "https://drive.google.com/drive/folders/folder-1",
+      reference_drive_id: "folder-1",
+      reference_verified: "product_catalog_sheet_row_matched"
+    }),
+    resolvedReferenceAssets: [{
+      drive_file_id: "drive-front",
+      name: "front.jpg",
+      mimeType: "image/jpeg",
+      storage_path: "catalog/FSTR240017/drive-front-front.jpg",
+      preview_url: "https://storage.example.test/front-preview",
+      generation_url: "https://storage.example.test/front-signed",
+      staged_url: "https://storage.example.test/front-signed",
+      stage_available: true,
+      upload_reused: true,
+      blocker_code: "",
+      blocker_message: ""
+    }]
+  });
+
+  assert.equal(contract.reference_readiness.status, "ready");
+  assert.equal(contract.references[0].stage_available, true);
+  assert.equal(contract.references[0].drive_file_id, "drive-front");
+  assert.equal(contract.references[0].storage_path, "catalog/FSTR240017/drive-front-front.jpg");
+  assert.equal(contract.references[0].staged_url, "https://storage.example.test/front-signed");
+  assert.equal(contract.references[0].generation_url, "https://storage.example.test/front-signed");
+  assert.equal(contract.references[0].blocker_code, "");
+});
+
+test("buildWebSkuReferenceContract exposes staging blocker details when Drive image cannot be staged", () => {
+  const contract = buildWebSkuReferenceContract({
+    item: catalogRow({
+      sku: "FSTR240017",
+      product_name: "BLUE DOG The Spirit of Adventure",
+      reference_url: "https://drive.google.com/drive/folders/folder-1",
+      reference_drive_id: "folder-1",
+      reference_verified: "product_catalog_sheet_row_matched"
+    }),
+    resolvedReferenceAssets: [{
+      drive_file_id: "drive-front",
+      name: "front.jpg",
+      mimeType: "image/jpeg",
+      storage_path: "catalog/FSTR240017/drive-front-front.jpg",
+      stage_available: false,
+      blocker_code: "drive_alt_media_fetch_failed",
+      blocker_message: "download รูปจาก Google Drive ด้วย alt=media ไม่สำเร็จ"
+    }]
+  });
+
+  assert.equal(contract.reference_readiness.status, "warning");
+  assert.equal(contract.references[0].stage_available, false);
+  assert.equal(contract.references[0].blocker_code, "drive_alt_media_fetch_failed");
+  assert.equal(contract.references[0].blocker_message, "download รูปจาก Google Drive ด้วย alt=media ไม่สำเร็จ");
+  assert.equal(contract.references[0].blockers[0].code, "drive_alt_media_fetch_failed");
+});
+
 test("loadWebSkuPickerCatalogSnapshot prefers refreshed outputs snapshot before packaged fallback", async () => {
   const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-"));
   await fs.writeFile(

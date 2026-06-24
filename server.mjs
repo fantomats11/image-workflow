@@ -4,7 +4,6 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
-import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
@@ -24,6 +23,7 @@ import {
 } from "./lib/automation/live-generation-input-staging.mjs";
 import { buildModelInputStagingManifest } from "./lib/automation/model-input-staging.mjs";
 import { buildReferenceAssetResolution } from "./lib/automation/reference-asset-resolution.mjs";
+import { stageCatalogDriveReferencesToSupabase } from "./lib/automation/drive-reference-staging-bridge.mjs";
 import { listGoogleDriveReferenceImageFiles } from "./lib/automation/google-drive-reference-files.mjs";
 import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
@@ -155,26 +155,13 @@ const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
 const googleDriveReferenceFilesCache = new Map();
-const googleDriveReferenceStagingCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
   30_000,
   Number(process.env.GOOGLE_DRIVE_REFERENCE_FILES_CACHE_TTL_MS || 300_000) || 300_000
 );
-const googleDriveReferenceStagingCacheTtlMs = Math.max(
-  30_000,
-  Number(process.env.GOOGLE_DRIVE_REFERENCE_STAGING_CACHE_TTL_MS || 300_000) || 300_000
-);
 const googleDriveReferenceFilesTimeoutMs = Math.max(
   2_000,
   Number(process.env.GOOGLE_DRIVE_REFERENCE_FILES_TIMEOUT_MS || 8_000) || 8_000
-);
-const googleDriveReferenceStageTimeoutMs = Math.max(
-  5_000,
-  Number(process.env.GOOGLE_DRIVE_REFERENCE_STAGE_TIMEOUT_MS || 20_000) || 20_000
-);
-const googleDriveReferenceStageMaxBytes = Math.max(
-  1024 * 1024,
-  Number(process.env.GOOGLE_DRIVE_REFERENCE_STAGE_MAX_BYTES || 20 * 1024 * 1024) || 20 * 1024 * 1024
 );
 const googleOAuthStateById = new Map();
 let automationEmbeddedWorkerRunning = false;
@@ -964,8 +951,29 @@ app.get("/api/catalog/sku/:sku", requireUser, async (req, res) => {
 });
 
 app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
+  return handleCatalogSkuReferenceStageRequest(req, res);
+});
+
+// Drive-to-Supabase staging bridge:
+// canonical cache path shape is product-references/catalog/<sku>/<drive_file_id>-<safe_filename>
+app.post("/api/catalog/sku/:sku/references/stage", requireUser, async (req, res) => {
+  return handleCatalogSkuReferenceStageRequest(req, res);
+});
+
+async function handleCatalogSkuReferenceStageRequest(req, res) {
   try {
-    const item = await readWebSkuPickerItem(req.params.sku);
+    const lookup = await readWebSkuPickerItemFast(req.params.sku);
+    if (lookup.warming) {
+      return res.status(202).json({
+        ok: false,
+        code: "catalog_warming",
+        status: "warming",
+        error: "กำลังเตรียมข้อมูล catalog ครั้งแรก...",
+        retry_after_ms: lookup.retryAfterMs || 1000,
+        diagnostics: lookup.diagnostics
+      });
+    }
+    const item = lookup.item || await readWebSkuPickerItem(req.params.sku);
     if (!item) {
       return res.status(404).json({
         ok: false,
@@ -987,7 +995,7 @@ app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
       error: error.publicMessage || "โหลด reference ของ SKU ไม่สำเร็จ"
     });
   }
-});
+}
 
 app.get("/api/sku-work/:sku", requireUser, async (req, res) => {
   try {
@@ -1349,19 +1357,28 @@ async function buildWebSkuReferencePayload(item = {}) {
         });
         const resolutionItem = resolution.items?.[0] || {};
         resolvedReferenceAssets = resolutionItem.selected_reference_assets || [];
-        resolvedReferenceAssets = await stageWebSkuReferenceAssetsForGeneration({
+        const stageResult = await stageCatalogDriveReferencesToSupabase({
+          sku: item.sku,
           drive,
-          item,
-          assets: resolvedReferenceAssets
+          storage: supabaseAdmin.storage,
+          files: resolvedReferenceAssets,
+          logger: logDriveReferenceStageDiagnostic
         });
+        resolvedReferenceAssets = stageResult.references;
         resolutionSummary = {
           google_drive_checked: true,
           selected_reference_count: resolvedReferenceAssets.length,
           file_count: Number(resolutionItem.file_count || 0),
           image_file_count: Number(resolutionItem.image_file_count || 0),
-          staged_reference_count: resolvedReferenceAssets.filter((asset) => asset.staged_public_url).length,
+          staged_reference_count: stageResult.summary.stage_available_count,
+          stage_available_count: stageResult.summary.stage_available_count,
+          stageable_image_count: stageResult.summary.stage_available_count,
+          blocked_file_count: stageResult.summary.blocked_file_count,
           staging_failed_count: resolvedReferenceAssets.filter((asset) => asset.staging_status === "staging_failed").length,
-          blockers: resolutionItem.blockers || []
+          blockers: [
+            ...(resolutionItem.blockers || []),
+            ...(stageResult.summary.blockers || [])
+          ]
         };
       } else {
         resolutionSummary.blockers = ["google_drive_not_configured"];
@@ -1399,6 +1416,25 @@ async function buildWebSkuReferencePayload(item = {}) {
     ...contract,
     resolution_summary: resolutionSummary
   };
+}
+
+function logDriveReferenceStageDiagnostic(event = {}) {
+  console.info("[drive_reference_stage]", {
+    sku: cleanOptionalString(event.sku),
+    drive_file_id: cleanOptionalString(event.drive_file_id),
+    drive_file_name: cleanOptionalString(event.drive_file_name),
+    drive_mime_type: cleanOptionalString(event.drive_mime_type),
+    bucket: cleanOptionalString(event.bucket),
+    storage_path: cleanOptionalString(event.storage_path),
+    upload_reused: event.upload_reused === true,
+    stage_available: event.stage_available === true,
+    blocker_code: cleanOptionalString(event.blocker_code),
+    error: event.error ? {
+      status: cleanOptionalString(event.error.status),
+      code: cleanOptionalString(event.error.code),
+      message: cleanOptionalString(event.error.message).slice(0, 240)
+    } : undefined
+  });
 }
 
 async function resolveCatalogReferencesForGenerateRequest(req) {
@@ -6050,168 +6086,6 @@ async function listGoogleDriveReferenceFilesCached(drive, folderId) {
     expiresAt: now + googleDriveReferenceFilesCacheTtlMs
   });
   return files;
-}
-
-async function stageWebSkuReferenceAssetsForGeneration({ drive, item = {}, assets = [] } = {}) {
-  const stagedAssets = [];
-  for (const asset of (assets || []).slice(0, 8)) {
-    const driveFileId = cleanOptionalString(asset.drive_file_id || asset.id);
-    if (!drive || !driveFileId || !isValidDriveFileId(driveFileId)) {
-      stagedAssets.push({
-        ...asset,
-        staging_status: "staging_failed",
-        staging_error_code: "invalid_drive_file_id",
-        staging_error_message_th: "Drive file id ของ reference ไม่ถูกต้อง"
-      });
-      continue;
-    }
-
-    try {
-      const staged = await uploadGoogleDriveReferenceFileToSupabaseStorage({
-        drive,
-        driveFileId,
-        sku: item.sku || asset.sku || "",
-        fileName: asset.name || asset.file_name || driveFileId,
-        mimeType: asset.mimeType || asset.mime_type || ""
-      });
-      stagedAssets.push({
-        ...asset,
-        staged_public_url: staged.publicUrl,
-        generation_url: staged.publicUrl,
-        storage_bucket: staged.bucket,
-        storage_key: staged.storageKey,
-        staging_status: "staged_to_supabase",
-        staged_file_size: staged.fileSize,
-        staged_mime_type: staged.contentType
-      });
-    } catch (error) {
-      stagedAssets.push({
-        ...asset,
-        staging_status: "staging_failed",
-        staging_error_code: error.code || classifyStorageError(error) || "reference_staging_failed",
-        staging_error_message_th: error.publicMessage || "stage รูปจาก Drive เข้า Supabase Storage ไม่สำเร็จ"
-      });
-    }
-  }
-  return stagedAssets;
-}
-
-async function uploadGoogleDriveReferenceFileToSupabaseStorage({
-  drive,
-  driveFileId,
-  sku = "",
-  fileName = "",
-  mimeType = ""
-} = {}) {
-  const metadataResult = await drive.files.get({
-    fileId: driveFileId,
-    fields: "id,name,mimeType,size",
-    supportsAllDrives: true
-  }, { timeout: googleDriveReferenceStageTimeoutMs });
-  const metadata = metadataResult.data || {};
-  const resolvedFileName = cleanOptionalString(metadata.name || fileName || driveFileId) || driveFileId;
-  const resolvedMimeType = cleanOptionalString(metadata.mimeType || mimeType || mimeTypeFromFileName(resolvedFileName)) || "image/jpeg";
-  if (!isSupportedReferenceImageMimeType(resolvedMimeType)) {
-    throw publicError(415, "unsupported_reference_image_type", "ชนิดไฟล์ reference ยังไม่รองรับสำหรับ Generate Hero");
-  }
-  const fileSize = Number(metadata.size || 0);
-  if (Number.isFinite(fileSize) && fileSize > googleDriveReferenceStageMaxBytes) {
-    throw publicError(413, "reference_image_too_large", "ไฟล์ reference จาก Google Drive ใหญ่เกินกว่าที่ระบบกำหนด");
-  }
-
-  const storageKey = buildGoogleDriveReferenceStorageKey({
-    sku,
-    driveFileId,
-    fileName: resolvedFileName,
-    mimeType: resolvedMimeType
-  });
-  const cacheKey = `${driveFileId}:${storageKey}`;
-  const now = Date.now();
-  const cached = googleDriveReferenceStagingCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return cached.payload;
-  }
-
-  const mediaResult = await drive.files.get(
-    { fileId: driveFileId, alt: "media", supportsAllDrives: true },
-    { responseType: "stream", timeout: googleDriveReferenceStageTimeoutMs }
-  );
-  const meter = createByteLimitTransform(googleDriveReferenceStageMaxBytes);
-  const uploadStream = mediaResult.data.pipe(meter.stream);
-  const bucket = "product-references";
-  const { error } = await supabaseAdmin.storage
-    .from(bucket)
-    .upload(storageKey, uploadStream, {
-      contentType: resolvedMimeType,
-      cacheControl: "3600",
-      upsert: true,
-      metadata: {
-        source: "google_drive",
-        drive_file_id: driveFileId,
-        sku: sanitizeSku(sku || ""),
-        original_name: resolvedFileName
-      }
-    });
-  if (error) throw error;
-  const publicUrl = await getSignedUrlOrPublicUrl({ bucket, storageKey });
-  if (!publicUrl) {
-    throw publicError(500, "reference_storage_url_unavailable", "อัปโหลด reference สำเร็จแต่ยังสร้าง URL สำหรับ Generate Hero ไม่ได้");
-  }
-  const payload = {
-    bucket,
-    storageKey,
-    publicUrl,
-    contentType: resolvedMimeType,
-    fileSize: fileSize || meter.bytes || null
-  };
-  googleDriveReferenceStagingCache.set(cacheKey, {
-    payload,
-    expiresAt: now + googleDriveReferenceStagingCacheTtlMs
-  });
-  return payload;
-}
-
-function buildGoogleDriveReferenceStorageKey({ sku = "", driveFileId = "", fileName = "", mimeType = "" } = {}) {
-  const safeSku = sanitizeSku(sku || "unknown-sku") || "unknown-sku";
-  const extension = safeFileExtension(path.extname(fileName)) || extensionFromMimeType(mimeType) || "jpg";
-  const baseName = sanitizeFileName(path.basename(fileName || "reference", path.extname(fileName || "")) || "reference");
-  const digest = createHash("sha256")
-    .update(`${driveFileId}:${fileName}:${mimeType}`)
-    .digest("hex")
-    .slice(0, 12);
-  return `catalog/${safeSku}/${driveFileId}-${digest}-${baseName}.${extension}`;
-}
-
-function isSupportedReferenceImageMimeType(mimeType = "") {
-  return /^image\/(jpeg|jpg|png|webp)$/i.test(String(mimeType || ""));
-}
-
-function mimeTypeFromFileName(name = "") {
-  const normalized = String(name || "").toLowerCase();
-  if (/\.(jpe?g)$/.test(normalized)) return "image/jpeg";
-  if (/\.png$/.test(normalized)) return "image/png";
-  if (/\.webp$/.test(normalized)) return "image/webp";
-  return "";
-}
-
-function createByteLimitTransform(maxBytes) {
-  let bytes = 0;
-  const stream = new Transform({
-    transform(chunk, _encoding, callback) {
-      bytes += chunk.length || 0;
-      if (bytes > maxBytes) {
-        callback(publicError(413, "reference_image_too_large", "ไฟล์ reference จาก Google Drive ใหญ่เกินกว่าที่ระบบกำหนด"));
-        return;
-      }
-      callback(null, chunk);
-    }
-  });
-  return {
-    stream,
-    get bytes() {
-      return bytes;
-    }
-  };
 }
 
 async function stageGoogleDriveReferenceResolutionForLiveGeneration(referenceResolution) {

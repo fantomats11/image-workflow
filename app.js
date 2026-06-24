@@ -1214,7 +1214,7 @@ function hasSelectedCatalogReferenceSource() {
 }
 
 function hasSelectedCatalogStageableReferences() {
-  return selectedCatalogReferences.some((reference) => reference.stage_available && reference.reference_key);
+  return selectedCatalogReferences.some((reference) => reference.stage_available && (reference.generation_url || reference.staged_url) && reference.reference_key);
 }
 
 function canAutoUseCatalogReferencesForHero() {
@@ -1277,8 +1277,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "loading",
       className: "reference-state-loading",
-      title: "กำลังโหลด reference จาก Drive",
-      description: message || "summary สินค้าพร้อมแล้ว ระบบกำลังโหลด Drive reference แยก async",
+      title: "กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero",
+      description: message || "summary สินค้าพร้อมแล้ว ระบบกำลัง stage รูปจาก Drive เข้า Supabase แยก async",
       counts,
       driveUrl,
       blockers,
@@ -1411,7 +1411,7 @@ function renderSkuPickerStatus(message = "") {
   els.skuPickerStatus.textContent = [
     `เลือกแล้ว: ${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
     productSummary.length ? `ข้อมูลสินค้า: ${productSummary.join(" · ")}` : "",
-    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU..." : "",
+    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero" : "",
     `สถานะ reference: ${readiness?.label_th || status}`,
     blockers.length ? `Blocker: ${blockers.join(" · ")}` : "",
     warnings.length ? `ต้องตรวจเอง: ${warnings.join(" · ")}` : ""
@@ -1699,7 +1699,7 @@ function renderCatalogReferencePanel(message = "") {
     resolutionSummary.google_drive_checked ? `ตรวจแล้ว: ${Number(resolutionSummary.file_count || 0)} ไฟล์ / ${Number(resolutionSummary.image_file_count || 0)} รูป` : ""
   ].filter(Boolean).join(" · ");
   els.catalogReferenceStatus.textContent = message || [
-    catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive..." : "",
+    catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero..." : "",
     `พร้อมใช้กับ Hero: ${stageable.length} รูป`,
     stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
     sourceTextParts,
@@ -1725,6 +1725,7 @@ function renderCatalogReferencePanel(message = "") {
     const isStaged = stagedCatalogReferenceKeys.includes(reference.reference_key);
     const warnings = (reference.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
     const blockers = (reference.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
+    const blockerDetail = reference.blocker_message || reference.blocker_code || "";
     return `
       <article class="catalog-reference-card ${isStaged ? "is-staged" : ""}">
         <div class="catalog-reference-preview">
@@ -1735,7 +1736,7 @@ function renderCatalogReferencePanel(message = "") {
           <span>${escapeHtml(reference.source || "-")} · ${reference.stage_available ? "ใช้กับ Hero ได้" : "ต้องอัปโหลดเอง"}</span>
           ${isStaged ? `<small class="success-text">แนบแล้ว</small>` : ""}
           ${warnings.length ? `<small>${escapeHtml(warnings.slice(0, 2).join(" · "))}</small>` : ""}
-          ${blockers.length ? `<small class="danger-text">${escapeHtml(blockers.join(" · "))}</small>` : ""}
+          ${blockers.length || blockerDetail ? `<small class="danger-text">${escapeHtml([blockerDetail, ...blockers].filter(Boolean).join(" · "))}</small>` : ""}
         </div>
       </article>
     `;
@@ -1764,7 +1765,9 @@ async function loadCatalogReferencesForSelectedSku() {
   renderReferenceReadinessCard();
   updateActionAvailability();
   try {
-    const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
+    const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references/stage`, {
+      method: "POST"
+    });
     const data = await readJsonResponse(response, "โหลด reference ของ SKU ไม่สำเร็จ");
     if (!response.ok || data.ok === false) throw new Error(data.error || "โหลด reference ของ SKU ไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return;
@@ -1776,6 +1779,9 @@ async function loadCatalogReferencesForSelectedSku() {
       resolution_summary: data.resolution_summary || selectedCatalogSku.resolution_summary || {}
     };
     autoStageCatalogReferencesForHero();
+    if (hasSelectedCatalogStageableReferences()) {
+      finalMessage = `stage สำเร็จ ${selectedCatalogReferences.filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url)).length} รูป พร้อมสร้าง Hero`;
+    }
   } catch (error) {
     selectedCatalogReferences = [];
     stagedCatalogReferenceKeys = [];
@@ -1794,7 +1800,7 @@ async function loadCatalogReferencesForSelectedSku() {
 
 function useCatalogReferencesForHero() {
   const stageable = selectedCatalogReferences
-    .filter((reference) => reference.stage_available && reference.reference_key)
+    .filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url) && reference.reference_key)
     .map((reference) => reference.reference_key);
   stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
   renderCatalogReferencePanel(stagedCatalogReferenceKeys.length
@@ -1807,7 +1813,7 @@ function useCatalogReferencesForHero() {
 function autoStageCatalogReferencesForHero() {
   if (hasManualProductReferenceUpload() || hasStagedCatalogReferences()) return;
   const stageable = selectedCatalogReferences
-    .filter((reference) => reference.stage_available && reference.reference_key)
+    .filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url) && reference.reference_key)
     .map((reference) => reference.reference_key);
   stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
 }
