@@ -126,6 +126,7 @@ const liveGeneratedDir = process.env.AI_GENERATION_GENERATED_DIR?.trim() ||
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Bangkok";
 const driveOutputDir = process.env.DRIVE_OUTPUT_DIR?.trim();
 const googleDriveRootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID?.trim();
+const googleDriveCredentialsJson = process.env.GOOGLE_DRIVE_CREDENTIALS_JSON?.trim();
 const googleDriveAuthMode = (process.env.GOOGLE_DRIVE_AUTH_MODE || "").trim().toLowerCase();
 const googleOAuthClientId = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
 const googleOAuthClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
@@ -160,6 +161,7 @@ const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
 let googleDriveStatusCache = null;
+let googleDriveSettingsCache = null;
 const googleDriveReferenceFilesCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
   30_000,
@@ -516,8 +518,8 @@ function validateStartupConfig() {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) missingCritical.push("SUPABASE_SERVICE_ROLE_KEY");
   if (!process.env.FAL_KEY?.trim()) warnings.push("FAL_KEY is missing; generation requests will return a safe configuration error.");
 
-  if (getGoogleDriveAuthMode() === "oauth" || googleDriveRootFolderId) {
-    if (!googleDriveRootFolderId) warnings.push("GOOGLE_DRIVE_ROOT_FOLDER_ID is missing; Google Drive export will be disabled.");
+  if (googleDriveAuthMode === "oauth") {
+    if (!googleDriveRootFolderId) warnings.push("GOOGLE_DRIVE_ROOT_FOLDER_ID is missing from env; Google Drive can still use Supabase global_settings if configured.");
     if (!googleOAuthClientId || !googleOAuthClientSecret) warnings.push("Google OAuth client config is incomplete; admin Google Drive connection will be unavailable.");
   }
 
@@ -640,7 +642,7 @@ app.use("/approved", express.static(approvedDir));
 app.get("/api/health", async (_req, res) => {
   const googleDriveStatus = await getSafeGoogleDriveStatus();
   const workerRuntime = resolveWorkerRuntimeConfig(process.env);
-  const googleDriveConfigured = isGoogleDriveApiConfigured() || isGoogleOAuthConfigured();
+  const googleDriveConfigured = googleDriveStatus.configured === true;
   const storageConfigured = isSupabaseStorageConfigured();
   const lineConfigured = isLineWebhookConfigured();
   const status = workerRuntime.wordpress_live_writes_enabled ? "blocked" : "ok";
@@ -675,8 +677,8 @@ app.get("/api/health", async (_req, res) => {
     falConfigured: Boolean(process.env.FAL_KEY),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
     driveOutputConfigured: Boolean(driveOutputDir),
-    googleDriveApiConfigured: isGoogleDriveApiConfigured(),
-    googleDriveAuthMode: getGoogleDriveAuthMode(),
+    googleDriveApiConfigured: googleDriveConfigured,
+    googleDriveAuthMode: googleDriveStatus.mode,
     queue: {
       active: activeGenerations,
       pending: pendingGenerations
@@ -3308,6 +3310,25 @@ app.get("/api/kpi/summary", requireUser, async (req, res) => {
 
 app.get("/api/google/oauth/status", requireUser, requireAdminUser, async (_req, res) => {
   try {
+    const settings = await getGoogleDriveSettings();
+    const mode = resolveGoogleDriveAuthMode(settings);
+    if (mode === "service-account") {
+      const validation = validateGoogleDriveServiceAccountSettings(settings);
+      return res.json({
+        ok: true,
+        mode,
+        configured: Boolean(settings.rootFolderId && settings.serviceAccountJson),
+        tokenExists: false,
+        tokenValid: false,
+        tokenErrorCode: validation.valid ? "" : validation.code,
+        tokenError: validation.valid ? "" : validation.message,
+        connected: validation.valid && Boolean(settings.rootFolderId),
+        provider: "service_account",
+        service_account_email: validation.clientEmail || null,
+        updatedAt: settings.updatedAt || null
+      });
+    }
+
     const integrationToken = await readIntegrationToken("google_drive");
     const fileTokenExists = await fileExists(googleDriveTokenPath);
     const fileToken = integrationToken?.token_json ? null : await readGoogleOAuthFileTokenSafe();
@@ -3325,7 +3346,7 @@ app.get("/api/google/oauth/status", requireUser, requireAdminUser, async (_req, 
       tokenValid: tokenValidation.valid,
       tokenErrorCode: tokenValidation.valid ? "" : tokenValidation.code,
       tokenError: tokenValidation.valid ? "" : tokenValidation.message,
-      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
+      connected: mode === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
       provider: integrationToken?.provider || (fileTokenExists ? "google" : null),
       updatedAt: integrationToken?.updated_at || null
     });
@@ -3429,7 +3450,8 @@ app.post("/api/approve", requireUser, async (req, res) => {
       drivePath = path.join(skuFolder || driveOutputDir, fileName);
       await fs.copyFile(approvedPath, drivePath);
     }
-    if (googleDriveRootFolderId) {
+    const googleDriveExportRootFolderId = await getGoogleDriveRootFolderId();
+    if (googleDriveExportRootFolderId) {
       googleDriveFile = await uploadApprovedFileToGoogleDrive({
         localPath: approvedPath,
         fileName,
@@ -3478,7 +3500,7 @@ app.post("/api/approve", requireUser, async (req, res) => {
     });
   } catch (error) {
     console.error("Approve/export failed:", readableError(error));
-    if (googleDriveRootFolderId) {
+    if (await getGoogleDriveRootFolderId().catch(() => "")) {
       await recordAuditEvent({
         actorId: req.user?.id || null,
         eventType: "google_drive_export_failed",
@@ -4352,7 +4374,7 @@ async function retryJobExport({ jobId, adminUserId }) {
     await downloadFile(source.imageUrl, approvedPath);
     const approvedFileStat = await fs.stat(approvedPath);
     let googleDriveFile = null;
-    if (googleDriveRootFolderId) {
+    if (await getGoogleDriveRootFolderId()) {
       googleDriveFile = await uploadApprovedFileToGoogleDrive({
         localPath: approvedPath,
         fileName,
@@ -7576,9 +7598,10 @@ async function getGoogleDriveClient() {
 }
 
 async function createGoogleDriveClient() {
-  if (!googleDriveRootFolderId) return null;
+  const settings = await getGoogleDriveSettings();
+  if (!settings.rootFolderId) return null;
 
-  if (getGoogleDriveAuthMode() === "oauth") {
+  if (resolveGoogleDriveAuthMode(settings) === "oauth") {
     const oauth2Client = createGoogleOAuthClient();
     let tokens = await readGoogleOAuthToken();
     if (!tokens?.refresh_token && !tokens?.access_token) {
@@ -7604,9 +7627,8 @@ async function createGoogleDriveClient() {
   }
 
   let auth;
-  const credentialsJson = process.env.GOOGLE_DRIVE_CREDENTIALS_JSON?.trim();
-  if (credentialsJson) {
-    const credentials = JSON.parse(credentialsJson);
+  if (settings.serviceAccountJson) {
+    const credentials = parseGoogleDriveServiceAccountJson(settings.serviceAccountJson);
     auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/drive"]
@@ -7624,10 +7646,12 @@ async function createGoogleDriveClient() {
 async function uploadApprovedFileToGoogleDrive({ localPath, fileName, extension, sku }) {
   const drive = await getGoogleDriveClient();
   if (!drive) return null;
+  const rootFolderId = await getGoogleDriveRootFolderId();
+  if (!rootFolderId) return null;
 
   const targetFolderId = sku
-    ? await findGoogleDriveSkuFolder(drive, googleDriveRootFolderId, sku)
-    : googleDriveRootFolderId;
+    ? await findGoogleDriveSkuFolder(drive, rootFolderId, sku)
+    : rootFolderId;
 
   if (!targetFolderId) {
     throw new Error(`Google Drive SKU folder not found for "${sku}".`);
@@ -7651,7 +7675,7 @@ async function uploadApprovedFileToGoogleDrive({ localPath, fileName, extension,
     name: createdFile.data.name,
     webViewLink: createdFile.data.webViewLink || null,
     parentFolderId: targetFolderId,
-    skuMatched: Boolean(sku && targetFolderId !== googleDriveRootFolderId)
+    skuMatched: Boolean(sku && targetFolderId !== rootFolderId)
   };
 }
 
@@ -7661,8 +7685,73 @@ function resolveProjectPath(value) {
   return path.isAbsolute(resolved) ? resolved : path.join(__dirname, resolved);
 }
 
+async function getGoogleDriveSettings({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && googleDriveSettingsCache?.expiresAt > now) return googleDriveSettingsCache.settings;
+  const [serviceAccountSetting, rootFolderSetting] = await Promise.all([
+    readGlobalSetting("gdriveServiceAccount"),
+    readGlobalSetting("gdriveRootFolderId")
+  ]);
+  const settings = {
+    rootFolderId: cleanOptionalString(googleDriveRootFolderId || rootFolderSetting?.value),
+    serviceAccountJson: cleanOptionalString(googleDriveCredentialsJson || serviceAccountSetting?.value),
+    serviceAccountUpdatedAt: serviceAccountSetting?.updated_at || null,
+    rootFolderUpdatedAt: rootFolderSetting?.updated_at || null,
+    updatedAt: serviceAccountSetting?.updated_at || rootFolderSetting?.updated_at || null
+  };
+  googleDriveSettingsCache = { settings, expiresAt: now + 60_000 };
+  return settings;
+}
+
+async function getGoogleDriveRootFolderId() {
+  const settings = await getGoogleDriveSettings();
+  return settings.rootFolderId;
+}
+
+function parseGoogleDriveServiceAccountJson(value) {
+  const credentials = JSON.parse(String(value || ""));
+  if (!credentials.client_email || !credentials.private_key) {
+    throw new Error("Google Drive service account JSON ต้องมี client_email และ private_key");
+  }
+  return credentials;
+}
+
+function validateGoogleDriveServiceAccountSettings(settings = {}) {
+  if (!settings.serviceAccountJson) {
+    return {
+      valid: false,
+      code: "google_drive_service_account_missing",
+      message: "ยังไม่มี Google Drive service account สำหรับอ่านรูปจาก Drive"
+    };
+  }
+  try {
+    const credentials = parseGoogleDriveServiceAccountJson(settings.serviceAccountJson);
+    return {
+      valid: true,
+      code: "",
+      message: "",
+      clientEmail: credentials.client_email || ""
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      code: "google_drive_service_account_invalid",
+      message: readableError(error) || "Google Drive service account JSON ใช้งานไม่ได้"
+    };
+  }
+}
+
 function getGoogleDriveAuthMode() {
   if (googleDriveAuthMode) return googleDriveAuthMode;
+  if (googleDriveCredentialsJson || process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()) return "service-account";
+  return isGoogleOAuthConfigured() ? "oauth" : "service-account";
+}
+
+function resolveGoogleDriveAuthMode(settings = {}) {
+  if (googleDriveAuthMode) return googleDriveAuthMode;
+  if (settings.serviceAccountJson || googleDriveCredentialsJson || process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()) {
+    return "service-account";
+  }
   return isGoogleOAuthConfigured() ? "oauth" : "service-account";
 }
 
@@ -7673,7 +7762,7 @@ function isGoogleOAuthConfigured() {
 function isGoogleDriveApiConfigured() {
   if (!googleDriveRootFolderId) return false;
   if (getGoogleDriveAuthMode() === "oauth") return isGoogleOAuthConfigured();
-  return Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_DRIVE_CREDENTIALS_JSON);
+  return Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || googleDriveCredentialsJson);
 }
 
 function createGoogleOAuthClient() {
@@ -7829,6 +7918,21 @@ async function readIntegrationToken(id) {
     .maybeSingle();
 
   if (error) throw error;
+  return data || null;
+}
+
+async function readGlobalSetting(key) {
+  const { data, error } = await supabaseAdmin
+    .from("global_settings")
+    .select("key, value, updated_at")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) {
+    const code = String(error.code || "").trim();
+    const message = String(error.message || "").toLowerCase();
+    if (code === "42P01" || message.includes("global_settings") || message.includes("does not exist")) return null;
+    throw error;
+  }
   return data || null;
 }
 
@@ -10200,6 +10304,26 @@ async function getSafeGoogleDriveStatus() {
   try {
     const now = Date.now();
     if (googleDriveStatusCache?.expiresAt > now) return googleDriveStatusCache.status;
+    const settings = await getGoogleDriveSettings();
+    const mode = resolveGoogleDriveAuthMode(settings);
+    if (mode === "service-account") {
+      const validation = validateGoogleDriveServiceAccountSettings(settings);
+      const status = {
+        mode,
+        configured: Boolean(settings.rootFolderId && settings.serviceAccountJson),
+        connected: validation.valid && Boolean(settings.rootFolderId),
+        tokenExists: false,
+        tokenValid: false,
+        tokenErrorCode: validation.valid ? "" : validation.code,
+        tokenError: validation.valid ? "" : validation.message,
+        provider: "service_account",
+        service_account_email: validation.clientEmail || null,
+        updatedAt: settings.updatedAt || null
+      };
+      googleDriveStatusCache = { status, expiresAt: now + 60_000 };
+      return status;
+    }
+
     const integrationToken = await readIntegrationToken("google_drive");
     const fileTokenExists = await fileExists(googleDriveTokenPath);
     const fileToken = integrationToken?.token_json ? null : await readGoogleOAuthFileTokenSafe();
@@ -10207,13 +10331,14 @@ async function getSafeGoogleDriveStatus() {
     const tokenValidation = await validateGoogleOAuthToken(tokenJson, { persist: false });
     const tokenExists = hasUsableGoogleOAuthToken(tokenJson) || fileTokenExists;
     const status = {
-      mode: getGoogleDriveAuthMode(),
+      mode,
       configured: isGoogleOAuthConfigured(),
-      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
+      connected: mode === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
       tokenExists,
       tokenValid: tokenValidation.valid,
       tokenErrorCode: tokenValidation.valid ? "" : tokenValidation.code,
       tokenError: tokenValidation.valid ? "" : tokenValidation.message,
+      provider: integrationToken?.provider || (fileTokenExists ? "google" : null),
       updatedAt: integrationToken?.updated_at || null
     };
     googleDriveStatusCache = { status, expiresAt: now + 60_000 };

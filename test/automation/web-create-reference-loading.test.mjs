@@ -104,9 +104,18 @@ test("server validates Google OAuth token instead of treating stale tokens as Dr
   assert.match(serverJs, /async function validateGoogleOAuthToken/);
   assert.match(serverJs, /google_drive_oauth_token_invalid/);
   assert.match(serverJs, /tokenErrorCode/);
-  assert.match(serverJs, /connected: getGoogleDriveAuthMode\(\) === "oauth" && isGoogleOAuthConfigured\(\) && tokenValidation\.valid/);
+  assert.match(serverJs, /connected: mode === "oauth" && isGoogleOAuthConfigured\(\) && tokenValidation\.valid/);
   assert.match(appJs, /Google Drive ต้อง reconnect/);
   assert.match(appJs, /data\.tokenError \|\| "Google Drive ยังไม่ได้เชื่อมต่อ/);
+});
+
+test("server can use demo-style service account settings from Supabase", () => {
+  assert.match(serverJs, /readGlobalSetting\("gdriveServiceAccount"\)/);
+  assert.match(serverJs, /readGlobalSetting\("gdriveRootFolderId"\)/);
+  assert.match(serverJs, /resolveGoogleDriveAuthMode\(settings\)/);
+  assert.match(serverJs, /parseGoogleDriveServiceAccountJson/);
+  assert.match(serverJs, /service_account_email/);
+  assert.match(serverJs, /provider: "service_account"/);
 });
 
 test("Web-first create page is the default and visible navigation path", () => {
