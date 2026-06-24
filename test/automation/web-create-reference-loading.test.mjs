@@ -64,6 +64,24 @@ test("server exposes a SKU reference staging endpoint with canonical catalog cac
   assert.match(serverJs, /drive_reference_stage/);
 });
 
+test("create flow lists Drive reference cards before Supabase staging", () => {
+  assert.match(serverJs, /app\.get\("\/api\/catalog\/sku\/:sku\/references", requireUser, async \(req, res\) => \{\s*return handleCatalogSkuReferenceStageRequest\(req, res, \{ stageReferences: false \}\);/);
+  assert.match(serverJs, /app\.post\("\/api\/catalog\/sku\/:sku\/references\/stage", requireUser, async \(req, res\) => \{\s*return handleCatalogSkuReferenceStageRequest\(req, res, \{ stageReferences: true \}\);/);
+  assert.match(serverJs, /reference_load_mode: stageReferences \? "staged" : "listed"/);
+  assert.match(serverJs, /if \(stageReferences\) \{[\s\S]*stageCatalogDriveReferencesToSupabase/);
+  assert.match(serverJs, /staging_status: stageReferences \? "staged" : "not_requested"/);
+  assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references`\)/);
+  assert.match(appJs, /พบรายการ reference จาก Drive แล้ว กำลัง stage เข้า Supabase สำหรับสร้าง Hero/);
+  assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references\/stage`, \{\s*method: "POST"/);
+});
+
+test("create flow uses same-origin Drive image proxy for instant reference previews", () => {
+  assert.match(serverJs, /function buildSignedDriveReferencePreviewUrl/);
+  assert.match(serverJs, /return `\/api\/public\/line-image\/\$\{encodeURIComponent\(fileId\)\}\?\$\{params\.toString\(\)\}`;/);
+  assert.match(serverJs, /buildSignedDriveReferencePreviewUrl\(\{ driveFileId, fileName \}\)\s*\|\|\s*buildSignedLineImageProxyUrl/);
+  assert.match(serverJs, /verifyLineImageProxySignature/);
+});
+
 test("server resolves runtime exact SKU folder before staging Drive references", () => {
   assert.match(serverJs, /findGoogleDriveChildFolderByExactName/);
   assert.match(serverJs, /reference_parent_folder_id/);

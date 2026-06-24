@@ -1830,11 +1830,37 @@ async function loadCatalogReferencesForSelectedSku() {
   renderReferenceReadinessCard();
   updateActionAvailability();
   try {
-    const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references/stage`, {
+    const listResponse = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
+    const listData = await readJsonResponse(listResponse, "โหลดรายการ reference ของ SKU ไม่สำเร็จ");
+    if (!listResponse.ok || listData.ok === false) throw new Error(listData.error || "โหลดรายการ reference ของ SKU ไม่สำเร็จ");
+    if (selectedCatalogSku?.sku !== requestedSku) return;
+    selectedCatalogReferences = listData.references || [];
+    selectedCatalogSku = {
+      ...selectedCatalogSku,
+      reference_readiness: listData.reference_readiness || selectedCatalogSku.reference_readiness,
+      reference_source_fields: listData.reference_source_fields || selectedCatalogSku.reference_source_fields || {},
+      resolution_summary: listData.resolution_summary || selectedCatalogSku.resolution_summary || {}
+    };
+    if (selectedCatalogSku.reference_source_fields.resolved_reference_drive_id) {
+      selectedCatalogSku.reference_drive_id = selectedCatalogSku.reference_source_fields.resolved_reference_drive_id;
+      selectedCatalogSku.reference_url = selectedCatalogSku.reference_source_fields.resolved_reference_url || selectedCatalogSku.reference_url;
+      if (els.imageReference) els.imageReference.value = selectedCatalogSku.reference_url;
+    }
+    finalMessage = selectedCatalogReferences.length
+      ? "พบรายการ reference จาก Drive แล้ว กำลัง stage เข้า Supabase สำหรับสร้าง Hero..."
+      : "";
+    renderSkuPickerStatus();
+    renderCatalogReferencePanel(finalMessage);
+    renderSelectedProductSummary();
+    renderReferenceReadinessCard(finalMessage);
+    updateCatalogDrivenFieldHierarchy();
+    updateActionAvailability();
+
+    const stageResponse = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references/stage`, {
       method: "POST"
     });
-    const data = await readJsonResponse(response, "โหลด reference ของ SKU ไม่สำเร็จ");
-    if (!response.ok || data.ok === false) throw new Error(data.error || "โหลด reference ของ SKU ไม่สำเร็จ");
+    const data = await readJsonResponse(stageResponse, "stage reference ของ SKU ไม่สำเร็จ");
+    if (!stageResponse.ok || data.ok === false) throw new Error(data.error || "stage reference ของ SKU ไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return;
     selectedCatalogReferences = data.references || [];
     selectedCatalogSku = {
@@ -1853,9 +1879,13 @@ async function loadCatalogReferencesForSelectedSku() {
       finalMessage = `stage สำเร็จ ${selectedCatalogReferences.filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url)).length} รูป พร้อมสร้าง Hero`;
     }
   } catch (error) {
-    selectedCatalogReferences = [];
-    stagedCatalogReferenceKeys = [];
-    finalMessage = getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง";
+    if (!selectedCatalogReferences.length) {
+      selectedCatalogReferences = [];
+      stagedCatalogReferenceKeys = [];
+    }
+    finalMessage = selectedCatalogReferences.length
+      ? (getSafeAuthErrorMessage(error) || "stage reference ไม่สำเร็จ แต่ยังเปิดดูรายการไฟล์จาก Drive ได้ กรุณาอัปโหลดภาพสินค้าเอง")
+      : (getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง");
   } finally {
     if (selectedCatalogSku?.sku !== requestedSku) return;
     catalogReferenceLoading = false;

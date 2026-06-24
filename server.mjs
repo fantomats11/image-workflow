@@ -954,16 +954,16 @@ app.get("/api/catalog/sku/:sku", requireUser, async (req, res) => {
 });
 
 app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
-  return handleCatalogSkuReferenceStageRequest(req, res);
+  return handleCatalogSkuReferenceStageRequest(req, res, { stageReferences: false });
 });
 
 // Drive-to-Supabase staging bridge:
 // canonical cache path shape is product-references/catalog/<sku>/<drive_file_id>-<safe_filename>
 app.post("/api/catalog/sku/:sku/references/stage", requireUser, async (req, res) => {
-  return handleCatalogSkuReferenceStageRequest(req, res);
+  return handleCatalogSkuReferenceStageRequest(req, res, { stageReferences: true });
 });
 
-async function handleCatalogSkuReferenceStageRequest(req, res) {
+async function handleCatalogSkuReferenceStageRequest(req, res, { stageReferences = true } = {}) {
   try {
     const lookup = await readWebSkuPickerItemFast(req.params.sku);
     if (lookup.warming) {
@@ -984,9 +984,10 @@ async function handleCatalogSkuReferenceStageRequest(req, res) {
         error: "ไม่พบ SKU นี้ใน catalog"
       });
     }
-    const referencePayload = await buildWebSkuReferencePayload(item);
+    const referencePayload = await buildWebSkuReferencePayload(item, { stageReferences });
     res.json({
       ok: true,
+      reference_load_mode: stageReferences ? "staged" : "listed",
       ...referencePayload
     });
   } catch (error) {
@@ -1439,7 +1440,7 @@ async function ensureSkuWorkClaimAllowsGeneration({ sku = "", userId = "", actor
   return serializeSkuWorkClaimForUser(persisted, { viewerId: userId });
 }
 
-async function buildWebSkuReferencePayload(item = {}) {
+async function buildWebSkuReferencePayload(item = {}, { stageReferences = true } = {}) {
   let folderId = cleanOptionalString(
     extractDriveIdFromUrl(item.reference_drive_id || "")
     || item.reference_drive_id
@@ -1491,25 +1492,31 @@ async function buildWebSkuReferencePayload(item = {}) {
           });
           const resolutionItem = resolution.items?.[0] || {};
           resolvedReferenceAssets = resolutionItem.selected_reference_assets || [];
-          const stageResult = await stageCatalogDriveReferencesToSupabase({
-            sku: item.sku,
-            drive,
-            storage: supabaseAdmin.storage,
-            files: resolvedReferenceAssets,
-            fetchImpl: fetch,
-            logger: logDriveReferenceStageDiagnostic
-          });
-          resolvedReferenceAssets = stageResult.references;
+          let stageResult = null;
+          if (stageReferences) {
+            stageResult = await stageCatalogDriveReferencesToSupabase({
+              sku: item.sku,
+              drive,
+              storage: supabaseAdmin.storage,
+              files: resolvedReferenceAssets,
+              fetchImpl: fetch,
+              logger: logDriveReferenceStageDiagnostic
+            });
+            resolvedReferenceAssets = stageResult.references;
+          }
           resolutionSummary = {
             google_drive_checked: true,
             selected_reference_count: resolvedReferenceAssets.length,
             file_count: Number(resolutionItem.file_count || 0),
             image_file_count: Number(resolutionItem.image_file_count || 0),
-            staged_reference_count: stageResult.summary.stage_available_count,
-            stage_available_count: stageResult.summary.stage_available_count,
-            stageable_image_count: stageResult.summary.stage_available_count,
-            blocked_file_count: stageResult.summary.blocked_file_count,
-            staging_failed_count: resolvedReferenceAssets.filter((asset) => asset.staging_status === "staging_failed").length,
+            staged_reference_count: Number(stageResult?.summary?.stage_available_count || 0),
+            stage_available_count: Number(stageResult?.summary?.stage_available_count || 0),
+            stageable_image_count: Number(stageResult?.summary?.stage_available_count || 0),
+            blocked_file_count: Number(stageResult?.summary?.blocked_file_count || 0),
+            staging_failed_count: stageReferences
+              ? resolvedReferenceAssets.filter((asset) => asset.staging_status === "staging_failed").length
+              : 0,
+            staging_status: stageReferences ? "staged" : "not_requested",
             reference_folder_id: folderId,
             reference_folder_name: resolvedFolder.folderName,
             reference_folder_resolution: resolvedFolder.strategy,
@@ -1517,7 +1524,7 @@ async function buildWebSkuReferencePayload(item = {}) {
             reference_lookup_key: resolvedFolder.lookupKey,
             blockers: [
               ...(resolutionItem.blockers || []),
-              ...(stageResult.summary.blockers || [])
+              ...(stageResult?.summary?.blockers || [])
             ]
           };
         }
@@ -1535,7 +1542,8 @@ async function buildWebSkuReferencePayload(item = {}) {
     resolvedReferenceAssets,
     buildPreviewUrl: ({ driveFileId = "", fileName = "" } = {}) => {
       if (!isValidDriveFileId(driveFileId)) return "";
-      return buildSignedLineImageProxyUrl({ driveFileId, fileName });
+      return buildSignedDriveReferencePreviewUrl({ driveFileId, fileName })
+        || buildSignedLineImageProxyUrl({ driveFileId, fileName });
     }
   });
 
@@ -4605,6 +4613,23 @@ function buildSignedLineImageProxyUrl({ driveFileId = "", fileName = "" } = {}) 
     driveFileId,
     fileName
   });
+}
+
+function buildSignedDriveReferencePreviewUrl({ driveFileId = "", fileName = "" } = {}) {
+  const fileId = cleanOptionalString(driveFileId);
+  const signingSecret = cleanOptionalString(lineImageProxySecret);
+  if (!isValidDriveFileId(fileId) || !signingSecret) return "";
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expiryBucketSeconds = 60 * 60 * 24;
+  const ttlSeconds = 60 * 60 * 24 * 30;
+  const bucketStart = Math.floor(nowSeconds / expiryBucketSeconds) * expiryBucketSeconds;
+  const exp = bucketStart + ttlSeconds;
+  const sig = createHmac("sha256", signingSecret)
+    .update(`${fileId}.${exp}`)
+    .digest("hex");
+  const params = new URLSearchParams({ exp: String(exp), sig });
+  if (fileName) params.set("name", fileName);
+  return `/api/public/line-image/${encodeURIComponent(fileId)}?${params.toString()}`;
 }
 
 function firstArray(...values) {
