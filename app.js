@@ -1386,13 +1386,13 @@ function renderSkuPickerResults(items = []) {
 async function lookupExactCatalogSku(query, requestId, { retryAfterMs = 0 } = {}) {
   const sku = normalizeCatalogSkuLookup(query);
   renderSkuPickerResults([]);
-  renderSkuPickerStatus(retryAfterMs ? "กำลังเตรียมข้อมูล catalog ครั้งแรก..." : "กำลังโหลดข้อมูลสินค้า...");
+  renderSkuPickerStatus("กำลังเตรียมข้อมูล catalog ครั้งแรก...");
   try {
     const response = await authFetchWithTimeout(
       `/api/catalog/sku/${encodeURIComponent(sku)}`,
       {},
       skuPickerSearchTimeoutMs,
-      "โหลดข้อมูล SKU ใช้เวลานานผิดปกติ กรุณาลองอีกครั้ง"
+      "กำลังเตรียมข้อมูล catalog ครั้งแรก หากเป็นรอบแรกอาจใช้เวลานานกว่าปกติ"
     );
     const data = await readJsonResponse(response, "โหลดข้อมูล SKU ไม่สำเร็จ");
     if (

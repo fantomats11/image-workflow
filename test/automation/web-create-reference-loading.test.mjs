@@ -93,9 +93,10 @@ test("exact SKU lookup bypasses broad search before loading Drive references", (
 
 test("manual create shows warm catalog status separately from timeout and errors", () => {
   assert.match(appJs, /กำลังเตรียมข้อมูล catalog ครั้งแรก/);
+  assert.match(appJs, /renderSkuPickerStatus\("กำลังเตรียมข้อมูล catalog ครั้งแรก\.\.\."\);/);
   assert.match(appJs, /data\.code === "catalog_warming"/);
   assert.match(appJs, /lookupExactCatalogSku\(sku, requestId, \{ retryAfterMs/);
-  assert.match(appJs, /โหลดข้อมูล SKU ใช้เวลานานผิดปกติ/);
+  assert.match(appJs, /"กำลังเตรียมข้อมูล catalog ครั้งแรก หากเป็นรอบแรกอาจใช้เวลานานกว่าปกติ"/);
 });
 
 test("manual create shows product summary before async Drive reference load finishes", () => {
