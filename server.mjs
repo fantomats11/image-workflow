@@ -1001,19 +1001,50 @@ async function handleCatalogSkuReferenceStageRequest(req, res) {
 }
 
 app.get("/api/sku-work/:sku", requireUser, async (req, res) => {
+  const sku = sanitizeSku(req.params.sku || "").toUpperCase();
   try {
+    if (!sku) {
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "GET /api/sku-work/:sku",
+        httpStatus: 400,
+        error: { code: "sku_required", message: "กรุณาระบุ SKU" }
+      });
+      return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
+    }
     const profileCheck = await getWorkflowProfileForUser(req.user.id);
     if (!profileCheck.ok) {
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "GET /api/sku-work/:sku",
+        httpStatus: profileCheck.status,
+        error: { code: profileCheck.code, message: profileCheck.error }
+      });
       return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
     }
-    const sku = sanitizeSku(req.params.sku || "").toUpperCase();
-    if (!sku) return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
     const state = await readSkuWorkStateBySku(sku);
+    const claim = serializeSkuWorkClaimForUser(state || createEmptySkuWorkState({ sku }), { viewerId: req.user.id });
+    logSkuWorkClaimDiagnostic({
+      sku,
+      userId: req.user.id,
+      endpoint: "GET /api/sku-work/:sku",
+      httpStatus: 200,
+      claimStatus: claim.status
+    });
     res.json({
       ok: true,
-      claim: serializeSkuWorkClaimForUser(state || createEmptySkuWorkState({ sku }), { viewerId: req.user.id })
+      claim
     });
   } catch (error) {
+    logSkuWorkClaimDiagnostic({
+      sku,
+      userId: req.user?.id || "",
+      endpoint: "GET /api/sku-work/:sku",
+      httpStatus: 500,
+      error: { code: "sku_work_status_failed", message: readableError(error) }
+    });
     console.error("SKU work status failed:", readableError(error));
     res.status(500).json({
       ok: false,
@@ -1024,13 +1055,29 @@ app.get("/api/sku-work/:sku", requireUser, async (req, res) => {
 });
 
 app.post("/api/sku-work/:sku/claim", requireUser, async (req, res) => {
+  const sku = sanitizeSku(req.params.sku || "").toUpperCase();
   try {
+    if (!sku) {
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "POST /api/sku-work/:sku/claim",
+        httpStatus: 400,
+        error: { code: "sku_required", message: "กรุณาระบุ SKU" }
+      });
+      return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
+    }
     const profileCheck = await getWorkflowProfileForUser(req.user.id);
     if (!profileCheck.ok) {
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "POST /api/sku-work/:sku/claim",
+        httpStatus: profileCheck.status,
+        error: { code: profileCheck.code, message: profileCheck.error }
+      });
       return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
     }
-    const sku = sanitizeSku(req.params.sku || "").toUpperCase();
-    if (!sku) return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
     const submittedVersion = normalizeSubmittedVersion(req.body?.version ?? req.body?.submittedVersion);
     const current = await readSkuWorkStateBySku(sku);
     const result = claimSkuWorkState({
@@ -1042,13 +1089,27 @@ app.post("/api/sku-work/:sku/claim", requireUser, async (req, res) => {
     });
 
     if (!result.ok) {
+      const claim = serializeSkuWorkClaimForUser(current || createEmptySkuWorkState({ sku }), { viewerId: req.user.id });
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "POST /api/sku-work/:sku/claim",
+        httpStatus: 409,
+        claimStatus: claim.status,
+        error: {
+          code: result.code,
+          message: result.code === "sku_work_claim_conflict"
+            ? `SKU นี้ถูก claim โดย ${result.conflict.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
+            : "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่"
+        }
+      });
       return res.status(409).json({
         ok: false,
         code: result.code,
         error: result.code === "sku_work_claim_conflict"
           ? `SKU นี้ถูก claim โดย ${result.conflict.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
           : "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่",
-        claim: serializeSkuWorkClaimForUser(current || createEmptySkuWorkState({ sku }), { viewerId: req.user.id }),
+        claim,
         conflict: result.conflict
       });
     }
@@ -1062,21 +1123,46 @@ app.post("/api/sku-work/:sku/claim", requireUser, async (req, res) => {
 
     if (!persisted) {
       const latest = await readSkuWorkStateBySku(sku);
+      const claim = serializeSkuWorkClaimForUser(latest || createEmptySkuWorkState({ sku }), { viewerId: req.user.id });
+      logSkuWorkClaimDiagnostic({
+        sku,
+        userId: req.user.id,
+        endpoint: "POST /api/sku-work/:sku/claim",
+        httpStatus: 409,
+        claimStatus: claim.status,
+        error: { code: "sku_work_version_conflict", message: "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่" }
+      });
       return res.status(409).json({
         ok: false,
         code: "sku_work_version_conflict",
         error: "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่",
-        claim: serializeSkuWorkClaimForUser(latest || createEmptySkuWorkState({ sku }), { viewerId: req.user.id })
+        claim
       });
     }
 
+    const claim = serializeSkuWorkClaimForUser(persisted, { viewerId: req.user.id });
+    logSkuWorkClaimDiagnostic({
+      sku,
+      userId: req.user.id,
+      endpoint: "POST /api/sku-work/:sku/claim",
+      httpStatus: 200,
+      claimStatus: claim.status
+    });
     res.json({
       ok: true,
-      claim: serializeSkuWorkClaimForUser(persisted, { viewerId: req.user.id })
+      claim
     });
   } catch (error) {
+    const status = error.status || 500;
+    logSkuWorkClaimDiagnostic({
+      sku,
+      userId: req.user?.id || "",
+      endpoint: "POST /api/sku-work/:sku/claim",
+      httpStatus: status,
+      error: { code: error.code || "sku_work_claim_failed", message: error.publicMessage || readableError(error) }
+    });
     console.error("SKU work claim failed:", readableError(error));
-    res.status(error.status || 500).json({
+    res.status(status).json({
       ok: false,
       code: error.code || "sku_work_claim_failed",
       error: error.publicMessage || "claim SKU ไม่สำเร็จ"
@@ -1193,6 +1279,30 @@ function logExactSkuLookupDiagnostic({ sku = "", status = "", diagnostics = {} }
     lookup_ms: Number(diagnostics.lookup_ms || 0),
     total_ms: Number(diagnostics.total_ms || 0)
   });
+}
+
+function logSkuWorkClaimDiagnostic({
+  sku = "",
+  userId = "",
+  endpoint = "",
+  httpStatus = 0,
+  claimStatus = "",
+  error = null
+} = {}) {
+  const safeError = error
+    ? {
+        code: cleanOptionalString(error.code || ""),
+        message: cleanOptionalString(error.publicMessage || error.error || error.message || readableError(error)).slice(0, 240)
+      }
+    : null;
+  console.info("[sku_work_claim]", sanitizeLogObject({
+    sku: sanitizeSku(sku).toUpperCase(),
+    user_id: cleanOptionalString(userId),
+    claim_status_endpoint: endpoint,
+    http_status: Number(httpStatus || 0),
+    claim_status: claimStatus || "",
+    ...(safeError ? { error: safeError } : {})
+  }));
 }
 
 function normalizeSubmittedVersion(value) {

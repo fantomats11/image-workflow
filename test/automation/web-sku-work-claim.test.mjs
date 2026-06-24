@@ -39,9 +39,33 @@ test("create UI claims selected SKU and blocks Hero generation on another user's
   assert.match(appJs, /function loadSkuWorkClaimStatus/);
   assert.match(appJs, /function claimSelectedSkuWork/);
   assert.match(appJs, /claimSelectedSkuWork\(\);/);
-  assert.match(appJs, /skuWorkClaimState\.status === "blocked_by_other_claim"/);
+  assert.match(appJs, /skuWorkClaimState\.status === "claimed_by_other"/);
   assert.match(appJs, /SKU นี้ถูก claim โดย/);
   assert.match(appJs, /ไม่ให้กดสร้าง Hero ซ้ำ/);
+});
+
+test("create UI separates claim checking, unclaimed, owned, conflict, and failed states", () => {
+  assert.match(appJs, /const skuWorkClaimStatuses = new Set/);
+  assert.match(appJs, /"checking"/);
+  assert.match(appJs, /"unclaimed"/);
+  assert.match(appJs, /"claimed_by_me"/);
+  assert.match(appJs, /"claimed_by_other"/);
+  assert.match(appJs, /"claim_failed"/);
+  assert.doesNotMatch(appJs, /status: "error"/);
+  assert.doesNotMatch(appJs, /blocked_by_other_claim/);
+  assert.match(appJs, /โหลดสถานะ claim ไม่สำเร็จ/);
+  assert.match(appJs, /staged reference พร้อมแล้ว แต่ claim SKU ไม่สำเร็จ/);
+});
+
+test("server writes safe diagnostics for claim status and claim endpoints", () => {
+  assert.match(serverJs, /function logSkuWorkClaimDiagnostic/);
+  assert.match(serverJs, /claim_status_endpoint/);
+  assert.match(serverJs, /http_status/);
+  assert.match(serverJs, /user_id/);
+  assert.match(serverJs, /GET \/api\/sku-work\/:sku/);
+  assert.match(serverJs, /POST \/api\/sku-work\/:sku\/claim/);
+  const diagnosticHelper = serverJs.match(/function logSkuWorkClaimDiagnostic[\s\S]*?\n}\n\nfunction normalizeSubmittedVersion/)?.[0] || "";
+  assert.doesNotMatch(diagnosticHelper, /process\.env|SUPABASE_SERVICE_ROLE_KEY|GOOGLE_DRIVE_ACCESS_TOKEN/);
 });
 
 test("jobs and next action surfaces expose claim status without direct frontend service role access", () => {

@@ -553,13 +553,20 @@ let selectedCatalogSku = null;
 let selectedCatalogReferences = [];
 let stagedCatalogReferenceKeys = [];
 let catalogReferenceLoading = false;
-let skuWorkClaimState = { status: "idle", version: 0 };
+let skuWorkClaimState = { status: "unclaimed", version: 0 };
 let skuWorkClaimPollTimer = null;
 let skuWorkClaimRequestSeq = 0;
 let skuPickerSearchTimer = null;
 const skuPickerMinQueryLength = 3;
 const skuPickerSearchTimeoutMs = 8000;
 const skuWorkClaimPollMs = 15000;
+const skuWorkClaimStatuses = new Set([
+  "checking",
+  "unclaimed",
+  "claimed_by_me",
+  "claimed_by_other",
+  "claim_failed"
+]);
 const exactSkuLookupMaxWarmRetries = 4;
 let skuPickerSearchRequestSeq = 0;
 let latestSkuPickerResults = [];
@@ -1494,17 +1501,41 @@ function renderReferenceReadinessCard(message = "") {
 function resetSkuWorkClaimState() {
   stopSkuWorkClaimPolling();
   skuWorkClaimRequestSeq += 1;
-  skuWorkClaimState = { status: "idle", version: 0 };
+  skuWorkClaimState = { status: "unclaimed", version: 0 };
   renderSkuWorkClaimCard();
 }
 
 function normalizeSkuWorkClaimState(claim = {}) {
-  const status = claim.status === "claimed_by_other" ? "blocked_by_other_claim" : claim.status || "available";
+  const rawStatus = claim.status || claim.claim_status || "unclaimed";
+  let status = "unclaimed";
+  if (rawStatus === "available") {
+    status = "unclaimed";
+  } else if (rawStatus === "loading" || rawStatus === "claiming") {
+    status = "checking";
+  } else if (rawStatus === "claimed") {
+    status = claim.locked_by_me ? "claimed_by_me" : "claimed_by_other";
+  } else if (rawStatus === "error") {
+    status = "claim_failed";
+  } else if (skuWorkClaimStatuses.has(rawStatus)) {
+    status = rawStatus;
+  }
   return {
     ...claim,
     status,
     version: Number(claim.version ?? claim.current_version ?? 0)
   };
+}
+
+function setSkuWorkClaimFailed({ message = "", code = "", httpStatus = 0, endpoint = "" } = {}) {
+  skuWorkClaimState = normalizeSkuWorkClaimState({
+    ...skuWorkClaimState,
+    status: "claim_failed",
+    message,
+    error_code: code,
+    http_status: httpStatus,
+    claim_status_endpoint: endpoint,
+    version: skuWorkClaimState.version || 0
+  });
 }
 
 function renderSkuWorkClaimCard(message = "") {
@@ -1518,13 +1549,13 @@ function renderSkuWorkClaimCard(message = "") {
   const label = state.locked_by_label || "ทีมอื่น";
   const view = state.status === "claimed_by_me"
     ? { className: "claim-state-ready", title: "คุณ claim SKU นี้แล้ว", description: "พร้อมทำงานต่อโดยไม่ชนกับคนอื่น" }
-    : skuWorkClaimState.status === "blocked_by_other_claim"
+    : skuWorkClaimState.status === "claimed_by_other"
       ? { className: "claim-state-blocked", title: `SKU นี้ถูก claim โดย ${label}`, description: message || "ไม่ให้กดสร้าง Hero ซ้ำจนกว่า claim จะถูก release หรือหมดอายุ" }
-      : state.status === "loading"
+      : state.status === "checking"
         ? { className: "claim-state-loading", title: "กำลังตรวจสถานะ claim", description: message || "กำลังตรวจว่า SKU นี้ว่างหรือไม่" }
-        : state.status === "claiming"
-          ? { className: "claim-state-loading", title: "กำลัง claim SKU", description: message || "กำลังจอง SKU นี้ให้ผู้ใช้งานปัจจุบัน" }
-          : { className: "claim-state-warning", title: "SKU ยังไม่ถูก claim", description: message || "ระบบกำลัง claim SKU นี้ก่อนให้สร้าง Hero" };
+        : state.status === "claim_failed"
+          ? { className: "claim-state-blocked", title: "โหลดสถานะ claim ไม่สำเร็จ", description: message || state.message || "claim SKU ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน" }
+          : { className: "claim-state-warning", title: "SKU ยังไม่ถูก claim", description: message || "ระบบจะ claim SKU นี้ก่อนให้สร้าง Hero" };
   els.skuWorkClaimCard.hidden = false;
   els.skuWorkClaimCard.className = `sku-work-claim-card ${view.className}`;
   els.skuWorkClaimCard.innerHTML = `
@@ -1540,15 +1571,25 @@ function renderSkuWorkClaimCard(message = "") {
 function getSkuWorkClaimReadiness() {
   if (!selectedCatalogSku?.sku) return { disabled: false };
   if (skuWorkClaimState.status === "claimed_by_me") return { disabled: false };
-  if (skuWorkClaimState.status === "blocked_by_other_claim") {
+  if (skuWorkClaimState.status === "claimed_by_other") {
     return {
       disabled: true,
       tone: "blocked",
       reason: `SKU นี้ถูก claim โดย ${skuWorkClaimState.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
     };
   }
-  if (skuWorkClaimState.status === "loading") {
+  if (skuWorkClaimState.status === "checking") {
     return { disabled: true, tone: "loading", reason: "กำลังตรวจสถานะ claim ของ SKU" };
+  }
+  if (skuWorkClaimState.status === "claim_failed") {
+    const referenceReady = hasStagedCatalogReferences() || canAutoUseCatalogReferencesForHero() || hasManualProductReferenceUpload();
+    return {
+      disabled: true,
+      tone: "blocked",
+      reason: referenceReady
+        ? "staged reference พร้อมแล้ว แต่ claim SKU ไม่สำเร็จ"
+        : "claim SKU ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน"
+    };
   }
   return { disabled: true, tone: "loading", reason: "กำลัง claim SKU นี้ก่อนสร้าง Hero" };
 }
@@ -1558,7 +1599,7 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
   const requestedSku = selectedCatalogSku.sku;
   const requestId = ++skuWorkClaimRequestSeq;
   if (!silent) {
-    skuWorkClaimState = { ...skuWorkClaimState, status: "loading" };
+    skuWorkClaimState = normalizeSkuWorkClaimState({ ...skuWorkClaimState, status: "checking" });
     renderSkuWorkClaimCard("กำลังตรวจสถานะ claim ของ SKU");
     updateActionAvailability();
   }
@@ -1566,15 +1607,28 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
     const response = await authFetch(`/api/sku-work/${encodeURIComponent(requestedSku)}`);
     const data = await readJsonResponse(response, "โหลดสถานะ claim ไม่สำเร็จ");
     if (requestId !== skuWorkClaimRequestSeq || selectedCatalogSku?.sku !== requestedSku) return null;
-    if (!response.ok || data.ok === false) throw new Error(getApiErrorMessage(response, data, "โหลดสถานะ claim ไม่สำเร็จ"));
+    if (!response.ok || data.ok === false) {
+      setSkuWorkClaimFailed({
+        message: getApiErrorMessage(response, data, "โหลดสถานะ claim ไม่สำเร็จ"),
+        code: data.code || "",
+        httpStatus: response.status,
+        endpoint: "GET /api/sku-work/:sku"
+      });
+      renderSkuWorkClaimCard(skuWorkClaimState.message);
+      updateActionAvailability();
+      return null;
+    }
     skuWorkClaimState = normalizeSkuWorkClaimState(data.claim || {});
     renderSkuWorkClaimCard();
     updateActionAvailability();
     return skuWorkClaimState;
   } catch (error) {
     if (requestId !== skuWorkClaimRequestSeq) return null;
-    skuWorkClaimState = { status: "error", version: skuWorkClaimState.version || 0 };
-    renderSkuWorkClaimCard(getSafeAuthErrorMessage(error) || "โหลดสถานะ claim ไม่สำเร็จ");
+    setSkuWorkClaimFailed({
+      message: getSafeAuthErrorMessage(error) || "โหลดสถานะ claim ไม่สำเร็จ",
+      endpoint: "GET /api/sku-work/:sku"
+    });
+    renderSkuWorkClaimCard(skuWorkClaimState.message);
     updateActionAvailability();
     return null;
   }
@@ -1583,13 +1637,13 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
 async function claimSelectedSkuWork() {
   if (!selectedCatalogSku?.sku) return null;
   const requestedSku = selectedCatalogSku.sku;
-  skuWorkClaimState = { ...skuWorkClaimState, status: "claiming" };
+  skuWorkClaimState = normalizeSkuWorkClaimState({ ...skuWorkClaimState, status: "checking" });
   renderSkuWorkClaimCard("กำลัง claim SKU นี้ก่อนเริ่มงาน");
   updateActionAvailability();
   try {
     const currentClaim = await loadSkuWorkClaimStatus({ silent: true });
     if (!currentClaim || selectedCatalogSku?.sku !== requestedSku) return null;
-    if (skuWorkClaimState.status === "blocked_by_other_claim") {
+    if (skuWorkClaimState.status === "claimed_by_other") {
       renderSkuWorkClaimCard();
       startSkuWorkClaimPolling();
       return skuWorkClaimState;
@@ -1602,9 +1656,16 @@ async function claimSelectedSkuWork() {
     const data = await readJsonResponse(response, "claim SKU ไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return null;
     if (!response.ok || data.ok === false) {
-      skuWorkClaimState = normalizeSkuWorkClaimState(data.claim || data.conflict || {});
-      if (data.code === "sku_work_claim_conflict" || skuWorkClaimState.status === "blocked_by_other_claim") {
-        skuWorkClaimState.status = "blocked_by_other_claim";
+      if (data.code === "sku_work_claim_conflict") {
+        skuWorkClaimState = normalizeSkuWorkClaimState(data.conflict || data.claim || { status: "claimed_by_other" });
+        skuWorkClaimState.status = "claimed_by_other";
+      } else {
+        setSkuWorkClaimFailed({
+          message: getApiErrorMessage(response, data, "claim SKU ไม่สำเร็จ"),
+          code: data.code || "",
+          httpStatus: response.status,
+          endpoint: "POST /api/sku-work/:sku/claim"
+        });
       }
       renderSkuWorkClaimCard(getApiErrorMessage(response, data, "claim SKU ไม่สำเร็จ"));
       updateActionAvailability();
@@ -1617,8 +1678,11 @@ async function claimSelectedSkuWork() {
     startSkuWorkClaimPolling();
     return skuWorkClaimState;
   } catch (error) {
-    skuWorkClaimState = { status: "error", version: skuWorkClaimState.version || 0 };
-    renderSkuWorkClaimCard(getSafeAuthErrorMessage(error) || "claim SKU ไม่สำเร็จ");
+    setSkuWorkClaimFailed({
+      message: getSafeAuthErrorMessage(error) || "claim SKU ไม่สำเร็จ",
+      endpoint: "POST /api/sku-work/:sku/claim"
+    });
+    renderSkuWorkClaimCard(skuWorkClaimState.message);
     updateActionAvailability();
     return null;
   }
