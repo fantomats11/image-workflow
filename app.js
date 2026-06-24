@@ -1245,6 +1245,8 @@ function countSelectedReferenceFiles() {
 }
 
 function getCatalogDriveUrl() {
+  const sourceFields = selectedCatalogSku?.reference_source_fields || {};
+  if (sourceFields.resolved_reference_url) return sourceFields.resolved_reference_url;
   const driveFolderId = selectedCatalogSku?.reference_drive_id || "";
   return selectedCatalogSku?.reference_url || (driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : "");
 }
@@ -1691,8 +1693,7 @@ function renderCatalogReferencePanel(message = "") {
   const stagedCount = stagedCatalogReferenceKeys.length;
   const sourceFields = selectedCatalogSku.reference_source_fields || {};
   const resolutionSummary = selectedCatalogSku.resolution_summary || {};
-  const driveFolderId = selectedCatalogSku.reference_drive_id || "";
-  const driveUrl = selectedCatalogSku.reference_url || (driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : "");
+  const driveUrl = getCatalogDriveUrl();
   const sourceTextParts = [
     driveUrl ? "มี Google Drive folder" : "",
     sourceFields.source_row ? `row ${escapeHtml(sourceFields.source_row)}` : "",
@@ -1778,6 +1779,11 @@ async function loadCatalogReferencesForSelectedSku() {
       reference_source_fields: data.reference_source_fields || selectedCatalogSku.reference_source_fields || {},
       resolution_summary: data.resolution_summary || selectedCatalogSku.resolution_summary || {}
     };
+    if (selectedCatalogSku.reference_source_fields.resolved_reference_drive_id) {
+      selectedCatalogSku.reference_drive_id = selectedCatalogSku.reference_source_fields.resolved_reference_drive_id;
+      selectedCatalogSku.reference_url = selectedCatalogSku.reference_source_fields.resolved_reference_url || selectedCatalogSku.reference_url;
+      if (els.imageReference) els.imageReference.value = selectedCatalogSku.reference_url;
+    }
     autoStageCatalogReferencesForHero();
     if (hasSelectedCatalogStageableReferences()) {
       finalMessage = `stage สำเร็จ ${selectedCatalogReferences.filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url)).length} รูป พร้อมสร้าง Hero`;

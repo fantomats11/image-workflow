@@ -24,7 +24,10 @@ import {
 import { buildModelInputStagingManifest } from "./lib/automation/model-input-staging.mjs";
 import { buildReferenceAssetResolution } from "./lib/automation/reference-asset-resolution.mjs";
 import { stageCatalogDriveReferencesToSupabase } from "./lib/automation/drive-reference-staging-bridge.mjs";
-import { listGoogleDriveReferenceImageFiles } from "./lib/automation/google-drive-reference-files.mjs";
+import {
+  findGoogleDriveChildFolderByExactName,
+  listGoogleDriveReferenceImageFiles
+} from "./lib/automation/google-drive-reference-files.mjs";
 import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
@@ -1327,11 +1330,20 @@ async function ensureSkuWorkClaimAllowsGeneration({ sku = "", userId = "", actor
 }
 
 async function buildWebSkuReferencePayload(item = {}) {
-  const folderId = cleanOptionalString(
+  let folderId = cleanOptionalString(
     extractDriveIdFromUrl(item.reference_drive_id || "")
     || item.reference_drive_id
     || extractDriveIdFromUrl(item.reference_url || "")
   );
+  let resolvedFolder = {
+    folderId,
+    sourceFolderId: "",
+    lookupKey: cleanOptionalString(item.reference_lookup_key || item.sku),
+    strategy: cleanOptionalString(item.reference_lookup_strategy),
+    folderName: "",
+    resolved: false,
+    blocker: ""
+  };
   let resolvedReferenceAssets = [];
   let resolutionSummary = {
     google_drive_checked: false,
@@ -1344,43 +1356,61 @@ async function buildWebSkuReferencePayload(item = {}) {
     try {
       const drive = await getGoogleDriveClient();
       if (drive) {
-        const files = await listGoogleDriveReferenceFilesCached(drive, folderId);
-        const resolution = buildReferenceAssetResolution({
-          batch: { batch_id: null },
-          batchItems: [{
+        resolvedFolder = await resolveCatalogDriveReferenceFolder({ drive, item, fallbackFolderId: folderId });
+        folderId = resolvedFolder.folderId;
+        if (!folderId) {
+          resolutionSummary = {
+            ...resolutionSummary,
+            google_drive_checked: true,
+            reference_folder_resolution: resolvedFolder.strategy,
+            reference_source_folder_id: resolvedFolder.sourceFolderId,
+            reference_lookup_key: resolvedFolder.lookupKey,
+            blockers: [resolvedFolder.blocker || "drive_folder_exact_sku_not_found"].filter(Boolean)
+          };
+        } else {
+          const files = await listGoogleDriveReferenceFilesCached(drive, folderId);
+          const resolution = buildReferenceAssetResolution({
+            batch: { batch_id: null },
+            batchItems: [{
+              sku: item.sku,
+              product_name: item.product_name,
+              reference_drive_id: folderId,
+              reference_url: buildGoogleDriveFolderUrl(folderId)
+            }],
+            filesByFolderId: { [folderId]: files }
+          });
+          const resolutionItem = resolution.items?.[0] || {};
+          resolvedReferenceAssets = resolutionItem.selected_reference_assets || [];
+          const stageResult = await stageCatalogDriveReferencesToSupabase({
             sku: item.sku,
-            product_name: item.product_name,
-            reference_drive_id: folderId,
-            reference_url: item.reference_url
-          }],
-          filesByFolderId: { [folderId]: files }
-        });
-        const resolutionItem = resolution.items?.[0] || {};
-        resolvedReferenceAssets = resolutionItem.selected_reference_assets || [];
-        const stageResult = await stageCatalogDriveReferencesToSupabase({
-          sku: item.sku,
-          drive,
-          storage: supabaseAdmin.storage,
-          files: resolvedReferenceAssets,
-          fetchImpl: fetch,
-          logger: logDriveReferenceStageDiagnostic
-        });
-        resolvedReferenceAssets = stageResult.references;
-        resolutionSummary = {
-          google_drive_checked: true,
-          selected_reference_count: resolvedReferenceAssets.length,
-          file_count: Number(resolutionItem.file_count || 0),
-          image_file_count: Number(resolutionItem.image_file_count || 0),
-          staged_reference_count: stageResult.summary.stage_available_count,
-          stage_available_count: stageResult.summary.stage_available_count,
-          stageable_image_count: stageResult.summary.stage_available_count,
-          blocked_file_count: stageResult.summary.blocked_file_count,
-          staging_failed_count: resolvedReferenceAssets.filter((asset) => asset.staging_status === "staging_failed").length,
-          blockers: [
-            ...(resolutionItem.blockers || []),
-            ...(stageResult.summary.blockers || [])
-          ]
-        };
+            drive,
+            storage: supabaseAdmin.storage,
+            files: resolvedReferenceAssets,
+            fetchImpl: fetch,
+            logger: logDriveReferenceStageDiagnostic
+          });
+          resolvedReferenceAssets = stageResult.references;
+          resolutionSummary = {
+            google_drive_checked: true,
+            selected_reference_count: resolvedReferenceAssets.length,
+            file_count: Number(resolutionItem.file_count || 0),
+            image_file_count: Number(resolutionItem.image_file_count || 0),
+            staged_reference_count: stageResult.summary.stage_available_count,
+            stage_available_count: stageResult.summary.stage_available_count,
+            stageable_image_count: stageResult.summary.stage_available_count,
+            blocked_file_count: stageResult.summary.blocked_file_count,
+            staging_failed_count: resolvedReferenceAssets.filter((asset) => asset.staging_status === "staging_failed").length,
+            reference_folder_id: folderId,
+            reference_folder_name: resolvedFolder.folderName,
+            reference_folder_resolution: resolvedFolder.strategy,
+            reference_source_folder_id: resolvedFolder.sourceFolderId,
+            reference_lookup_key: resolvedFolder.lookupKey,
+            blockers: [
+              ...(resolutionItem.blockers || []),
+              ...(stageResult.summary.blockers || [])
+            ]
+          };
+        }
       } else {
         resolutionSummary.blockers = ["google_drive_not_configured"];
       }
@@ -1409,6 +1439,11 @@ async function buildWebSkuReferencePayload(item = {}) {
     reference_source_fields: {
       reference_drive_id_present: Boolean(item.reference_drive_id),
       reference_url_present: Boolean(item.reference_url),
+      reference_parent_folder_id: cleanOptionalString(item.reference_parent_folder_id),
+      reference_lookup_key: cleanOptionalString(item.reference_lookup_key),
+      resolved_reference_drive_id: cleanOptionalString(folderId),
+      resolved_reference_url: folderId ? buildGoogleDriveFolderUrl(folderId) : "",
+      reference_folder_resolution: cleanOptionalString(resolvedFolder.strategy),
       reference_verified: item.reference_verified || "",
       reference_lookup_strategy: item.reference_lookup_strategy || "",
       source_file: item.source_file || "",
@@ -1417,6 +1452,56 @@ async function buildWebSkuReferencePayload(item = {}) {
     ...contract,
     resolution_summary: resolutionSummary
   };
+}
+
+async function resolveCatalogDriveReferenceFolder({ drive, item = {}, fallbackFolderId = "" } = {}) {
+  const strategy = cleanOptionalString(item.reference_lookup_strategy);
+  const lookupKey = cleanOptionalString(item.reference_lookup_key || item.sku);
+  const sourceFolderId = cleanOptionalString(
+    extractDriveIdFromUrl(item.reference_parent_folder_id || "")
+    || item.reference_parent_folder_id
+    || extractDriveIdFromUrl(item.reference_url || "")
+  );
+  if (strategy !== "drive_folder_exact_sku_lookup") {
+    return {
+      folderId: fallbackFolderId,
+      sourceFolderId: sourceFolderId && sourceFolderId !== fallbackFolderId ? sourceFolderId : "",
+      lookupKey,
+      strategy,
+      folderName: "",
+      resolved: false,
+      blocker: ""
+    };
+  }
+
+  const targetFolder = await findGoogleDriveChildFolderByExactName(drive, sourceFolderId, lookupKey, {
+    requestTimeoutMs: googleDriveReferenceFilesTimeoutMs
+  });
+  if (!targetFolder?.id) {
+    return {
+      folderId: "",
+      sourceFolderId,
+      lookupKey,
+      strategy,
+      folderName: "",
+      resolved: false,
+      blocker: "drive_folder_exact_sku_not_found"
+    };
+  }
+  return {
+    folderId: targetFolder.id,
+    sourceFolderId,
+    lookupKey,
+    strategy,
+    folderName: targetFolder.name || "",
+    resolved: true,
+    blocker: ""
+  };
+}
+
+function buildGoogleDriveFolderUrl(folderId = "") {
+  const cleanFolderId = cleanOptionalString(folderId);
+  return cleanFolderId ? `https://drive.google.com/drive/folders/${cleanFolderId}` : "";
 }
 
 function logDriveReferenceStageDiagnostic(event = {}) {

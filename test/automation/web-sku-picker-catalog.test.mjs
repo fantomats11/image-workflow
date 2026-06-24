@@ -331,6 +331,24 @@ test("readWebSkuPickerCatalogItemBySku returns one exact normalized row without 
   assert.equal(result.diagnostics.lookup_strategy, "exact_row_scan");
 });
 
+test("readWebSkuPickerCatalogItemBySku preserves runtime Drive folder lookup fields", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-runtime-drive-"));
+  await fs.writeFile(
+    path.join(outputsDir, "generation-input-catalog.csv"),
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_parent_folder_id,reference_lookup_key,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "FSTR260021,FSTR260021,เสื้อ,https://drive.google.com/drive/folders/source-root,,source-root,FSTR260021,drive_folder_exact_sku_lookup,runtime_lookup_required,ready_via_drive_folder_lookup,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const result = await readWebSkuPickerCatalogItemBySku({ sku: "FSTR260021", outputsDir });
+
+  assert.equal(result.item.reference_lookup_strategy, "drive_folder_exact_sku_lookup");
+  assert.equal(result.item.reference_parent_folder_id, "source-root");
+  assert.equal(result.item.reference_lookup_key, "FSTR260021");
+});
+
 test("exact SKU lookup uses SKU index map instead of broad catalog search", () => {
   const index = buildWebSkuPickerSkuIndex(rows);
   const item = findWebSkuPickerItemBySku(index, "r23cbt0048");

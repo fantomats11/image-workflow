@@ -64,6 +64,14 @@ test("server exposes a SKU reference staging endpoint with canonical catalog cac
   assert.match(serverJs, /drive_reference_stage/);
 });
 
+test("server resolves runtime exact SKU folder before staging Drive references", () => {
+  assert.match(serverJs, /findGoogleDriveChildFolderByExactName/);
+  assert.match(serverJs, /reference_parent_folder_id/);
+  assert.match(serverJs, /reference_lookup_key/);
+  assert.match(serverJs, /drive_folder_exact_sku_lookup/);
+  assert.match(serverJs, /drive_folder_exact_sku_not_found/);
+});
+
 test("Web-first create page is the default and visible navigation path", () => {
   assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
   assert.match(appJs, /#create/);

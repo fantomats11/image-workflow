@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  findGoogleDriveChildFolderByExactName,
   listGoogleDriveReferenceImageFiles,
   parsePublicGoogleDriveFolderImageFiles
 } from "../../lib/automation/google-drive-reference-files.mjs";
@@ -129,6 +130,20 @@ test("parsePublicGoogleDriveFolderImageFiles dedupes public Drive cards", () => 
     ["file-public-12345", "FSTR240017_Front.jpg", "image/jpeg"],
     ["file-public-67890", "FSTR240017_Detail.png", "image/png"]
   ]);
+});
+
+test("findGoogleDriveChildFolderByExactName resolves a SKU folder under a source folder", async () => {
+  const drive = mockDrive({
+    "source-root": [
+      folder("target-folder", "FSTR260021"),
+      folder("other-folder", "FSTR260022")
+    ]
+  });
+
+  const match = await findGoogleDriveChildFolderByExactName(drive, "source-root", "fstr 260021", { requestTimeoutMs: 1000 });
+
+  assert.equal(match?.id, "target-folder");
+  assert.equal(match?.name, "FSTR260021");
 });
 
 function mockDrive(folders = {}, filesById = {}) {
