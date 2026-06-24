@@ -58,6 +58,15 @@ test("searchWebSkuPickerCatalog returns safe empty results for blank query", () 
   assert.equal(result.total, 0);
 });
 
+test("searchWebSkuPickerCatalog waits for a specific enough query", () => {
+  const result = searchWebSkuPickerCatalog({ rows, query: "R2" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.query, "R2");
+  assert.equal(result.items.length, 0);
+  assert.equal(result.total, 0);
+});
+
 test("searchWebSkuPickerCatalog searches by SKU and normalizes canonical fields", () => {
   const result = searchWebSkuPickerCatalog({ rows, query: "R24CBF0013" });
 
@@ -99,7 +108,7 @@ test("searchWebSkuPickerCatalog limits results and does not mutate rows", () => 
     catalogRow({ sku: "A002", product_name: "Alpha boot", category: "รองเท้า" })
   ];
   const before = JSON.stringify(source);
-  const result = searchWebSkuPickerCatalog({ rows: source, query: "a", limit: 2 });
+  const result = searchWebSkuPickerCatalog({ rows: source, query: "alp", limit: 2 });
 
   assert.equal(result.items.length, 2);
   assert.equal(JSON.stringify(source), before);

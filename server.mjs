@@ -68,7 +68,8 @@ import {
   buildWebSkuReferenceContract,
   findWebSkuPickerItemBySku,
   loadWebSkuPickerCatalogSnapshot,
-  searchWebSkuPickerCatalog
+  searchWebSkuPickerCatalog,
+  WEB_SKU_PICKER_MIN_QUERY_LENGTH
 } from "./lib/automation/web-sku-picker-catalog.mjs";
 import {
   buildWorkerModeStartupWarnings,
@@ -854,6 +855,15 @@ app.get("/api/catalog/sku-search", requireUser, async (req, res) => {
         query: "",
         total: 0,
         items: []
+      });
+    }
+    if (query.length < WEB_SKU_PICKER_MIN_QUERY_LENGTH) {
+      return res.json({
+        ok: true,
+        query,
+        total: 0,
+        items: [],
+        min_query_length: WEB_SKU_PICKER_MIN_QUERY_LENGTH
       });
     }
 

@@ -38,3 +38,11 @@ test("server resolves catalog references automatically when requested by create 
   assert.match(serverJs, /stageableReferences\.map\(\(reference\) => reference\.reference_key\)\.slice\(0, 6\)/);
   assert.match(serverJs, /ยังโหลดรูป reference จาก Google Drive มาใช้กับ Hero ไม่ได้/);
 });
+
+test("SKU picker avoids broad two-character searches", () => {
+  assert.match(appJs, /const skuPickerMinQueryLength = 3;/);
+  assert.match(appJs, /query\.length < skuPickerMinQueryLength/);
+  assert.match(appJs, /พิมพ์ SKU หรือชื่อสินค้าอย่างน้อย/);
+  assert.match(serverJs, /WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
+  assert.match(serverJs, /min_query_length: WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
+});

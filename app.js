@@ -545,6 +545,7 @@ let selectedCatalogReferences = [];
 let stagedCatalogReferenceKeys = [];
 let catalogReferenceLoading = false;
 let skuPickerSearchTimer = null;
+const skuPickerMinQueryLength = 3;
 let latestSkuPickerResults = [];
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
@@ -1348,6 +1349,11 @@ async function searchCatalogSkus() {
   if (!query) {
     renderSkuPickerResults([]);
     if (!selectedCatalogSku) renderSkuPickerStatus();
+    return;
+  }
+  if (query.length < skuPickerMinQueryLength) {
+    renderSkuPickerResults([]);
+    renderSkuPickerStatus(`พิมพ์ SKU หรือชื่อสินค้าอย่างน้อย ${skuPickerMinQueryLength} ตัวอักษร`);
     return;
   }
   if (!isAppReady()) {
