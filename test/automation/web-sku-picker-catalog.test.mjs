@@ -5,8 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildReferenceKey,
+  buildWebSkuPickerSkuIndex,
   buildWebSkuReferenceContract,
   findWebSkuPickerItemBySku,
+  loadWebSkuPickerSkuIndex,
   loadWebSkuPickerCatalogSnapshot,
   normalizeWebSkuPickerRows,
   searchWebSkuPickerCatalog
@@ -186,6 +188,72 @@ test("loadWebSkuPickerCatalogSnapshot reuses unchanged parsed snapshots", async 
 
   assert.equal(second, first);
   assert.equal(second.rows, first.rows);
+});
+
+test("buildWebSkuPickerSkuIndex creates exact normalized SKU map from catalog rows", () => {
+  const index = buildWebSkuPickerSkuIndex(rows);
+
+  assert.equal(index.itemsBySku.get("R23CBT0048").product_name, "Columbia Alpine Crux Titanium Down Hooded Jacket");
+  assert.equal(index.itemsBySku.get("r23cbt0048"), undefined);
+  assert.equal(index.itemsBySku.get("MISSREF001").reference_readiness.status, "blocked");
+  assert.equal(index.normalized_rows.length, rows.length);
+});
+
+test("loadWebSkuPickerSkuIndex reuses cache when source mtime and size are unchanged", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-index-cache-"));
+  await fs.writeFile(
+    path.join(outputsDir, "generation-input-catalog.csv"),
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "INDEX001,Indexed Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/index-folder-id,index-folder-id,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const first = await loadWebSkuPickerSkuIndex({ outputsDir });
+  const second = await loadWebSkuPickerSkuIndex({ outputsDir });
+
+  assert.equal(second, first);
+  assert.equal(second.itemsBySku.get("INDEX001").product_name, "Indexed Catalog Coat");
+});
+
+test("loadWebSkuPickerSkuIndex rebuilds cache when source mtime or size changes", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-index-rebuild-"));
+  const catalogPath = path.join(outputsDir, "generation-input-catalog.csv");
+  await fs.writeFile(
+    catalogPath,
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "INDEX002,Old Indexed Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/index-folder-id,index-folder-id,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const first = await loadWebSkuPickerSkuIndex({ outputsDir });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await fs.writeFile(
+    catalogPath,
+    [
+      "sku,product_name,category,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "INDEX002,New Indexed Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/index-folder-id,index-folder-id,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall",
+      "INDEX003,Second Indexed Catalog Coat,เสื้อ,https://drive.google.com/drive/folders/index-folder-id-2,index-folder-id-2,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const second = await loadWebSkuPickerSkuIndex({ outputsDir });
+
+  assert.notEqual(second, first);
+  assert.equal(second.itemsBySku.get("INDEX002").product_name, "New Indexed Catalog Coat");
+  assert.equal(second.itemsBySku.get("INDEX003").product_name, "Second Indexed Catalog Coat");
+});
+
+test("exact SKU lookup uses SKU index map instead of broad catalog search", () => {
+  const index = buildWebSkuPickerSkuIndex(rows);
+  const item = findWebSkuPickerItemBySku(index, "r23cbt0048");
+
+  assert.equal(item.sku, "R23CBT0048");
+  assert.equal(item.product_name, "Columbia Alpine Crux Titanium Down Hooded Jacket");
 });
 
 test("buildWebSkuReferenceContract creates stageable Drive cards without exposing raw key", () => {

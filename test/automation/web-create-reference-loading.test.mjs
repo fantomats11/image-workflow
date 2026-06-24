@@ -81,10 +81,21 @@ test("SKU picker search fails fast and ignores stale responses", () => {
 
 test("exact SKU lookup bypasses broad search before loading Drive references", () => {
   assert.match(serverJs, /app\.get\("\/api\/catalog\/sku\/:sku", requireUser/);
+  assert.match(serverJs, /readWebSkuPickerItemFast\(req\.params\.sku/);
+  assert.match(serverJs, /catalog_warming/);
+  assert.match(serverJs, /lookup_ms/);
+  assert.match(serverJs, /load_ms/);
   assert.match(appJs, /function looksLikeExactCatalogSku/);
   assert.match(appJs, /lookupExactCatalogSku\(query, requestId\)/);
   assert.match(appJs, /`\/api\/catalog\/sku\/\$\{encodeURIComponent\(sku\)\}`/);
   assert.match(appJs, /selectCatalogSku\(data\.item\)/);
+});
+
+test("manual create shows warm catalog status separately from timeout and errors", () => {
+  assert.match(appJs, /กำลังเตรียมข้อมูล catalog ครั้งแรก/);
+  assert.match(appJs, /data\.code === "catalog_warming"/);
+  assert.match(appJs, /lookupExactCatalogSku\(sku, requestId, \{ retryAfterMs/);
+  assert.match(appJs, /โหลดข้อมูล SKU ใช้เวลานานผิดปกติ/);
 });
 
 test("manual create shows product summary before async Drive reference load finishes", () => {

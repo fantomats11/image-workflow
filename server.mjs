@@ -69,6 +69,7 @@ import {
 import {
   buildWebSkuReferenceContract,
   findWebSkuPickerItemBySku,
+  loadWebSkuPickerSkuIndex,
   loadWebSkuPickerCatalogSnapshot,
   searchWebSkuPickerCatalog,
   WEB_SKU_PICKER_MIN_QUERY_LENGTH
@@ -144,6 +145,7 @@ const generationJobs = new Map();
 const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
+let webSkuPickerIndexWarmPromise = null;
 const googleDriveReferenceFilesCache = new Map();
 const googleDriveReferenceStagingCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
@@ -914,8 +916,23 @@ app.get("/api/catalog/sku-search", requireUser, async (req, res) => {
 
 app.get("/api/catalog/sku/:sku", requireUser, async (req, res) => {
   try {
-    const item = await readWebSkuPickerItem(req.params.sku);
-    if (!item) {
+    const result = await readWebSkuPickerItemFast(req.params.sku);
+    logExactSkuLookupDiagnostic({
+      sku: req.params.sku,
+      status: result.warming ? "warming" : result.item ? "found" : "not_found",
+      diagnostics: result.diagnostics
+    });
+    if (result.warming) {
+      return res.status(202).json({
+        ok: false,
+        code: "catalog_warming",
+        status: "warming",
+        error: "กำลังเตรียมข้อมูล catalog ครั้งแรก...",
+        retry_after_ms: result.retryAfterMs || 1000,
+        diagnostics: result.diagnostics
+      });
+    }
+    if (!result.item) {
       return res.status(404).json({
         ok: false,
         code: "catalog_sku_not_found",
@@ -924,8 +941,9 @@ app.get("/api/catalog/sku/:sku", requireUser, async (req, res) => {
     }
     res.json({
       ok: true,
-      item,
-      source: "catalog_snapshot"
+      item: result.item,
+      source: "catalog_snapshot",
+      diagnostics: result.diagnostics
     });
   } catch (error) {
     console.error("Exact SKU lookup failed:", readableError(error));
@@ -964,8 +982,62 @@ app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
 });
 
 async function readWebSkuPickerItem(sku = "") {
-  const snapshot = await loadWebSkuPickerCatalogSnapshot();
-  return findWebSkuPickerItemBySku(snapshot.rows, sku);
+  const index = await loadWebSkuPickerSkuIndex();
+  return findWebSkuPickerItemBySku(index, sku);
+}
+
+async function readWebSkuPickerItemFast(sku = "", { warmWaitMs = 700, retryAfterMs = 1000 } = {}) {
+  const startedAt = Date.now();
+  const warmStartedAt = Date.now();
+  if (!webSkuPickerIndexWarmPromise) {
+    webSkuPickerIndexWarmPromise = loadWebSkuPickerSkuIndex()
+      .finally(() => {
+        webSkuPickerIndexWarmPromise = null;
+      });
+  }
+
+  const raceResult = await Promise.race([
+    webSkuPickerIndexWarmPromise.then((index) => ({ index })),
+    delay(warmWaitMs).then(() => ({ warming: true }))
+  ]);
+
+  if (raceResult.warming) {
+    return {
+      warming: true,
+      retryAfterMs,
+      diagnostics: {
+        load_ms: Date.now() - warmStartedAt,
+        normalize_ms: 0,
+        lookup_ms: 0,
+        total_ms: Date.now() - startedAt
+      }
+    };
+  }
+
+  const lookupStartedAt = Date.now();
+  const item = findWebSkuPickerItemBySku(raceResult.index, sku);
+  const lookupMs = Date.now() - lookupStartedAt;
+  return {
+    warming: false,
+    item,
+    diagnostics: {
+      load_ms: Number(raceResult.index?.diagnostics?.load_ms || 0),
+      normalize_ms: Number(raceResult.index?.diagnostics?.normalize_ms || 0),
+      lookup_ms: lookupMs,
+      total_ms: Date.now() - startedAt
+    }
+  };
+}
+
+function logExactSkuLookupDiagnostic({ sku = "", status = "", diagnostics = {} } = {}) {
+  console.info("[catalog] exact sku lookup", {
+    sku: sanitizeSku(sku),
+    status,
+    load_ms: Number(diagnostics.load_ms || 0),
+    normalize_ms: Number(diagnostics.normalize_ms || 0),
+    lookup_ms: Number(diagnostics.lookup_ms || 0),
+    total_ms: Number(diagnostics.total_ms || 0)
+  });
 }
 
 async function buildWebSkuReferencePayload(item = {}) {
@@ -8951,6 +9023,10 @@ function publicError(status, code, publicMessage) {
   error.code = code;
   error.publicMessage = publicMessage;
   return error;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isRetryableGeneration(generation) {
