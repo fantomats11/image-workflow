@@ -98,15 +98,35 @@ test("support prompt stays short Thai hero-led slot output", () => {
   }, "side_fit_on_model", 1, 3);
 
   assert.match(prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว\nสร้างภาพ/);
-  assert.match(prompt, /นางแบบสวมสินค้า/);
+  assert.match(prompt, /คนจริงสวมสินค้า/);
   assert.match(prompt, /มุมด้านข้างหรือเฉียง 45 องศา/);
   assert.match(prompt, /โลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขน/);
   assert.match(prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
-  assert.match(prompt, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง/);
+  assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
+  assert.match(prompt, /ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่/);
   assert.doesNotMatch(prompt, /approved hero|hero anchor/i);
   assert.ok(prompt.length < 500);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(prompt, /Use-case guidance|Change only the angle|กลุ่มเป้าหมาย|บริบทธุรกิจ/i);
+});
+
+test("back support prompt blocks mannequin drift and prioritizes original back reference", () => {
+  const prompt = buildSupportPromptV3({
+    sku: "FSTR260021",
+    product_type: "sale",
+    target_site: "gomall",
+    product_name: "FSTR260021",
+    category: "เสื้อ",
+    approved_hero_anchor: {
+      url: "https://cdn.example.com/hero.png"
+    }
+  }, "back_fit_on_model", 2, 3);
+
+  assert.match(prompt, /คนจริงสวมสินค้าจากมุมด้านหลัง/);
+  assert.match(prompt, /ยึดภาพด้านหลังต้นฉบับเป็น visual truth/);
+  assert.match(prompt, /ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin/);
+  assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
+  assert.ok(prompt.length < 500);
 });
 
 test("small accessory support prompts force tight product-focused crops", () => {

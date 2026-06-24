@@ -73,7 +73,7 @@
         </nav>
 
         <section class="sidebar-note">
-          <p>ระบบสร้างภาพสินค้า คุม QC ติดตามงาน และส่งออก Google Drive สำหรับทีม Production</p>
+          <p>Production workflow สำหรับเลือก SKU สร้าง Hero ตรวจ QC และส่งออกไฟล์ภาพ</p>
         </section>
       </aside>
 
@@ -105,21 +105,21 @@
           <form class="panel request-panel intake-panel" id="requestForm">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Step 1</p>
-                <h3 id="request">ตั้งค่างานและอัปโหลด Reference</h3>
+                <p class="eyebrow">Create</p>
+                <h3 id="request">เลือก SKU และ Reference</h3>
               </div>
               <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
             </div>
 
             <div class="create-brief">
               <div class="section-note">
-                เลือกข้อมูลเท่าที่จำเป็น ระบบจะล็อก prompt structure, crop, layering และช็อตที่เหมาะกับสินค้าให้เอง
+                เริ่มจาก SKU เดียว ระบบจะเติมข้อมูลสินค้าและเตรียม reference จาก Drive ให้ก่อนสร้าง Hero
               </div>
               <div class="create-brief-steps" aria-label="Create workflow">
-                <span>Ref first</span>
-                <span>Hero only</span>
-                <span>QC gate</span>
-                <span>Support after approval</span>
+                <span>SKU</span>
+                <span>Reference</span>
+                <span>Hero</span>
+                <span>QC</span>
               </div>
             </div>
 
@@ -128,8 +128,8 @@
                 <div class="control-section-header">
                   <span>01</span>
                   <div>
-                    <strong>Job Identity</strong>
-                    <small>ระบุผู้ทำงาน SKU และ brand logic ก่อนสร้างภาพ</small>
+                    <strong>SKU & Reference</strong>
+                    <small>เลือก SKU เพื่อเติมข้อมูลสินค้าและโหลดภาพอ้างอิง</small>
                   </div>
                 </div>
                 <div class="form-grid">
@@ -178,14 +178,14 @@
                 </div>
               </section>
 
-              <section class="control-section">
-                <div class="control-section-header">
+              <details class="control-section catalog-secondary-section" id="productDirectionSection" open>
+                <summary class="control-section-header">
                   <span>02</span>
                   <div>
                     <strong>Product Direction</strong>
-                    <small>กำหนดหมวด สี จุดเด่น และขนาด output</small>
+                    <small>ระบบเติมจาก catalog แล้ว ปรับเฉพาะกรณีพิเศษ</small>
                   </div>
-                </div>
+                </summary>
                 <div class="form-grid">
                   <label>
                     หมวดสินค้า
@@ -232,16 +232,16 @@
                     <select id="quality"></select>
                   </label>
                 </div>
-              </section>
+              </details>
 
-              <section class="control-section reference-dock">
-                <div class="control-section-header">
+              <details class="control-section reference-dock catalog-secondary-section" id="referenceInputSection" open>
+                <summary class="control-section-header">
                   <span>03</span>
                   <div>
-                    <strong>ภาพอ้างอิงสินค้า</strong>
-                    <small>ภาพจริงเป็นข้อมูลหลักสำหรับตรวจโลโก้ สี และทรงสินค้า</small>
+                    <strong>Reference fallback</strong>
+                    <small>ใช้เมื่อ Drive staging ยังไม่พร้อมหรืออยากอัปโหลดเอง</small>
                   </div>
-                </div>
+                </summary>
                 <label class="full-width">
                   ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
                   <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
@@ -267,21 +267,21 @@
                     </div>
                   </div>
                 </details>
-              </section>
+              </details>
 
-              <section class="control-section">
-                <div class="control-section-header">
+              <details class="control-section catalog-secondary-section" id="jobNotesSection" open>
+                <summary class="control-section-header">
                   <span>04</span>
                   <div>
                     <strong>หมายเหตุสำหรับงานนี้</strong>
-                    <small>ใช้ล็อกข้อห้าม เช่น ห้ามเปลี่ยนโลโก้ ห้ามเปลี่ยนสี</small>
+                    <small>ข้อห้ามหรือ detail ที่ catalog ยังไม่รู้</small>
                   </div>
-                </div>
+                </summary>
                 <label class="full-width">
                   หมายเหตุเพิ่มเติม
                   <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
                 </label>
-              </section>
+              </details>
             </div>
 
             <div class="actions action-bar">

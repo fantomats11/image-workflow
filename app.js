@@ -1413,17 +1413,15 @@ function renderSkuPickerStatus(message = "") {
   const productSummary = [
     selectedCatalogSku.branch || "",
     [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / "),
-    selectedCatalogSku.feature_notes || "",
     selectedCatalogSku.reference_url ? "มี Google Drive reference" : ""
   ].filter(Boolean);
   els.skuPickerStatus.classList.add(status === "blocked" ? "is-blocked" : status === "ready" ? "is-ready" : "is-warning");
   els.skuPickerStatus.textContent = [
-    `เลือกแล้ว: ${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
+    `${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
     productSummary.length ? `ข้อมูลสินค้า: ${productSummary.join(" · ")}` : "",
-    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero" : "",
-    `สถานะ reference: ${readiness?.label_th || status}`,
-    blockers.length ? `Blocker: ${blockers.join(" · ")}` : "",
-    warnings.length ? `ต้องตรวจเอง: ${warnings.join(" · ")}` : ""
+    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero" : `Reference: ${readiness?.label_th || status}`,
+    blockers.length ? blockers[0] : "",
+    warnings.length && !blockers.length ? warnings[0] : ""
   ].filter(Boolean).join("\n");
   updateActionAvailability();
 }
@@ -1493,8 +1491,13 @@ function renderReferenceReadinessCard(message = "") {
       ${countLabels.map(([label, value]) => `<span><strong>${Number(value || 0)}</strong>${escapeHtml(label)}</span>`).join("")}
     </div>
     ${view.driveUrl ? `<a class="reference-drive-link" href="${escapeHtml(view.driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a>` : ""}
-    ${view.blockers.length ? `<small class="danger-text">${escapeHtml(view.blockers.join(" · "))}</small>` : ""}
-    ${view.warnings.length ? `<small>${escapeHtml(view.warnings.join(" · "))}</small>` : ""}
+    ${view.blockers.length || view.warnings.length ? `
+      <details class="reference-diagnostics">
+        <summary>รายละเอียดที่ต้องตรวจ</summary>
+        ${view.blockers.length ? `<small class="danger-text">${escapeHtml(view.blockers.join(" · "))}</small>` : ""}
+        ${view.warnings.length ? `<small>${escapeHtml(view.warnings.join(" · "))}</small>` : ""}
+      </details>
+    ` : ""}
   `;
 }
 
@@ -1724,7 +1727,11 @@ function stopSkuWorkClaimPolling() {
 
 function updateCatalogDrivenFieldHierarchy() {
   const catalogDrivenSelected = Boolean(selectedCatalogSku?.sku);
-  if (els.form) els.form.classList.toggle("catalog-driven-selected", catalogDrivenSelected);
+  const wasCatalogDriven = els.form?.dataset.catalogDrivenSelected === "true";
+  if (els.form) {
+    els.form.classList.toggle("catalog-driven-selected", catalogDrivenSelected);
+    els.form.dataset.catalogDrivenSelected = String(catalogDrivenSelected);
+  }
   [els.productSku, els.imageReference].forEach((field) => {
     if (!field) return;
     field.readOnly = catalogDrivenSelected;
@@ -1743,9 +1750,29 @@ function updateCatalogDrivenFieldHierarchy() {
     if (!field) return;
     field.classList.toggle("catalog-derived-field", catalogDrivenSelected);
   });
+  const secondarySections = [
+    document.getElementById("productDirectionSection"),
+    document.getElementById("jobNotesSection")
+  ].filter(Boolean);
+  if (catalogDrivenSelected && !wasCatalogDriven) {
+    secondarySections.forEach((section) => {
+      section.open = false;
+    });
+  } else if (!catalogDrivenSelected) {
+    secondarySections.forEach((section) => {
+      section.open = true;
+    });
+  }
   if (els.fallbackReferenceSection && catalogDrivenSelected && !hasManualProductReferenceUpload()) {
     const needsFallback = getReferenceReadinessViewModel().state === "manual_fallback_needed";
     els.fallbackReferenceSection.open = needsFallback;
+  }
+  const referenceInputSection = document.getElementById("referenceInputSection");
+  if (referenceInputSection) {
+    const needsFallback = !catalogDrivenSelected || getReferenceReadinessViewModel().state === "manual_fallback_needed";
+    if (!wasCatalogDriven || !catalogDrivenSelected || needsFallback) {
+      referenceInputSection.open = needsFallback;
+    }
   }
 }
 
@@ -1776,10 +1803,9 @@ function renderCatalogReferencePanel(message = "") {
   ].filter(Boolean).join(" · ");
   els.catalogReferenceStatus.textContent = message || [
     catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero..." : "",
-    `พร้อมใช้กับ Hero: ${stageable.length} รูป`,
+    `Hero-ready ${stageable.length} รูป`,
     stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
-    sourceTextParts,
-    "ตรวจด้วยตาว่าเป็นภาพสินค้าจริง ไม่ใช่ tag/barcode/SKU card"
+    sourceTextParts
   ].filter(Boolean).join(" · ");
   if (els.useCatalogReferencesButton) {
     els.useCatalogReferencesButton.disabled = catalogReferenceLoading || !stageable.length;
@@ -1809,10 +1835,10 @@ function renderCatalogReferencePanel(message = "") {
         </div>
         <div class="catalog-reference-meta">
           <strong>${escapeHtml(reference.label_th || "reference")}</strong>
-          <span>${escapeHtml(reference.source || "-")} · ${reference.stage_available ? "ใช้กับ Hero ได้" : "ต้องอัปโหลดเอง"}</span>
+          <span>${reference.stage_available ? "Hero-ready" : "Fallback needed"} · ${escapeHtml(reference.source || "-")}</span>
           ${isStaged ? `<small class="success-text">แนบแล้ว</small>` : ""}
-          ${warnings.length ? `<small>${escapeHtml(warnings.slice(0, 2).join(" · "))}</small>` : ""}
-          ${blockers.length || blockerDetail ? `<small class="danger-text">${escapeHtml([blockerDetail, ...blockers].filter(Boolean).join(" · "))}</small>` : ""}
+          ${warnings.length ? `<small>${escapeHtml(warnings.slice(0, 1).join(" · "))}</small>` : ""}
+          ${blockers.length || blockerDetail ? `<small class="danger-text">${escapeHtml([blockerDetail, ...blockers].filter(Boolean).slice(0, 2).join(" · "))}</small>` : ""}
         </div>
       </article>
     `;
@@ -3535,7 +3561,7 @@ function buildSupportPrompt(shot, shotIndex, totalShots) {
     "อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว",
     buildManualSupportCreateLine(shot),
     buildManualSupportTruthLine(),
-    "ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง"
+    buildManualSupportPresentationLine(shot)
   ].join("\n");
 }
 
@@ -3582,12 +3608,27 @@ function buildManualSupportTruthLine() {
   return "สี ทรง วัสดุ โลโก้ ป้ายจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
 }
 
+function buildManualSupportPresentationLine(shot) {
+  const normalizedShot = String(shot || "").trim();
+  if (normalizedShot === "ด้านหลัง") {
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง";
+  }
+  if (normalizedShot === "ด้านข้าง") {
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก";
+  }
+  return "ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง";
+}
+
 function describeManualSupportShotV3(shot) {
   const group = resolveManualProductUseCaseGroup();
   const normalizedShot = String(shot || "").trim();
+  if (normalizedShot === "ด้านหลัง") {
+    if (group === "upper_outerwear" || group === "long_outerwear") return "คนจริงสวมสินค้าจากมุมด้านหลัง ให้เห็นดีไซน์ด้านหลัง ฮู้ด ทรงไหล่ ความยาว ตะเข็บ และรายละเอียดจริงจากภาพต้นฉบับ";
+    return "สินค้ามุมด้านหลัง ให้เห็นดีไซน์ด้านหลัง ความยาว ทรงไหล่ ตะเข็บ ฮู้ด ปก หรือรายละเอียดที่ภาพด้านหน้าไม่เห็น";
+  }
   if (normalizedShot === "ด้านข้าง") {
     if (group === "footwear") return "รองเท้ามุมด้านข้าง ให้เห็นทรง ความสูง พื้นรองเท้า หัวรองเท้า เชือกหรือสายรัด และสัดส่วนเมื่อใช้งานจริง";
-    if (group === "upper_outerwear" || group === "long_outerwear") return "นางแบบสวมสินค้าจากมุมด้านข้างหรือเฉียง 45 องศา ให้เห็นทรง ความหนา ความยาว การเข้ารูปจริง และโลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขนถ้ามีในภาพต้นฉบับ";
+    if (group === "upper_outerwear" || group === "long_outerwear") return "คนจริงสวมสินค้าจากมุมด้านข้างหรือเฉียง 45 องศา ให้เห็นทรง ความหนา ความยาว การเข้ารูปจริง และโลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขนถ้ามีในภาพต้นฉบับ";
     return "สินค้ามุมด้านข้างหรือเฉียง 45 องศา ให้เห็นทรง ความหนา ความยาว และสัดส่วนการใช้งานจริงอย่างชัดเจน";
   }
   if (normalizedShot === "มุมบน") {
