@@ -28,6 +28,13 @@ import { listGoogleDriveReferenceImageFiles } from "./lib/automation/google-driv
 import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
+import {
+  SKU_WORK_CLAIM_TTL_MS,
+  claimSkuWorkState,
+  createEmptySkuWorkState,
+  releaseSkuWorkState,
+  serializeSkuWorkClaimForUser
+} from "./lib/automation/sku-work-claim-state.mjs";
 import { buildLiveSupportCandidateManifest } from "./lib/automation/live-support-candidate-manifest.mjs";
 import { buildMediaExportPreflightGate } from "./lib/automation/media-export-preflight-gate.mjs";
 import { GENERATE_BATCH_TASK } from "./lib/automation/pilot-generation-execution-plan.mjs";
@@ -982,6 +989,133 @@ app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
   }
 });
 
+app.get("/api/sku-work/:sku", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
+    }
+    const sku = sanitizeSku(req.params.sku || "").toUpperCase();
+    if (!sku) return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
+    const state = await readSkuWorkStateBySku(sku);
+    res.json({
+      ok: true,
+      claim: serializeSkuWorkClaimForUser(state || createEmptySkuWorkState({ sku }), { viewerId: req.user.id })
+    });
+  } catch (error) {
+    console.error("SKU work status failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "sku_work_status_failed",
+      error: "โหลดสถานะ claim ของ SKU ไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/sku-work/:sku/claim", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
+    }
+    const sku = sanitizeSku(req.params.sku || "").toUpperCase();
+    if (!sku) return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
+    const submittedVersion = normalizeSubmittedVersion(req.body?.version ?? req.body?.submittedVersion);
+    const current = await readSkuWorkStateBySku(sku);
+    const result = claimSkuWorkState({
+      current: current || createEmptySkuWorkState({ sku }),
+      submittedVersion,
+      actorId: req.user.id,
+      actorLabel: profileDisplayLabel(profileCheck.profile, req.user),
+      ttlMs: SKU_WORK_CLAIM_TTL_MS
+    });
+
+    if (!result.ok) {
+      return res.status(409).json({
+        ok: false,
+        code: result.code,
+        error: result.code === "sku_work_claim_conflict"
+          ? `SKU นี้ถูก claim โดย ${result.conflict.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
+          : "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่",
+        claim: serializeSkuWorkClaimForUser(current || createEmptySkuWorkState({ sku }), { viewerId: req.user.id }),
+        conflict: result.conflict
+      });
+    }
+
+    const persisted = current
+      ? await updateSkuWorkStateWithVersion({ state: result.state, submittedVersion })
+      : await insertSkuWorkState(result.state).catch((error) => {
+        if (isUniqueViolation(error)) return null;
+        throw error;
+      });
+
+    if (!persisted) {
+      const latest = await readSkuWorkStateBySku(sku);
+      return res.status(409).json({
+        ok: false,
+        code: "sku_work_version_conflict",
+        error: "สถานะ SKU เปลี่ยนระหว่างที่กำลัง claim กรุณาโหลดสถานะใหม่",
+        claim: serializeSkuWorkClaimForUser(latest || createEmptySkuWorkState({ sku }), { viewerId: req.user.id })
+      });
+    }
+
+    res.json({
+      ok: true,
+      claim: serializeSkuWorkClaimForUser(persisted, { viewerId: req.user.id })
+    });
+  } catch (error) {
+    console.error("SKU work claim failed:", readableError(error));
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "sku_work_claim_failed",
+      error: error.publicMessage || "claim SKU ไม่สำเร็จ"
+    });
+  }
+});
+
+app.post("/api/sku-work/:sku/release", requireUser, async (req, res) => {
+  try {
+    const profileCheck = await getWorkflowProfileForUser(req.user.id);
+    if (!profileCheck.ok) {
+      return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
+    }
+    const sku = sanitizeSku(req.params.sku || "").toUpperCase();
+    if (!sku) return sendApiError(res, 400, "sku_required", "กรุณาระบุ SKU");
+    const current = await readSkuWorkStateBySku(sku);
+    const result = releaseSkuWorkState({
+      current: current || createEmptySkuWorkState({ sku }),
+      actorId: req.user.id,
+      actorRole: profileCheck.profile.role || "staff"
+    });
+
+    if (!result.ok) {
+      return res.status(403).json({
+        ok: false,
+        code: result.code,
+        error: `SKU นี้ถูก claim โดย ${result.conflict.locked_by_label || "ทีมอื่น"} อยู่ จึง release ไม่ได้`,
+        claim: serializeSkuWorkClaimForUser(current || createEmptySkuWorkState({ sku }), { viewerId: req.user.id }),
+        conflict: result.conflict
+      });
+    }
+
+    const persisted = current
+      ? await updateSkuWorkStateWithVersion({ state: result.state, submittedVersion: Number(current.version || 0) })
+      : await insertSkuWorkState(result.state);
+
+    res.json({
+      ok: true,
+      claim: serializeSkuWorkClaimForUser(persisted || result.state, { viewerId: req.user.id })
+    });
+  } catch (error) {
+    console.error("SKU work release failed:", readableError(error));
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "sku_work_release_failed",
+      error: error.publicMessage || "release SKU ไม่สำเร็จ"
+    });
+  }
+});
+
 async function readWebSkuPickerItem(sku = "") {
   const index = await loadWebSkuPickerSkuIndex();
   return findWebSkuPickerItemBySku(index, sku);
@@ -1048,6 +1182,140 @@ function logExactSkuLookupDiagnostic({ sku = "", status = "", diagnostics = {} }
     lookup_ms: Number(diagnostics.lookup_ms || 0),
     total_ms: Number(diagnostics.total_ms || 0)
   });
+}
+
+function normalizeSubmittedVersion(value) {
+  const version = Number(value);
+  return Number.isInteger(version) && version >= 0 ? version : 0;
+}
+
+function profileDisplayLabel(profile = {}, user = {}) {
+  return cleanOptionalString(profile.full_name)
+    || cleanOptionalString(profile.email)
+    || cleanOptionalString(user.email)
+    || shortServerId(profile.id || user.id)
+    || "ทีมงาน";
+}
+
+async function readSkuWorkStateBySku(sku = "") {
+  const normalizedSku = sanitizeSku(sku || "").toUpperCase();
+  if (!normalizedSku) return null;
+  const { data, error } = await supabaseAdmin
+    .from("sku_work_states")
+    .select("sku, status, version, locked_by, locked_at, expires_at, metadata, created_at, updated_at")
+    .eq("sku", normalizedSku)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function readSkuWorkStatesForSkus(skus = []) {
+  const normalizedSkus = [...new Set(skus.map((sku) => sanitizeSku(sku || "").toUpperCase()).filter(Boolean))];
+  if (!normalizedSkus.length) return new Map();
+  const { data, error } = await supabaseAdmin
+    .from("sku_work_states")
+    .select("sku, status, version, locked_by, locked_at, expires_at, metadata, created_at, updated_at")
+    .in("sku", normalizedSkus);
+  if (error) {
+    if (isMissingSkuWorkStateTable(error)) {
+      console.warn("SKU work state table unavailable; claim badges omitted:", readableError(error));
+      return new Map();
+    }
+    throw error;
+  }
+  return new Map((data || []).map((row) => [sanitizeSku(row.sku || "").toUpperCase(), row]));
+}
+
+async function insertSkuWorkState(state = {}) {
+  const row = skuWorkStateRow(state);
+  const { data, error } = await supabaseAdmin
+    .from("sku_work_states")
+    .insert(row)
+    .select("sku, status, version, locked_by, locked_at, expires_at, metadata, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function updateSkuWorkStateWithVersion({ state = {}, submittedVersion = 0 } = {}) {
+  const row = skuWorkStateRow(state);
+  const { data, error } = await supabaseAdmin
+    .from("sku_work_states")
+    .update(row)
+    .eq("sku", row.sku)
+    .eq("version", submittedVersion)
+    .select("sku, status, version, locked_by, locked_at, expires_at, metadata, created_at, updated_at")
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+function skuWorkStateRow(state = {}) {
+  return {
+    sku: sanitizeSku(state.sku || "").toUpperCase(),
+    status: state.status || "available",
+    version: normalizeSubmittedVersion(state.version),
+    locked_by: state.locked_by || null,
+    locked_at: state.locked_at || null,
+    expires_at: state.expires_at || null,
+    metadata: state.metadata && typeof state.metadata === "object" && !Array.isArray(state.metadata)
+      ? state.metadata
+      : {}
+  };
+}
+
+function isUniqueViolation(error) {
+  return error?.code === "23505" || /duplicate key|unique/i.test(String(error?.message || ""));
+}
+
+function isMissingSkuWorkStateTable(error) {
+  return error?.code === "42P01" || /sku_work_states|relation .* does not exist/i.test(String(error?.message || ""));
+}
+
+async function ensureSkuWorkClaimAllowsGeneration({ sku = "", userId = "", actorLabel = "" } = {}) {
+  const normalizedSku = sanitizeSku(sku || "").toUpperCase();
+  if (!normalizedSku) return null;
+  const current = await readSkuWorkStateBySku(normalizedSku);
+  const visibleClaim = serializeSkuWorkClaimForUser(current || createEmptySkuWorkState({ sku: normalizedSku }), { viewerId: userId });
+  if (visibleClaim.status === "claimed_by_other") {
+    throw publicError(
+      409,
+      "sku_work_claim_conflict",
+      `SKU นี้ถูก claim โดย ${visibleClaim.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
+    );
+  }
+  if (visibleClaim.status === "claimed_by_me") return visibleClaim;
+
+  const submittedVersion = Number(current?.version || 0);
+  const result = claimSkuWorkState({
+    current: current || createEmptySkuWorkState({ sku: normalizedSku }),
+    submittedVersion,
+    actorId: userId,
+    actorLabel,
+    ttlMs: SKU_WORK_CLAIM_TTL_MS
+  });
+  if (!result.ok) {
+    throw publicError(409, result.code, "สถานะ SKU เปลี่ยนระหว่างที่กำลังเริ่มงาน กรุณาโหลดสถานะใหม่");
+  }
+  const persisted = current
+    ? await updateSkuWorkStateWithVersion({ state: result.state, submittedVersion })
+    : await insertSkuWorkState(result.state).catch((error) => {
+      if (isUniqueViolation(error)) return null;
+      throw error;
+    });
+  if (!persisted) {
+    const latest = await readSkuWorkStateBySku(normalizedSku);
+    const latestClaim = serializeSkuWorkClaimForUser(latest || createEmptySkuWorkState({ sku: normalizedSku }), { viewerId: userId });
+    if (latestClaim.status === "claimed_by_other") {
+      throw publicError(
+        409,
+        "sku_work_claim_conflict",
+        `SKU นี้ถูก claim โดย ${latestClaim.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
+      );
+    }
+    throw publicError(409, "sku_work_version_conflict", "สถานะ SKU เปลี่ยนระหว่างที่กำลังเริ่มงาน กรุณาโหลดสถานะใหม่");
+  }
+  return serializeSkuWorkClaimForUser(persisted, { viewerId: userId });
 }
 
 async function buildWebSkuReferencePayload(item = {}) {
@@ -1546,7 +1814,7 @@ app.get("/api/jobs", requireUser, async (req, res) => {
       });
     }
 
-    const result = await buildProductionJobsView(req.query);
+    const result = await buildProductionJobsView(req.query, { viewerId: req.user.id });
     res.json({ ok: true, ...result });
   } catch (error) {
     console.error("Jobs production view failed:", readableError(error));
@@ -2479,6 +2747,11 @@ app.post(
         mustChangePassword: profileCheck.profile.must_change_password
       });
 
+      await ensureSkuWorkClaimAllowsGeneration({
+        sku: req.body?.sku,
+        userId: req.user.id,
+        actorLabel: profileDisplayLabel(profileCheck.profile, req.user)
+      });
       await resolveCatalogReferencesForGenerateRequest(req);
       const validation = validateGenerateRequest(req);
       if (validation) {
@@ -2581,6 +2854,11 @@ app.post(
     if (!profileCheck.ok) {
       return res.status(profileCheck.status).json({ ok: false, code: profileCheck.code, error: profileCheck.error });
     }
+    await ensureSkuWorkClaimAllowsGeneration({
+      sku: req.body?.sku,
+      userId: req.user.id,
+      actorLabel: profileDisplayLabel(profileCheck.profile, req.user)
+    });
     await resolveCatalogReferencesForGenerateRequest(req);
     const validation = validateGenerateRequest(req);
     if (validation) return res.status(validation.status).json({ ok: false, code: validation.code || "invalid_request", error: validation.error });
@@ -8226,7 +8504,7 @@ function formatCost(value) {
   });
 }
 
-async function buildProductionJobsView(query = {}) {
+async function buildProductionJobsView(query = {}, { viewerId = "" } = {}) {
   const range = normalizeKpiRange(query.range);
   const paginationInput = normalizeProductionPagination(query);
   const statusFilter = String(query.status || "").trim().toLowerCase();
@@ -8287,6 +8565,9 @@ async function buildProductionJobsView(query = {}) {
   const batchItemBySku = await readProductionBatchItemsBySku(
     jobs.map((job) => job.sku || job.form_json?.sku || "")
   );
+  const skuWorkStateBySku = await readSkuWorkStatesForSkus(
+    jobs.map((job) => job.sku || job.form_json?.sku || "")
+  );
   const userIds = collectMonitoringUserIds(jobs, generations, approvals, assets, auditEvents);
   const profiles = await readKpiProfiles(userIds);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
@@ -8305,7 +8586,12 @@ async function buildProductionJobsView(query = {}) {
       approvalGenerationIds,
       approvalByGenerationId,
       batchItem: batchItemBySku.get(sanitizeSku(job.sku || job.form_json?.sku || "")),
-      profile: profileById.get(job.created_by)
+      profile: profileById.get(job.created_by),
+      claimStatus: serializeSkuWorkClaimForUser(
+        skuWorkStateBySku.get(sanitizeSku(job.sku || job.form_json?.sku || "").toUpperCase())
+          || createEmptySkuWorkState({ sku: job.sku || job.form_json?.sku || "" }),
+        { viewerId }
+      )
     }))
     .filter((job) => {
       if (!productionJobMatchesRange(job, rangeMeta)) return false;
@@ -8800,7 +9086,7 @@ function normalizeProductionWorkflowAsset(asset = {}, extra = {}) {
   };
 }
 
-function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, batchItem, profile }) {
+function serializeProductionJob({ job, generations, assets, auditEvents, approvalGenerationIds, approvalByGenerationId, batchItem, profile, claimStatus = null }) {
   const sortedGenerations = [...generations].sort((a, b) => new Date(b.completed_at || b.created_at || 0) - new Date(a.completed_at || a.created_at || 0));
   const latestGeneration = sortedGenerations[0] || null;
   const heroGeneration = sortedGenerations.find((generation) => String(generation.kind || "").toLowerCase() === "hero") || sortedGenerations[0] || null;
@@ -8858,6 +9144,7 @@ function serializeProductionJob({ job, generations, assets, auditEvents, approva
     createdAt: job.created_at || null,
     updatedAt: job.updated_at || null,
     createdBy: serializeProductionUser(profile, job.created_by),
+    claimStatus,
     generationStatus: latestGeneration?.status || "",
     latestGenerationId: reviewGeneration?.id || null,
     latestOutputGenerationId: latestGeneration?.id || null,

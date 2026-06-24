@@ -683,6 +683,7 @@ label {
 }
 
 .selected-product-summary,
+.sku-work-claim-card,
 .reference-readiness-card {
   display: grid;
   gap: 10px;
@@ -693,11 +694,13 @@ label {
 }
 
 .selected-product-summary[hidden],
+.sku-work-claim-card[hidden],
 .reference-readiness-card[hidden] {
   display: none;
 }
 
 .selected-product-summary-heading,
+.sku-work-claim-heading,
 .reference-readiness-heading {
   display: flex;
   justify-content: space-between;
@@ -707,6 +710,7 @@ label {
 }
 
 .selected-product-summary-heading strong,
+.sku-work-claim-heading strong,
 .reference-readiness-heading strong {
   color: var(--ink);
   font-size: 13px;
@@ -714,6 +718,7 @@ label {
 }
 
 .selected-product-summary-heading span,
+.sku-work-claim-heading span,
 .reference-readiness-heading span {
   border-radius: 999px;
   background: var(--surface-muted);
@@ -763,6 +768,44 @@ label {
 .selected-product-summary a:hover,
 .reference-drive-link:hover {
   text-decoration: underline;
+}
+
+.sku-work-claim-card {
+  border-left: 4px solid var(--line-strong);
+}
+
+.sku-work-claim-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.sku-work-claim-card small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.claim-state-loading {
+  border-left-color: var(--info);
+  background: rgba(35, 102, 126, 0.07);
+}
+
+.claim-state-ready {
+  border-left-color: var(--success);
+  background: rgba(25, 135, 84, 0.08);
+}
+
+.claim-state-warning {
+  border-left-color: var(--warning);
+  background: rgba(180, 119, 12, 0.08);
+}
+
+.claim-state-blocked {
+  border-left-color: var(--danger);
+  background: rgba(190, 18, 60, 0.08);
 }
 
 .reference-readiness-card {
@@ -2123,6 +2166,40 @@ tbody tr:hover {
   font-size: 12px;
   font-weight: 750;
   line-height: 1.45;
+}
+
+.claim-status-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.claim-status-badge.ready {
+  border-color: rgba(25, 135, 84, 0.35);
+  background: rgba(25, 135, 84, 0.08);
+  color: var(--success);
+}
+
+.claim-status-badge.blocked {
+  border-color: rgba(190, 18, 60, 0.3);
+  background: rgba(190, 18, 60, 0.08);
+  color: var(--danger);
+}
+
+.claim-status-badge.available {
+  border-color: rgba(35, 102, 126, 0.25);
+  background: rgba(35, 102, 126, 0.07);
+  color: var(--info);
 }
 
 .production-status-stack {
