@@ -451,11 +451,14 @@ const els = {
   heroReviewTitle: document.getElementById("heroReviewTitle"),
   heroReviewStatus: document.getElementById("heroReviewStatus"),
   heroReviewMeta: document.getElementById("heroReviewMeta"),
+  heroReviewProductSummary: document.getElementById("heroReviewProductSummary"),
+  heroReviewReferenceSummary: document.getElementById("heroReviewReferenceSummary"),
   heroReviewRefCount: document.getElementById("heroReviewRefCount"),
   heroReviewGenerationId: document.getElementById("heroReviewGenerationId"),
   heroReviewRefs: document.getElementById("heroReviewRefs"),
   heroReviewHero: document.getElementById("heroReviewHero"),
   heroReviewSupportSet: document.getElementById("heroReviewSupportSet"),
+  heroReviewApprovedAnchor: document.getElementById("heroReviewApprovedAnchor"),
   heroReviewSupportCount: document.getElementById("heroReviewSupportCount"),
   heroReviewSupportAssets: document.getElementById("heroReviewSupportAssets"),
   batchReviewTitle: document.getElementById("batchReviewTitle"),
@@ -472,6 +475,7 @@ const els = {
   batchDebugContent: document.getElementById("batchDebugContent"),
   supportReviewSaveButton: document.getElementById("supportReviewSaveButton"),
   heroReviewDecisionDock: document.getElementById("heroReviewDecisionDock"),
+  heroReviewRegenerateReason: document.getElementById("heroReviewRegenerateReason"),
   heroReviewApproveButton: document.getElementById("heroReviewApproveButton"),
   heroReviewRegenerateButton: document.getElementById("heroReviewRegenerateButton"),
   heroReviewMessage: document.getElementById("heroReviewMessage"),
@@ -6552,7 +6556,45 @@ function getSupportDecisionMap(review = {}) {
     ? review.support_review_decision_state.assets
     : [];
   const legacyAssets = Array.isArray(review.support_review_decisions) ? review.support_review_decisions : [];
-  return new Map([...legacyAssets, ...stateAssets].map((item) => [getSupportAssetKey(item), item.decision || ""]));
+  return new Map([...legacyAssets, ...stateAssets].map((item) => [getSupportAssetKey(item), item]));
+}
+
+function renderHeroReviewProductSummary(review = {}, { sku = "" } = {}) {
+  if (!els.heroReviewProductSummary) return;
+  const job = review.job || {};
+  const rows = [
+    ["SKU", sku || review.sku || job.sku || "-"],
+    ["Product", job.product_name || review.product_name || "-"],
+    ["Category", job.product_type || job.category || review.category || "-"],
+    ["Stage", review.review_stage || "hero_review"],
+    ["Hero gate", review.hero_approved === true || review.approved === true ? "approved" : "pending"]
+  ];
+  els.heroReviewProductSummary.innerHTML = `
+    <strong>SKU/product summary</strong>
+    <dl>
+      ${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}
+    </dl>
+  `;
+}
+
+function renderHeroReviewReferenceSummary(review = {}, refs = []) {
+  if (!els.heroReviewReferenceSummary) return;
+  const summary = review.reference_summary || {};
+  const driveUrl = summary.drive_folder_url || summary.drive_url || summary.reference_url || "";
+  const source = summary.source || summary.source_label || (driveUrl ? "Google Drive" : "งานนี้");
+  const foundFiles = Number(summary.found_files ?? summary.reference_count ?? refs.length ?? 0);
+  const stageableImages = Number(summary.stageable_images ?? summary.stageable_reference_count ?? refs.length ?? 0);
+  const blockedFiles = Number(summary.blocked_files ?? summary.blocked_reference_count ?? 0);
+  els.heroReviewReferenceSummary.innerHTML = `
+    <strong>Reference summary</strong>
+    <dl>
+      <dt>source</dt><dd>${escapeHtml(source || "-")}</dd>
+      <dt>found files</dt><dd>${foundFiles}</dd>
+      <dt>stageable images</dt><dd>${stageableImages}</dd>
+      <dt>blocked files</dt><dd>${blockedFiles}</dd>
+    </dl>
+    ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noreferrer">เปิด Google Drive folder</a>` : ""}
+  `;
 }
 
 function renderHeroReviewPage(review = {}, fallback = {}) {
@@ -6563,15 +6605,17 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const generationId = review.generation_id || fallback.generationId || "";
   const sku = review.sku || fallback.sku || job.sku || heroAsset.sku || "-";
   const heroUrl = heroAsset.public_url || heroAsset.url || heroAsset.source_url || "";
+  const approvedHeroAnchor = review.approved_hero_anchor || null;
+  const heroApproved = review.hero_approved === true || review.approved === true || Boolean(approvedHeroAnchor?.approved);
   const supportReviewReady = review.review_stage === "support_review" || review.support_review_ready === true;
-  const hasSupportAssets = supportReviewReady && supportAssets.length > 0;
+  const hasSupportAssets = heroApproved && supportReviewReady && supportAssets.length > 0;
   const supportDecisionMap = getSupportDecisionMap(review);
   const supportCandidateManifest = review.support_candidate_manifest || null;
   const mediaExportPreflightGate = review.media_export_preflight_gate || null;
   const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
   els.heroReviewTitle.textContent = hasSupportAssets ? `ตรวจชุดภาพ / ${sku}` : `ตรวจ Hero / ${sku}`;
-  els.heroReviewStatus.textContent = hasSupportAssets ? "Support พร้อมตรวจ" : review.approved ? "อนุมัติแล้ว" : "พร้อมตรวจ";
+  els.heroReviewStatus.textContent = hasSupportAssets ? "Support พร้อมตรวจ" : heroApproved ? "อนุมัติแล้ว" : "พร้อมตรวจ";
   if (getPageFromHash() === "review") {
     els.topbarEyebrow.textContent = hasSupportAssets ? "ตรวจ Support" : "ตรวจ Hero";
     els.topbarTitle.textContent = hasSupportAssets ? "ตรวจ Support ก่อนส่งออก" : "ตรวจ Hero ก่อนสร้าง Support";
@@ -6582,6 +6626,8 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     getProductionStatusText(job.status),
     hasSupportAssets ? `${supportAssets.length} ภาพ Support · ตรวจก่อนส่งออก` : "ระบบจะสร้าง Support หลังอนุมัติ Hero"
   ].filter(Boolean).join(" · ") || "เทียบภาพอ้างอิงกับ Hero ที่ระบบสร้าง";
+  renderHeroReviewProductSummary({ ...review, hero_approved: heroApproved }, { sku });
+  renderHeroReviewReferenceSummary(review, refs);
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
   els.heroReviewRefCount.textContent = `${refs.length} ภาพ`;
   els.heroReviewApproveButton.dataset.generationId = generationId;
@@ -6590,7 +6636,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewRegenerateButton.dataset.generationId = generationId;
   els.heroReviewRegenerateButton.dataset.batchId = batchId;
   els.heroReviewRegenerateButton.dataset.sku = sku;
-  els.heroReviewApproveButton.disabled = Boolean(review.approved);
+  els.heroReviewApproveButton.disabled = Boolean(heroApproved);
   els.heroReviewApproveButton.hidden = hasSupportAssets;
   els.heroReviewRegenerateButton.hidden = hasSupportAssets;
   if (els.heroReviewDecisionDock) els.heroReviewDecisionDock.hidden = hasSupportAssets;
@@ -6601,6 +6647,12 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     els.supportReviewSaveButton.dataset.generationId = generationId;
     els.supportReviewSaveButton.hidden = !hasSupportAssets;
   }
+  if (els.heroReviewApprovedAnchor) {
+    els.heroReviewApprovedAnchor.textContent = heroApproved
+      ? `Approved Hero anchor: ${shortId(approvedHeroAnchor?.generation_id || generationId || "")}`
+      : "Support จะเปิดหลัง Hero approved เท่านั้น";
+  }
+  if (els.heroReviewRegenerateReason) els.heroReviewRegenerateReason.value = "";
 
   els.heroReviewHero.innerHTML = heroUrl
     ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="ภาพ Hero ${escapeHtml(sku)}" /></a>`
@@ -6629,11 +6681,20 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
         const url = asset.public_url || asset.url || asset.source_url || "";
         const label = asset.slot || asset.file_name || `ภาพ Support ${index + 1}`;
         const assetKey = getSupportAssetKey(asset) || `${sku}:support:${index + 1}`;
-        const decision = supportDecisionMap.get(assetKey) || "pending_support_qc";
+        const decisionRecord = supportDecisionMap.get(assetKey) || {};
+        const decision = decisionRecord.decision || "pending_support_qc";
+        const reason = decisionRecord.reason || "";
+        const statusLabel = decision === "approve_support" ? "approved" :
+          decision === "regenerate_support" ? "regeneration requested" :
+            decision === "reject_support" ? "rejected" :
+              decision === "needs_manual_review" ? "pending manual review" : "pending";
         return `
-          <figure class="review-image-tile">
+          <figure class="review-image-tile support-shot-card" data-shot-role="${escapeHtml(asset.slot || asset.shot_key || label)}">
             ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
-            <figcaption>${escapeHtml(label)}</figcaption>
+            <figcaption>
+              <strong>${escapeHtml(label)}</strong>
+              <span class="review-state-pill">${escapeHtml(statusLabel)}</span>
+            </figcaption>
             <label class="support-decision-control">
               <span>ผลตรวจ</span>
               <select
@@ -6651,6 +6712,10 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
                 <option value="reject_support"${decision === "reject_support" ? " selected" : ""}>ไม่ใช้ภาพนี้</option>
                 <option value="needs_manual_review"${decision === "needs_manual_review" ? " selected" : ""}>ต้องตรวจเพิ่ม</option>
               </select>
+            </label>
+            <label class="support-decision-control">
+              <span>เหตุผล reject/regenerate</span>
+              <textarea data-support-reason data-asset-key="${escapeHtml(assetKey)}" rows="2" placeholder="เช่น โลโก้เพี้ยน / สีไม่ตรง / shot role ซ้ำ">${escapeHtml(reason)}</textarea>
             </label>
           </figure>
         `;
@@ -6702,6 +6767,8 @@ async function approveHeroFromReviewPage() {
 async function regenerateHeroFromReviewPage() {
   const generationId = els.heroReviewRegenerateButton?.dataset.generationId || "";
   if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับสร้าง Hero ใหม่", "danger");
+  const reason = els.heroReviewRegenerateReason.value.trim();
+  if (!reason) return setHeroReviewMessage("กรุณาระบุเหตุผลก่อนส่งคำขอสร้าง Hero ใหม่", "danger");
   els.heroReviewRegenerateButton.disabled = true;
   setHeroReviewMessage("กำลังส่งคำขอสร้าง Hero ใหม่...", "");
   try {
@@ -6711,7 +6778,8 @@ async function regenerateHeroFromReviewPage() {
       body: JSON.stringify({
         generation_id: generationId,
         batch_id: els.heroReviewRegenerateButton.dataset.batchId || "",
-        sku: els.heroReviewRegenerateButton.dataset.sku || ""
+        sku: els.heroReviewRegenerateButton.dataset.sku || "",
+        reason: els.heroReviewRegenerateReason.value.trim()
       })
     });
     const result = await response.json();
@@ -6729,18 +6797,26 @@ async function saveSupportReviewDecisions() {
   const sku = els.supportReviewSaveButton?.dataset.sku || getHashParams().get("sku") || "";
   const generationId = els.supportReviewSaveButton?.dataset.generationId || getHashParams().get("generation_id") || "";
   const decisionInputs = Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-decision]") || []);
+  const reasonInputs = new Map(
+    Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-reason]") || [])
+      .map((input) => [input.dataset.assetKey || "", input])
+  );
   if (!batchId || !sku) return setHeroReviewMessage("ไม่มีรหัสชุดงานหรือ SKU สำหรับบันทึกผลตรวจ Support", "danger");
   if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มีภาพ Support ให้บันทึก", "danger");
 
-  const decisions = decisionInputs.map((input) => ({
-    asset_key: input.dataset.assetKey || "",
-    asset_id: input.dataset.assetId || "",
-    generation_id: input.dataset.generationId || "",
-    request_id: input.dataset.requestId || "",
-    public_url: input.dataset.publicUrl || "",
-    slot: input.dataset.slot || "",
-    decision: input.value || "pending_support_qc"
-  }));
+  const decisions = decisionInputs.map((input) => {
+    const reasonInput = reasonInputs.get(input.dataset.assetKey || "");
+    return {
+      asset_key: input.dataset.assetKey || "",
+      asset_id: input.dataset.assetId || "",
+      generation_id: input.dataset.generationId || "",
+      request_id: input.dataset.requestId || "",
+      public_url: input.dataset.publicUrl || "",
+      slot: input.dataset.slot || "",
+      decision: input.value || "pending_support_qc",
+      reason: reasonInput?.value.trim() || ""
+    };
+  });
 
   els.supportReviewSaveButton.disabled = true;
   setHeroReviewMessage("กำลังบันทึกผลตรวจ Support...", "");

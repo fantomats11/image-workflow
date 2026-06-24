@@ -404,7 +404,17 @@
                 <span>3. ตัดสินใจบนหน้านี้</span>
               </div>
             </div>
-            <div class="hero-review-layout">
+            <div class="review-summary-strip" aria-label="สรุปงานตรวจ">
+              <section class="review-summary-card" id="heroReviewProductSummary">
+                <strong>Product summary</strong>
+                <p>โหลดข้อมูลสินค้าเมื่อเปิดหน้า review</p>
+              </section>
+              <section class="review-summary-card" id="heroReviewReferenceSummary">
+                <strong>Reference source</strong>
+                <p>โหลดข้อมูล reference เมื่อเปิดหน้า review</p>
+              </section>
+            </div>
+            <div class="hero-review-layout hero-review-comparison">
               <section class="hero-review-column">
                 <div class="review-column-header">
                   <div>
@@ -428,27 +438,16 @@
                 <div class="review-hero-frame" id="heroReviewHero">
                   <p class="empty-state">ยังไม่มีภาพ Hero</p>
                 </div>
-                <div class="review-support-set" id="heroReviewSupportSet" hidden>
-                  <div class="review-column-header">
-                    <div>
-                      <strong>ภาพ Support ที่รอตรวจ</strong>
-                      <small>ภาพประกอบสินค้า เช่น มุมสินค้า รายละเอียด และภาพใช้งาน</small>
-                    </div>
-                    <span id="heroReviewSupportCount">0 ภาพ</span>
-                  </div>
-                  <div class="review-image-grid support-review-grid" id="heroReviewSupportAssets">
-                    <p class="empty-state">ยังไม่มีภาพ Support</p>
-                  </div>
-                  <div class="support-decision-actions">
-                    <button class="primary-button" type="button" id="supportReviewSaveButton">บันทึกผลตรวจ Support</button>
-                  </div>
-                </div>
-                <div class="review-decision-dock" id="heroReviewDecisionDock">
+                <div class="review-decision-dock hero-review-qc-panel" id="heroReviewDecisionDock">
                   <div class="review-checklist">
                     <label><input type="checkbox" data-hero-review-check="product" /> สินค้าตรงกับ ref</label>
                     <label><input type="checkbox" data-hero-review-check="logo" /> โลโก้/ป้ายไม่เพี้ยน</label>
                     <label><input type="checkbox" data-hero-review-check="model" /> โมเดลและ fit ใช้ได้</label>
                   </div>
+                  <label class="review-reason-field">
+                    เหตุผลเมื่อต้องสร้าง Hero ใหม่
+                    <textarea id="heroReviewRegenerateReason" rows="2" placeholder="เช่น สีเพี้ยนจาก reference / โลโก้ผิด / ทรงสินค้าไม่ตรง"></textarea>
+                  </label>
                   <div class="actions">
                     <button class="primary-button" type="button" id="heroReviewApproveButton">อนุมัติ Hero</button>
                     <button class="secondary-button" type="button" id="heroReviewRegenerateButton">สร้าง Hero ใหม่</button>
@@ -457,6 +456,26 @@
                 <div class="auth-gate-message" id="heroReviewMessage" role="status"></div>
               </section>
             </div>
+            <section class="review-support-set" id="heroReviewSupportSet" hidden>
+              <div class="review-column-header">
+                <div>
+                  <strong>Support gate หลัง Hero approved</strong>
+                  <small id="heroReviewApprovedAnchor">Support จะเปิดหลัง Hero approved เท่านั้น</small>
+                </div>
+                <span id="heroReviewSupportCount">0 ภาพ</span>
+              </div>
+              <div class="support-review-context">
+                <span>เทียบกับ approved Hero anchor</span>
+                <span>เทียบกับ reference set ด้านบน</span>
+                <span>ตรวจราย shot role</span>
+              </div>
+              <div class="review-image-grid support-review-grid" id="heroReviewSupportAssets">
+                <p class="empty-state">ยังไม่มีภาพ Support</p>
+              </div>
+              <div class="support-decision-actions">
+                <button class="primary-button" type="button" id="supportReviewSaveButton">บันทึกผลตรวจ Support</button>
+              </div>
+            </section>
           </section>
         </section>
 

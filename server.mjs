@@ -1972,9 +1972,19 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
       generations,
       batchMetadata: batchItemMetadata
     });
-    const supportReviewReady = supportAssets.length > 0 ||
+    const heroApproved = Boolean(approvalsResult.data?.length);
+    const approvedHeroAnchor = heroApproved
+      ? buildApprovedHeroAnchor({
+        generation: reviewGeneration,
+        asset: heroAsset || {},
+        approval: approvalsResult.data?.[0] || {},
+        sku: reviewSku,
+        source: "web_review_page"
+      })
+      : null;
+    const supportReviewReady = heroApproved && (supportAssets.length > 0 ||
       batchItemMetadata.review_set_status === "awaiting_support_review" ||
-      batchItemMetadata.support_generation?.status === "support_ready_for_review";
+      batchItemMetadata.support_generation?.status === "support_ready_for_review");
 
     res.json({
       ok: true,
@@ -1984,6 +1994,8 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
+        hero_approved: heroApproved,
+        approved_hero_anchor: approvedHeroAnchor,
         support_assets: supportAssets,
         support_review_ready: supportReviewReady,
         review_stage: supportReviewReady ? "support_review" : "hero_review",
@@ -1995,7 +2007,8 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         media_export_preflight_gate: batchItemMetadata.media_export_preflight_gate || null,
         media_assets: Array.isArray(batchItemMetadata.media_assets) ? batchItemMetadata.media_assets : [],
         reference_assets: referenceAssets,
-        approved: Boolean(approvalsResult.data?.length),
+        reference_summary: buildHeroReviewReferenceSummary(referenceAssets),
+        approved: heroApproved,
         approvals: approvalsResult.data || []
       }
     });
@@ -2008,6 +2021,8 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
 app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
   if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
+  const reason = cleanOptionalString(req.body.reason);
+  if (!reason) return sendApiError(res, 400, "reason_required", "Regeneration reason is required.");
 
   try {
     const generation = await getOwnedGeneration(generationId, req.user.id);
@@ -2020,7 +2035,7 @@ app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
       jobId: generation.job_id,
       generationId,
       eventType: "hero_regeneration_requested",
-      eventJson: { source: "web_review_page", batch_id: batchId, sku }
+      eventJson: { source: "web_review_page", batch_id: batchId, sku, reason }
     });
 
     const task = await maybeEnqueueHeroReviewAutomationTask({
@@ -2029,7 +2044,8 @@ app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
       sku,
       jobId: generation.job_id,
       generationId,
-      actorId: req.user.id
+      actorId: req.user.id,
+      reason
     });
 
     res.json({ ok: true, task });
@@ -2064,8 +2080,10 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
       generations: [],
       batchMetadata: metadata
     });
+    const approvedHeroAnchor = await readApprovedHeroAnchorForSupportReview({ generationId, userId: req.user.id, metadata });
     const decisionState = buildSupportReviewDecisionState({
       sku,
+      approvedHeroAnchor,
       supportAssets,
       decisions,
       reviewer: req.user.email || req.user.id || ""
@@ -2078,7 +2096,7 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
         batchId: resolvedBatchId,
         sku,
         job: manifestContext.job || {},
-        heroAsset: manifestContext.heroAsset || {},
+        heroAsset: approvedHeroAnchor || manifestContext.heroAsset || {},
         supportAssets,
         decisionState
       })
@@ -2182,6 +2200,65 @@ async function readSupportCandidateManifestContext({ generationId, userId }) {
     assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
     {};
   return { generation, job: jobResult.data || {}, heroAsset };
+}
+
+async function readApprovedHeroAnchorForSupportReview({ generationId, userId, metadata = {} } = {}) {
+  const existingAnchor = firstHeroAnchor(metadata);
+  if (existingAnchor) return existingAnchor;
+  if (!generationId) return null;
+
+  const generation = await getOwnedGeneration(generationId, userId);
+  if (!generation) return null;
+
+  const [approvalResult, assetsResult] = await Promise.all([
+    supabaseAdmin
+      .from("approvals")
+      .select("*")
+      .eq("generation_id", generationId)
+      .order("approved_at", { ascending: false })
+      .limit(1),
+    supabaseAdmin
+      .from("assets")
+      .select("*")
+      .eq("job_id", generation.job_id)
+  ]);
+  if (approvalResult.error) throw approvalResult.error;
+  if (assetsResult.error) throw assetsResult.error;
+
+  const approval = (approvalResult.data || [])[0];
+  if (!approval) return null;
+  const assets = assetsResult.data || [];
+  const heroAsset = assets.find((asset) => asset.id === generation.image_asset_id) ||
+    assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
+    {};
+  return buildApprovedHeroAnchor({
+    generation,
+    asset: heroAsset,
+    approval,
+    sku: metadata.sku || metadata.catalog_sku || "",
+    source: "web_review_page"
+  });
+}
+
+function firstHeroAnchor(metadata = {}) {
+  if (!isPlainObject(metadata)) return null;
+  const candidates = [
+    metadata.approved_hero_anchor,
+    metadata.hero_review_hero_asset
+  ];
+  for (const candidate of candidates) {
+    if (!isPlainObject(candidate)) continue;
+    const source = candidate.public_url || candidate.url || candidate.source_url ||
+      candidate.local_path || candidate.storage_key || candidate.asset_id || candidate.id || "";
+    if (!source || candidate.approved === false) continue;
+    return {
+      source_role: "approved_hero_anchor",
+      status: candidate.status || "approved",
+      approved: candidate.approved !== false,
+      ...candidate
+    };
+  }
+  return null;
 }
 
 app.post("/api/approvals", requireUser, async (req, res) => {
@@ -3933,6 +4010,62 @@ function mergeReviewReferenceAssets(primary = [], fallback = []) {
   return merged;
 }
 
+function buildHeroReviewReferenceSummary(referenceAssets = []) {
+  const assets = Array.isArray(referenceAssets) ? referenceAssets : [];
+  const stageableImages = assets.filter((asset) => {
+    const source = asset.public_url || asset.url || asset.source_url || asset.local_path || "";
+    const type = String(asset.mime_type || asset.type || "").toLowerCase();
+    return Boolean(source) && !isBlockedReferenceAsset(asset) &&
+      (!type || type.includes("image") || type.includes("reference") || type.includes("product"));
+  });
+  const blockedFiles = assets.filter(isBlockedReferenceAsset);
+  const driveFolderUrl = firstSafeUrl(assets.map((asset) =>
+    asset.drive_folder_url ||
+    asset.folder_url ||
+    asset.reference_url ||
+    asset.source_folder_url ||
+    asset.webViewLink
+  ));
+  const source = driveFolderUrl ? "google_drive" :
+    stageableImages.length ? "staged_reference_assets" :
+      assets.length ? "reference_assets" : "none";
+
+  return {
+    source,
+    found_files: assets.length,
+    stageable_images: stageableImages.length,
+    blocked_files: blockedFiles.length,
+    ready: stageableImages.length > 0,
+    drive_folder_url: driveFolderUrl,
+    file_names: assets.slice(0, 8).map((asset) => asset.file_name || asset.name || asset.source_name || "").filter(Boolean),
+    blocked_reasons: Array.from(new Set(blockedFiles
+      .map((asset) => asset.blocked_reason || asset.reason || asset.block_reason || "blocked_reference_file")
+      .filter(Boolean)))
+  };
+}
+
+function isBlockedReferenceAsset(asset = {}) {
+  if (asset.blocked === true || asset.stageable === false) return true;
+  const haystack = [
+    asset.file_name,
+    asset.name,
+    asset.source_name,
+    asset.blocked_reason,
+    asset.reason,
+    asset.label,
+    asset.type
+  ].join(" ").toLowerCase();
+  return /\b(tag|barcode|sku card|sku-card|sku_card)\b/.test(haystack);
+}
+
+function firstSafeUrl(values = []) {
+  for (const value of values) {
+    const url = safeHttpsUrl(value || "");
+    if (url) return url;
+  }
+  return "";
+}
+
 function extractSupportSlot({ asset = {}, generation = {} } = {}) {
   const haystack = [
     asset.file_name,
@@ -4346,6 +4479,7 @@ async function maybeEnqueueHeroReviewAutomationTask({
   actorId,
   approval = null,
   heroAsset = null,
+  reason = "",
   source = "web_review_page"
 } = {}) {
   if (!batchId || !sku) return null;
@@ -4378,6 +4512,7 @@ async function maybeEnqueueHeroReviewAutomationTask({
       sku,
       generation_id: generationId,
       actor_id: actorId || null,
+      reason: reason || null,
       generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration_after_review",
       request_mode: approve ? "support-only-after-approved-hero" : "hero-regeneration-only",
       requires_approved_hero_anchor: approve,
@@ -4402,6 +4537,7 @@ async function maybeEnqueueHeroReviewAutomationTask({
       approval,
       heroAsset,
       jobId,
+      reason,
       source
     });
   }
@@ -4430,6 +4566,7 @@ async function updateAutomationBatchItemFromReviewAction({
   approval = null,
   heroAsset = null,
   jobId = null,
+  reason = "",
   source = "web_review_page"
 }) {
   if (!batchId || !sku) return null;
@@ -4462,6 +4599,12 @@ async function updateAutomationBatchItemFromReviewAction({
     action,
     recordedAt
   });
+  if (reason) {
+    metadata.web_review_action = {
+      ...(isPlainObject(metadata.web_review_action) ? metadata.web_review_action : {}),
+      reason
+    };
+  }
 
   const { data, error } = await supabaseAdmin
     .from("automation_batch_items")
