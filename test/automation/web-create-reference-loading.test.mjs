@@ -46,3 +46,10 @@ test("SKU picker avoids broad two-character searches", () => {
   assert.match(serverJs, /WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
   assert.match(serverJs, /min_query_length: WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
 });
+
+test("SKU picker search fails fast and ignores stale responses", () => {
+  assert.match(appJs, /const skuPickerSearchTimeoutMs = 8000;/);
+  assert.match(appJs, /authFetchWithTimeout\(\s*`\/api\/catalog\/sku-search/);
+  assert.match(appJs, /ค้นหา SKU ใช้เวลานานผิดปกติ/);
+  assert.match(appJs, /requestId !== skuPickerSearchRequestSeq/);
+});

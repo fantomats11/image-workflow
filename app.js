@@ -546,6 +546,8 @@ let stagedCatalogReferenceKeys = [];
 let catalogReferenceLoading = false;
 let skuPickerSearchTimer = null;
 const skuPickerMinQueryLength = 3;
+const skuPickerSearchTimeoutMs = 8000;
+let skuPickerSearchRequestSeq = 0;
 let latestSkuPickerResults = [];
 let latestStaffUsers = [];
 let resetPasswordTargetUser = null;
@@ -1346,6 +1348,7 @@ function renderSkuPickerResults(items = []) {
 
 async function searchCatalogSkus() {
   const query = els.skuPickerSearch?.value?.trim() || "";
+  const requestId = ++skuPickerSearchRequestSeq;
   if (!query) {
     renderSkuPickerResults([]);
     if (!selectedCatalogSku) renderSkuPickerStatus();
@@ -1363,14 +1366,21 @@ async function searchCatalogSkus() {
   try {
     renderSkuPickerStatus("กำลังค้นหา SKU จาก catalog...");
     const params = new URLSearchParams({ q: query, limit: "20" });
-    const response = await authFetch(`/api/catalog/sku-search?${params.toString()}`);
+    const response = await authFetchWithTimeout(
+      `/api/catalog/sku-search?${params.toString()}`,
+      {},
+      skuPickerSearchTimeoutMs,
+      "ค้นหา SKU ใช้เวลานานผิดปกติ กรุณาลองค้นหาอีกครั้ง"
+    );
     const data = await readJsonResponse(response, "ค้นหา SKU ไม่สำเร็จ");
+    if (requestId !== skuPickerSearchRequestSeq || query !== (els.skuPickerSearch?.value?.trim() || "")) return;
     if (!response.ok || data.ok === false) throw new Error(data.error || "ค้นหา SKU ไม่สำเร็จ");
     renderSkuPickerResults(data.items || []);
     if (!selectedCatalogSku) {
       renderSkuPickerStatus((data.items || []).length ? "เลือก SKU จากผลค้นหา 1 รายการ" : "ไม่พบ SKU ใน catalog");
     }
   } catch (error) {
+    if (requestId !== skuPickerSearchRequestSeq) return;
     renderSkuPickerResults([]);
     renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ค้นหา SKU ไม่สำเร็จ");
   }
