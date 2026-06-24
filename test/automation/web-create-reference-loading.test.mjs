@@ -5,6 +5,7 @@ import path from "node:path";
 
 const appJs = fs.readFileSync(path.resolve("app.js"), "utf8");
 const serverJs = fs.readFileSync(path.resolve("server.mjs"), "utf8");
+const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
 
 test("manual create reference panel distinguishes Drive loading from SKU search", () => {
   assert.match(appJs, /กำลังโหลดไฟล์ภาพจาก Google Drive/);
@@ -37,6 +38,20 @@ test("server resolves catalog references automatically when requested by create 
   assert.match(serverJs, /const autoUseCatalogReferences = req\.body\?\.catalogReferenceAutoUse === "true";/);
   assert.match(serverJs, /stageableReferences\.map\(\(reference\) => reference\.reference_key\)\.slice\(0, 6\)/);
   assert.match(serverJs, /ยังโหลดรูป reference จาก Google Drive มาใช้กับ Hero ไม่ได้/);
+});
+
+test("Web-first create page is the default and visible navigation path", () => {
+  assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
+  assert.match(appJs, /#create/);
+  assert.match(appJs, /return pageMeta\[page\] \? page : "create";/);
+});
+
+test("reference panel shows Drive source and only auto-uses stageable images", () => {
+  assert.match(appJs, /function hasSelectedCatalogStageableReferences\(\)/);
+  assert.match(appJs, /selectedCatalogReferences\.some\(\(reference\) => reference\.stage_available && reference\.reference_key\)/);
+  assert.match(appJs, /เปิด Google Drive folder/);
+  assert.match(appJs, /resolution_summary/);
+  assert.match(appJs, /ยังไม่มีภาพ reference จาก Google Drive ที่ใช้กับ Hero ได้/);
 });
 
 test("SKU picker avoids broad two-character searches", () => {

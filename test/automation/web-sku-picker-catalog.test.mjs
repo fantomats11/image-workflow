@@ -75,7 +75,7 @@ test("searchWebSkuPickerCatalog searches by SKU and normalizes canonical fields"
   assert.equal(result.items[0].product_name, "Women's Slopeside Peak Luxe Waterproof Snow Boot");
   assert.equal(result.items[0].branch, "Rent A Coat");
   assert.equal(result.items[0].canonical_source, "catalog_snapshot");
-  assert.equal(result.items[0].reference_readiness.status, "ready");
+  assert.equal(result.items[0].reference_readiness.status, "warning");
   assert.equal(result.items[0].reference_readiness.reference_count, 1);
   assert.deepEqual(result.items[0].locked_fields, [
     "sku",

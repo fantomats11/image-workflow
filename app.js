@@ -1188,8 +1188,12 @@ function hasSelectedCatalogReferenceSource() {
   return Boolean(selectedCatalogSku?.reference_drive_id || selectedCatalogSku?.reference_url);
 }
 
+function hasSelectedCatalogStageableReferences() {
+  return selectedCatalogReferences.some((reference) => reference.stage_available && reference.reference_key);
+}
+
 function canAutoUseCatalogReferencesForHero() {
-  return Boolean(selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !isSelectedSkuReferenceBlocked());
+  return Boolean(selectedCatalogSku?.sku && hasSelectedCatalogStageableReferences() && !isSelectedSkuReferenceBlocked());
 }
 
 function isSelectedSkuReferenceBlockedWithoutFallback() {
@@ -1236,10 +1240,20 @@ function renderCatalogReferencePanel(message = "") {
 
   const stageable = selectedCatalogReferences.filter((reference) => reference.stage_available && reference.reference_key);
   const stagedCount = stagedCatalogReferenceKeys.length;
+  const sourceFields = selectedCatalogSku.reference_source_fields || {};
+  const resolutionSummary = selectedCatalogSku.resolution_summary || {};
+  const driveFolderId = selectedCatalogSku.reference_drive_id || "";
+  const driveUrl = selectedCatalogSku.reference_url || (driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : "");
+  const sourceTextParts = [
+    driveUrl ? "มี Google Drive folder" : "",
+    sourceFields.source_row ? `row ${escapeHtml(sourceFields.source_row)}` : "",
+    resolutionSummary.google_drive_checked ? `ตรวจแล้ว: ${Number(resolutionSummary.file_count || 0)} ไฟล์ / ${Number(resolutionSummary.image_file_count || 0)} รูป` : ""
+  ].filter(Boolean).join(" · ");
   els.catalogReferenceStatus.textContent = message || [
     catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive..." : "",
     `พร้อมใช้กับ Hero: ${stageable.length} รูป`,
     stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
+    sourceTextParts,
     "ตรวจด้วยตาว่าเป็นภาพสินค้าจริง ไม่ใช่ tag/barcode/SKU card"
   ].filter(Boolean).join(" · ");
   if (els.useCatalogReferencesButton) {
@@ -1254,6 +1268,9 @@ function renderCatalogReferencePanel(message = "") {
     updateActionAvailability();
     return;
   }
+  const sourceHtml = driveUrl
+    ? `<div class="catalog-reference-source"><a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a></div>`
+    : "";
 
   els.catalogReferenceCards.innerHTML = selectedCatalogReferences.map((reference) => {
     const isStaged = stagedCatalogReferenceKeys.includes(reference.reference_key);
@@ -1273,7 +1290,7 @@ function renderCatalogReferencePanel(message = "") {
         </div>
       </article>
     `;
-  }).join("");
+  }).join("") + sourceHtml;
   updateActionAvailability();
 }
 
@@ -1298,7 +1315,9 @@ async function loadCatalogReferencesForSelectedSku() {
     selectedCatalogReferences = data.references || [];
     selectedCatalogSku = {
       ...selectedCatalogSku,
-      reference_readiness: data.reference_readiness || selectedCatalogSku.reference_readiness
+      reference_readiness: data.reference_readiness || selectedCatalogSku.reference_readiness,
+      reference_source_fields: data.reference_source_fields || selectedCatalogSku.reference_source_fields || {},
+      resolution_summary: data.resolution_summary || selectedCatalogSku.resolution_summary || {}
     };
     autoStageCatalogReferencesForHero();
     renderSkuPickerStatus();
@@ -1472,8 +1491,8 @@ function applyInitialOperatorRoute() {
   initialOperatorRouteApplied = true;
   const page = getPageFromHash();
   if (page === "batch" || page === "review") return;
-  if (window.location.hash !== "#next") {
-    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}#next`);
+  if (!window.location.hash || page === "next") {
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}#create`);
   }
 }
 
@@ -1607,7 +1626,7 @@ async function refreshSystemStatus() {
 function getPageFromHash() {
   const page = window.location.hash.replace("#", "").trim().split("?")[0];
   if (page === "batch-review") return "batch";
-  return pageMeta[page] ? page : "next";
+  return pageMeta[page] ? page : "create";
 }
 
 function getHashParams() {
@@ -1617,10 +1636,10 @@ function getHashParams() {
 }
 
 function navigateToPage(page) {
-  let targetPage = pageMeta[page] ? page : "next";
+  let targetPage = pageMeta[page] ? page : "create";
   if ((targetPage === "settings" || targetPage === "monitoring" || targetPage === "costs") && !isAdmin()) {
-    targetPage = "next";
-    if (window.location.hash !== "#next") window.location.hash = "next";
+    targetPage = "create";
+    if (window.location.hash !== "#create") window.location.hash = "create";
   }
   els.pageViews.forEach((view) => {
     view.classList.toggle("active", view.dataset.page === targetPage);
@@ -2711,6 +2730,7 @@ function validateInputFiles() {
   const modelFiles = getSelectedBrandProfile().forceOffModel ? [] : Array.from(els.modelImages.files || []);
   if (isSelectedSkuReferenceBlockedWithoutFallback()) return getSelectedSkuReferenceBlockerMessage();
   if (!productFiles.length && catalogReferenceLoading && hasSelectedCatalogReferenceSource()) return "กำลังโหลดรูป reference จาก Google Drive กรุณารอสักครู่แล้วกดสร้าง Hero อีกครั้ง";
+  if (!productFiles.length && hasSelectedCatalogReferenceSource() && !hasSelectedCatalogStageableReferences()) return "ยังไม่มีภาพ reference จาก Google Drive ที่ใช้กับ Hero ได้ กรุณาเปิดดู Reference panel หรือตรวจสิทธิ์ Drive";
   if (!productFiles.length && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป หรือเลือก SKU ที่มี reference จาก catalog/Drive";
   if (productFiles.length > 10) return "ภาพสินค้าอ้างอิงใส่ได้สูงสุด 10 ภาพ";
   if (modelFiles.length > 5) return "ภาพโมเดลอ้างอิงใส่ได้สูงสุด 5 ภาพ";

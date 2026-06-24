@@ -762,6 +762,22 @@ label {
   font-weight: 750;
 }
 
+.catalog-reference-source {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.catalog-reference-source a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.catalog-reference-source a:hover {
+  text-decoration: underline;
+}
+
 .success-text {
   color: var(--success) !important;
 }
