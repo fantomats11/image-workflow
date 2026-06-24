@@ -18,7 +18,12 @@ test("buildMediaExportPreflightGate maps ready candidate manifest into ordered e
   assert.equal(gate.summary.hero_slots, 1);
   assert.equal(gate.summary.support_slots, 2);
   assert.equal(gate.media_assets[0].type, "hero_generated");
+  assert.equal(gate.media_assets[0].position, 0);
+  assert.equal(gate.media_assets[0].role, "main_image");
   assert.equal(gate.media_assets[1].shot_key, "side_fit_on_model");
+  assert.equal(gate.media_assets[1].position, 1);
+  assert.equal(gate.media_assets[1].role, "gallery_image");
+  assert.equal(gate.export_slots[0].position, 0);
   assert.equal(gate.export_slots[0].export_file_name, "01-2DJ0493000_Hero.png");
   assert.equal(gate.export_slots[1].export_file_name, "02-2DJ0493000_side_fit_on_model.png");
   assert.equal(gate.items[0].export_status, "ready_for_export_preflight");

@@ -139,6 +139,43 @@ test("buildMonitoringWordPressPreflights includes media mapping preflight lane",
   assert.equal(rows[0].liveWriteAllowed, false);
 });
 
+test("buildMonitoringWordPressPreflights summarizes dual export gateway states for operators", () => {
+  const rows = buildMonitoringWordPressPreflights([
+    {
+      id: "task-media",
+      task_type: "wordpress_media_mapping_preflight",
+      batch_id: "batch-1",
+      status: "completed",
+      completed_at: "2026-06-12T01:00:00.000Z",
+      payload: {
+        preflight: {
+          dry_run: true,
+          live_write_allowed: false,
+          requires_final_confirmation: true,
+          summary: {
+            item_count: 2,
+            ready_for_media_proposal: 1,
+            blocked: 1,
+            export_ready: 1,
+            drive_exported: 3,
+            woo_preflight_ready: 1,
+            blocked_by_conflict: 1,
+            awaiting_final_confirmation: 1
+          },
+          items: []
+        }
+      }
+    }
+  ]);
+
+  assert.equal(rows[0].summary.exportReady, 1);
+  assert.equal(rows[0].summary.driveExported, 3);
+  assert.equal(rows[0].summary.wooPreflightReady, 1);
+  assert.equal(rows[0].summary.blockedByConflict, 1);
+  assert.equal(rows[0].summary.awaitingFinalConfirmation, 1);
+  assert.equal(rows[0].requiresFinalConfirmation, true);
+});
+
 test("buildMonitoringWordPressPreflights includes media attach confirmation gate lane", () => {
   const rows = buildMonitoringWordPressPreflights([
     {

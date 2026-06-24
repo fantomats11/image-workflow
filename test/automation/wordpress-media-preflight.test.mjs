@@ -40,8 +40,51 @@ test("builds a ready media mapping proposal when hero and support assets exist",
   assert.equal(proposal.summary.media_assets_matched, 3);
   assert.equal(proposal.items[0].media_status, "ready_for_media_proposal");
   assert.equal(proposal.items[0].proposed_main_image.url, "https://cdn.example.com/rac-001-hero.png");
+  assert.equal(proposal.items[0].proposed_main_image.position, 0);
   assert.equal(proposal.items[0].proposed_gallery_images.length, 2);
+  assert.deepEqual(proposal.items[0].proposed_gallery_images.map((image) => image.position), [1, 2]);
+  assert.deepEqual(proposal.items[0].proposed_images.map((image) => [image.role, image.position]), [
+    ["main_image", 0],
+    ["gallery_image", 1],
+    ["gallery_image", 2]
+  ]);
   assert.equal(proposal.items[0].write_policy, "no_upload_or_attach_without_final_confirmation");
+});
+
+test("reports remote media fetch timeout and media conflict warnings as proposal issues", () => {
+  const proposal = buildWordPressMediaMappingPreflight({
+    batchItems: [{
+      id: "item-1",
+      sku: "RAC-TIMEOUT",
+      target_site: "rentacoat",
+      support_shots: "front_view|back_view",
+      metadata: { brand_id: "rent_a_coat" }
+    }],
+    productPreflight: {
+      items: [{
+        sku: "RAC-TIMEOUT",
+        brand_id: "rent_a_coat",
+        target_site: "rentacoat",
+        preflight_status: "ready_for_proposal",
+        proposed_action: "update_existing_product",
+        remote_checks: {
+          product_by_sku: { status: "found", product_id: 123 },
+          media_conflicts: [{ source_url: "https://cdn.example.com/front.png", media_id: 456 }]
+        }
+      }]
+    },
+    mediaAssets: [
+      { sku: "RAC-TIMEOUT", type: "hero_generated", status: "approved", url: "https://cdn.example.com/hero.png" },
+      { sku: "RAC-TIMEOUT", type: "support_generated", shot_key: "front_view", status: "approved", url: "https://cdn.example.com/front.png", remote_fetch_status: "timeout" },
+      { sku: "RAC-TIMEOUT", type: "support_generated", shot_key: "back_view", status: "approved", url: "https://cdn.example.com/back.png" }
+    ]
+  });
+
+  assert.equal(proposal.items[0].media_status, "ready_for_media_proposal");
+  assert.ok(proposal.items[0].proposal_issues.includes("remote_media_fetch_timeout"));
+  assert.ok(proposal.items[0].proposal_issues.includes("remote_media_conflict"));
+  assert.equal(proposal.summary.proposal_issues, 2);
+  assert.equal(proposal.live_write_allowed, false);
 });
 
 test("reports missing hero and support media as an awaiting-assets gap", () => {
