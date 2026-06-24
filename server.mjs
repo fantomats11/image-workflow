@@ -992,11 +992,12 @@ async function buildWebSkuReferencePayload(item = {}) {
 
 async function resolveCatalogReferencesForGenerateRequest(req) {
   const sku = cleanOptionalString(req.body?.catalogReferenceSku);
+  const autoUseCatalogReferences = req.body?.catalogReferenceAutoUse === "true";
   const requestedKeys = parseJsonArray(req.body?.catalogReferenceKeys)
     .map((key) => cleanOptionalString(key))
     .filter(Boolean);
-  if (!sku && !requestedKeys.length) return;
-  if (!sku || !requestedKeys.length) {
+  if (!sku && !requestedKeys.length && !autoUseCatalogReferences) return;
+  if (!sku || (!requestedKeys.length && !autoUseCatalogReferences)) {
     throw publicError(400, "missing_catalog_reference_selection", "กรุณาเลือก SKU และ reference ที่ต้องการใช้กับ Hero");
   }
 
@@ -1007,8 +1008,13 @@ async function resolveCatalogReferencesForGenerateRequest(req) {
 
   const referencePayload = await buildWebSkuReferencePayload(item);
   const referenceByKey = new Map((referencePayload.references || []).map((reference) => [reference.reference_key, reference]));
+  const stageableReferences = (referencePayload.references || [])
+    .filter((reference) => reference.stage_available && reference.generation_url);
+  const keysToUse = requestedKeys.length
+    ? [...new Set(requestedKeys)].slice(0, 6)
+    : stageableReferences.map((reference) => reference.reference_key).slice(0, 6);
   const selectedReferences = [];
-  for (const key of [...new Set(requestedKeys)].slice(0, 6)) {
+  for (const key of keysToUse) {
     const reference = referenceByKey.get(key);
     if (!reference) {
       throw publicError(400, "unknown_catalog_reference_key", "reference ที่เลือกไม่ตรงกับ catalog ของ SKU นี้");
@@ -1019,6 +1025,9 @@ async function resolveCatalogReferencesForGenerateRequest(req) {
   const nonStageable = selectedReferences.find((reference) => !reference.stage_available || !reference.generation_url);
   if (nonStageable) {
     throw publicError(400, "catalog_reference_not_stageable", "reference ที่เลือกยังใช้ Generate Hero โดยตรงไม่ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+  }
+  if (!selectedReferences.length) {
+    throw publicError(400, "catalog_reference_not_stageable", "ยังโหลดรูป reference จาก Google Drive มาใช้กับ Hero ไม่ได้ กรุณาอัปโหลดภาพสินค้าเองหรือตรวจสิทธิ์ Google Drive");
   }
 
   const catalogReferenceUrls = selectedReferences.map((reference) => reference.generation_url).filter(Boolean);

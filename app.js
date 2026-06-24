@@ -1181,6 +1181,14 @@ function hasStagedCatalogReferences() {
   return stagedCatalogReferenceKeys.length > 0;
 }
 
+function hasSelectedCatalogReferenceSource() {
+  return Boolean(selectedCatalogSku?.reference_drive_id || selectedCatalogSku?.reference_url);
+}
+
+function canAutoUseCatalogReferencesForHero() {
+  return Boolean(selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !isSelectedSkuReferenceBlocked());
+}
+
 function isSelectedSkuReferenceBlockedWithoutFallback() {
   return isSelectedSkuReferenceBlocked() && !hasManualProductReferenceUpload() && !hasStagedCatalogReferences();
 }
@@ -1289,6 +1297,7 @@ async function loadCatalogReferencesForSelectedSku() {
       ...selectedCatalogSku,
       reference_readiness: data.reference_readiness || selectedCatalogSku.reference_readiness
     };
+    autoStageCatalogReferencesForHero();
     renderSkuPickerStatus();
   } catch (error) {
     selectedCatalogReferences = [];
@@ -1309,6 +1318,14 @@ function useCatalogReferencesForHero() {
   renderCatalogReferencePanel(stagedCatalogReferenceKeys.length
     ? `แนบ reference จาก catalog/Drive แล้ว ${stagedCatalogReferenceKeys.length} รูป`
     : "ยังไม่มี reference ที่ใช้กับ Hero ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+}
+
+function autoStageCatalogReferencesForHero() {
+  if (hasManualProductReferenceUpload() || hasStagedCatalogReferences()) return;
+  const stageable = selectedCatalogReferences
+    .filter((reference) => reference.stage_available && reference.reference_key)
+    .map((reference) => reference.reference_key);
+  stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
 }
 
 function renderSkuPickerResults(items = []) {
@@ -2529,6 +2546,9 @@ function buildGenerateFormData(prompt, extraImageUrls = [], metadataOverrides = 
   if (selectedCatalogSku?.sku && stagedCatalogReferenceKeys.length) {
     formData.append("catalogReferenceSku", selectedCatalogSku.sku);
     formData.append("catalogReferenceKeys", JSON.stringify(stagedCatalogReferenceKeys));
+  } else if (!productFiles.length && canAutoUseCatalogReferencesForHero()) {
+    formData.append("catalogReferenceSku", selectedCatalogSku.sku);
+    formData.append("catalogReferenceAutoUse", "true");
   }
   return formData;
 }
@@ -2674,7 +2694,8 @@ function validateInputFiles() {
   const productFiles = Array.from(els.productImages.files || []);
   const modelFiles = getSelectedBrandProfile().forceOffModel ? [] : Array.from(els.modelImages.files || []);
   if (isSelectedSkuReferenceBlockedWithoutFallback()) return getSelectedSkuReferenceBlockerMessage();
-  if (!productFiles.length && !hasStagedCatalogReferences()) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป หรือกดใช้ reference จาก catalog/Drive กับ Hero";
+  if (!productFiles.length && catalogReferenceLoading && hasSelectedCatalogReferenceSource()) return "กำลังโหลดรูป reference จาก Google Drive กรุณารอสักครู่แล้วกดสร้าง Hero อีกครั้ง";
+  if (!productFiles.length && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป หรือเลือก SKU ที่มี reference จาก catalog/Drive";
   if (productFiles.length > 10) return "ภาพสินค้าอ้างอิงใส่ได้สูงสุด 10 ภาพ";
   if (modelFiles.length > 5) return "ภาพโมเดลอ้างอิงใส่ได้สูงสุด 5 ภาพ";
   return "";
