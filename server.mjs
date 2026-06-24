@@ -69,6 +69,7 @@ import {
 import {
   buildWebSkuReferenceContract,
   findWebSkuPickerItemBySku,
+  getCachedWebSkuPickerSkuIndex,
   loadWebSkuPickerSkuIndex,
   loadWebSkuPickerCatalogSnapshot,
   searchWebSkuPickerCatalog,
@@ -988,9 +989,27 @@ async function readWebSkuPickerItem(sku = "") {
 
 async function readWebSkuPickerItemFast(sku = "", { warmWaitMs = 700, retryAfterMs = 1000 } = {}) {
   const startedAt = Date.now();
+  const cachedIndex = await getCachedWebSkuPickerSkuIndex();
+  if (cachedIndex) {
+    const lookupStartedAt = Date.now();
+    const item = findWebSkuPickerItemBySku(cachedIndex, sku);
+    const lookupMs = Date.now() - lookupStartedAt;
+    return {
+      warming: false,
+      item,
+      diagnostics: {
+        load_ms: Number(cachedIndex?.diagnostics?.load_ms || 0),
+        normalize_ms: Number(cachedIndex?.diagnostics?.normalize_ms || 0),
+        lookup_ms: lookupMs,
+        total_ms: Date.now() - startedAt
+      }
+    };
+  }
+
   const warmStartedAt = Date.now();
   if (!webSkuPickerIndexWarmPromise) {
-    webSkuPickerIndexWarmPromise = loadWebSkuPickerSkuIndex()
+    webSkuPickerIndexWarmPromise = delay(warmWaitMs + 50)
+      .then(() => loadWebSkuPickerSkuIndex())
       .finally(() => {
         webSkuPickerIndexWarmPromise = null;
       });

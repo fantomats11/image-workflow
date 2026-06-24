@@ -547,6 +547,7 @@ let catalogReferenceLoading = false;
 let skuPickerSearchTimer = null;
 const skuPickerMinQueryLength = 3;
 const skuPickerSearchTimeoutMs = 8000;
+const exactSkuLookupMaxWarmRetries = 4;
 let skuPickerSearchRequestSeq = 0;
 let latestSkuPickerResults = [];
 let latestStaffUsers = [];
@@ -1383,10 +1384,26 @@ function renderSkuPickerResults(items = []) {
   `).join("");
 }
 
-async function lookupExactCatalogSku(query, requestId, { retryAfterMs = 0 } = {}) {
+function isExactSkuWarmTimeout(error) {
+  const message = getSafeAuthErrorMessage(error);
+  return /กำลังเตรียมข้อมูล catalog ครั้งแรก|รอบแรกอาจใช้เวลานาน/i.test(message);
+}
+
+async function lookupExactCatalogSku(query, requestId, { retryAfterMs = 0, attempt = 0 } = {}) {
   const sku = normalizeCatalogSkuLookup(query);
+  if (
+    requestId !== skuPickerSearchRequestSeq ||
+    normalizeCatalogSkuLookup(query) !== normalizeCatalogSkuLookup(els.skuPickerSearch?.value?.trim() || "")
+  ) return;
   renderSkuPickerResults([]);
   renderSkuPickerStatus("กำลังเตรียมข้อมูล catalog ครั้งแรก...");
+  if (retryAfterMs > 0) {
+    await delay(retryAfterMs);
+    if (
+      requestId !== skuPickerSearchRequestSeq ||
+      normalizeCatalogSkuLookup(query) !== normalizeCatalogSkuLookup(els.skuPickerSearch?.value?.trim() || "")
+    ) return;
+  }
   try {
     const response = await authFetchWithTimeout(
       `/api/catalog/sku/${encodeURIComponent(sku)}`,
@@ -1402,13 +1419,19 @@ async function lookupExactCatalogSku(query, requestId, { retryAfterMs = 0 } = {}
     if (data.code === "catalog_warming") {
       const nextRetryAfterMs = Math.max(300, Math.min(2500, Number(data.retry_after_ms || 1000) || 1000));
       renderSkuPickerStatus(data.error || "กำลังเตรียมข้อมูล catalog ครั้งแรก...");
-      window.setTimeout(() => lookupExactCatalogSku(sku, requestId, { retryAfterMs: nextRetryAfterMs }), nextRetryAfterMs);
+      window.setTimeout(() => lookupExactCatalogSku(sku, requestId, { retryAfterMs: nextRetryAfterMs, attempt: attempt + 1 }), 0);
       return;
     }
     if (!response.ok || data.ok === false) throw new Error(data.error || "โหลดข้อมูล SKU ไม่สำเร็จ");
     selectCatalogSku(data.item);
   } catch (error) {
     if (requestId !== skuPickerSearchRequestSeq) return;
+    if (isExactSkuWarmTimeout(error) && attempt < exactSkuLookupMaxWarmRetries) {
+      const nextRetryAfterMs = Math.max(700, retryAfterMs || 1200);
+      renderSkuPickerStatus("กำลังเตรียมข้อมูล catalog ครั้งแรก หากเป็นรอบแรกอาจใช้เวลานานกว่าปกติ");
+      window.setTimeout(() => lookupExactCatalogSku(sku, requestId, { retryAfterMs: nextRetryAfterMs, attempt: attempt + 1 }), 0);
+      return;
+    }
     renderSkuPickerResults([]);
     renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ไม่พบ SKU นี้ใน catalog");
   }

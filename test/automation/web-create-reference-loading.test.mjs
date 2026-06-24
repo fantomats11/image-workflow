@@ -99,6 +99,20 @@ test("manual create shows warm catalog status separately from timeout and errors
   assert.match(appJs, /"กำลังเตรียมข้อมูล catalog ครั้งแรก หากเป็นรอบแรกอาจใช้เวลานานกว่าปกติ"/);
 });
 
+test("exact SKU lookup retries after warm catalog timeout instead of staying stuck", () => {
+  assert.match(appJs, /const exactSkuLookupMaxWarmRetries = 4;/);
+  assert.match(appJs, /function isExactSkuWarmTimeout\(error\)/);
+  assert.match(appJs, /isExactSkuWarmTimeout\(error\)/);
+  assert.match(appJs, /attempt < exactSkuLookupMaxWarmRetries/);
+  assert.match(appJs, /lookupExactCatalogSku\(sku, requestId, \{ retryAfterMs: nextRetryAfterMs, attempt: attempt \+ 1 \}\)/);
+});
+
+test("server returns catalog warming before deferred cold index load blocks requests", () => {
+  assert.match(serverJs, /delay\(warmWaitMs \+ 50\)\s*\.then\(\(\) => loadWebSkuPickerSkuIndex\(\)\)/);
+  assert.match(serverJs, /webSkuPickerIndexWarmPromise = null;/);
+  assert.match(serverJs, /catalog_warming/);
+});
+
 test("manual create shows product summary before async Drive reference load finishes", () => {
   assert.match(appJs, /ข้อมูลสินค้า:/);
   assert.match(appJs, /มี Google Drive reference/);
