@@ -898,6 +898,31 @@ app.get("/api/catalog/sku-search", requireUser, async (req, res) => {
   }
 });
 
+app.get("/api/catalog/sku/:sku", requireUser, async (req, res) => {
+  try {
+    const item = await readWebSkuPickerItem(req.params.sku);
+    if (!item) {
+      return res.status(404).json({
+        ok: false,
+        code: "catalog_sku_not_found",
+        error: "ไม่พบ SKU นี้ใน catalog"
+      });
+    }
+    res.json({
+      ok: true,
+      item,
+      source: "catalog_snapshot"
+    });
+  } catch (error) {
+    console.error("Exact SKU lookup failed:", readableError(error));
+    res.status(500).json({
+      ok: false,
+      code: "catalog_sku_lookup_failed",
+      error: "โหลดข้อมูล SKU จาก catalog ไม่สำเร็จ"
+    });
+  }
+});
+
 app.get("/api/catalog/sku/:sku/references", requireUser, async (req, res) => {
   try {
     const item = await readWebSkuPickerItem(req.params.sku);

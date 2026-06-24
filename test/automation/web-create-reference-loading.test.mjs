@@ -43,6 +43,7 @@ test("server resolves catalog references automatically when requested by create 
 test("Web-first create page is the default and visible navigation path", () => {
   assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
   assert.match(appJs, /#create/);
+  assert.match(appJs, /page === "next"/);
   assert.match(appJs, /return pageMeta\[page\] \? page : "create";/);
 });
 
@@ -67,4 +68,19 @@ test("SKU picker search fails fast and ignores stale responses", () => {
   assert.match(appJs, /authFetchWithTimeout\(\s*`\/api\/catalog\/sku-search/);
   assert.match(appJs, /ค้นหา SKU ใช้เวลานานผิดปกติ/);
   assert.match(appJs, /requestId !== skuPickerSearchRequestSeq/);
+});
+
+test("exact SKU lookup bypasses broad search before loading Drive references", () => {
+  assert.match(serverJs, /app\.get\("\/api\/catalog\/sku\/:sku", requireUser/);
+  assert.match(appJs, /function looksLikeExactCatalogSku/);
+  assert.match(appJs, /lookupExactCatalogSku\(query, requestId\)/);
+  assert.match(appJs, /`\/api\/catalog\/sku\/\$\{encodeURIComponent\(sku\)\}`/);
+  assert.match(appJs, /selectCatalogSku\(data\.item\)/);
+});
+
+test("manual create shows product summary before async Drive reference load finishes", () => {
+  assert.match(appJs, /ข้อมูลสินค้า:/);
+  assert.match(appJs, /มี Google Drive reference/);
+  assert.match(appJs, /กำลังโหลด Drive reference แยกจากการเลือก SKU/);
+  assert.match(appJs, /renderSkuPickerStatus\(\);\n  loadCatalogReferencesForSelectedSku\(\);/);
 });

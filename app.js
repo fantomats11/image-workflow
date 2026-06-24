@@ -1205,6 +1205,15 @@ function getSelectedSkuReferenceBlockerMessage() {
   return blocker?.message_th || "SKU นี้ยังไม่มี reference พร้อมใช้ กรุณาใช้ reference จาก catalog/Drive หรืออัปโหลดภาพอ้างอิงก่อน Generate Hero";
 }
 
+function normalizeCatalogSkuLookup(value = "") {
+  return String(value || "").trim().toUpperCase();
+}
+
+function looksLikeExactCatalogSku(value = "") {
+  const query = normalizeCatalogSkuLookup(value);
+  return query.length >= 9 && /^[A-Z0-9][A-Z0-9_-]+$/.test(query) && /\d/.test(query);
+}
+
 function renderSkuPickerStatus(message = "") {
   if (!els.skuPickerStatus) return;
   const readiness = selectedCatalogSku?.reference_readiness;
@@ -1217,9 +1226,17 @@ function renderSkuPickerStatus(message = "") {
   const status = readiness?.status || "unknown";
   const blockers = (readiness?.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
   const warnings = (readiness?.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
+  const productSummary = [
+    selectedCatalogSku.branch || "",
+    [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / "),
+    selectedCatalogSku.feature_notes || "",
+    selectedCatalogSku.reference_url ? "มี Google Drive reference" : ""
+  ].filter(Boolean);
   els.skuPickerStatus.classList.add(status === "blocked" ? "is-blocked" : status === "ready" ? "is-ready" : "is-warning");
   els.skuPickerStatus.textContent = [
     `เลือกแล้ว: ${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
+    productSummary.length ? `ข้อมูลสินค้า: ${productSummary.join(" · ")}` : "",
+    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU..." : "",
     `สถานะ reference: ${readiness?.label_th || status}`,
     blockers.length ? `Blocker: ${blockers.join(" · ")}` : "",
     warnings.length ? `ต้องตรวจเอง: ${warnings.join(" · ")}` : ""
@@ -1307,6 +1324,7 @@ async function loadCatalogReferencesForSelectedSku() {
   stagedCatalogReferenceKeys = [];
   let finalMessage = "";
   renderCatalogReferencePanel();
+  renderSkuPickerStatus();
   try {
     const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
     const data = await readJsonResponse(response, "โหลด reference ของ SKU ไม่สำเร็จ");
@@ -1320,7 +1338,6 @@ async function loadCatalogReferencesForSelectedSku() {
       resolution_summary: data.resolution_summary || selectedCatalogSku.resolution_summary || {}
     };
     autoStageCatalogReferencesForHero();
-    renderSkuPickerStatus();
   } catch (error) {
     selectedCatalogReferences = [];
     stagedCatalogReferenceKeys = [];
@@ -1328,6 +1345,7 @@ async function loadCatalogReferencesForSelectedSku() {
   } finally {
     if (selectedCatalogSku?.sku !== requestedSku) return;
     catalogReferenceLoading = false;
+    renderSkuPickerStatus();
     renderCatalogReferencePanel(finalMessage);
   }
 }
@@ -1365,6 +1383,28 @@ function renderSkuPickerResults(items = []) {
   `).join("");
 }
 
+async function lookupExactCatalogSku(query, requestId) {
+  const sku = normalizeCatalogSkuLookup(query);
+  renderSkuPickerResults([]);
+  renderSkuPickerStatus("กำลังโหลดข้อมูลสินค้า...");
+  try {
+    const response = await authFetchWithTimeout(
+      `/api/catalog/sku/${encodeURIComponent(sku)}`,
+      {},
+      skuPickerSearchTimeoutMs,
+      "โหลดข้อมูล SKU ใช้เวลานานผิดปกติ กรุณาลองอีกครั้ง"
+    );
+    const data = await readJsonResponse(response, "โหลดข้อมูล SKU ไม่สำเร็จ");
+    if (requestId !== skuPickerSearchRequestSeq || query !== (els.skuPickerSearch?.value?.trim() || "")) return;
+    if (!response.ok || data.ok === false) throw new Error(data.error || "โหลดข้อมูล SKU ไม่สำเร็จ");
+    selectCatalogSku(data.item);
+  } catch (error) {
+    if (requestId !== skuPickerSearchRequestSeq) return;
+    renderSkuPickerResults([]);
+    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ไม่พบ SKU นี้ใน catalog");
+  }
+}
+
 async function searchCatalogSkus() {
   const query = els.skuPickerSearch?.value?.trim() || "";
   const requestId = ++skuPickerSearchRequestSeq;
@@ -1380,6 +1420,10 @@ async function searchCatalogSkus() {
   }
   if (!isAppReady()) {
     renderSkuPickerStatus("กรุณาเข้าสู่ระบบก่อนค้นหา SKU จาก catalog");
+    return;
+  }
+  if (looksLikeExactCatalogSku(query)) {
+    await lookupExactCatalogSku(query, requestId);
     return;
   }
   try {
