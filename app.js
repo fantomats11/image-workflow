@@ -2265,7 +2265,13 @@ async function refreshSystemStatus() {
     const data = await response.json();
     const pending = data.queue?.pending || 0;
     const active = data.queue?.active || 0;
-    const drive = data.googleDriveApiConfigured ? "Google Drive พร้อม" : data.driveOutputConfigured ? "Drive พร้อม" : "บันทึกในเครื่อง";
+    const drive = data.google_drive_connected || data.checks?.googleDriveConnected
+      ? "Google Drive พร้อม"
+      : data.googleDriveApiConfigured || data.google_drive_configured
+        ? "Google Drive ต้อง reconnect"
+        : data.driveOutputConfigured
+          ? "Drive พร้อม"
+          : "บันทึกในเครื่อง";
     els.systemStatus.textContent = active || pending ? `คิวงาน ${active}/${pending}` : `พร้อมใช้งาน · ${drive}`;
   } catch {
     els.systemStatus.textContent = "ระบบไม่ตอบสนอง";
@@ -4196,7 +4202,7 @@ async function refreshGoogleDriveStatus() {
       els.googleDriveConnectButton.textContent = "เชื่อมต่อใหม่";
     } else {
       els.googleDriveStatusPill.textContent = "ยังไม่เชื่อมต่อ";
-      els.googleDriveStatusText.textContent = "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
+      els.googleDriveStatusText.textContent = data.tokenError || "Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน";
       els.googleDriveConnectButton.textContent = "เชื่อมต่อ Google Drive";
     }
     els.googleDriveConnectButton.disabled = false;

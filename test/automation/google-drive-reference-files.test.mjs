@@ -100,6 +100,31 @@ test("listGoogleDriveReferenceImageFiles uses public fallback when Drive API lis
   assert.deepEqual(files.map((file) => file.id), ["public-image-12345"]);
 });
 
+test("listGoogleDriveReferenceImageFiles does not hide invalid Drive auth behind public fallback", async () => {
+  const authError = new Error("invalid_grant: Token has been expired or revoked.");
+  authError.response = { status: 401 };
+  authError.code = "invalid_grant";
+  const drive = {
+    files: {
+      list: async () => {
+        throw authError;
+      },
+      get: async () => null
+    }
+  };
+
+  await assert.rejects(
+    () => listGoogleDriveReferenceImageFiles(drive, "root", {
+      requestTimeoutMs: 1000,
+      fetchImpl: async () => ({
+        ok: true,
+        text: async () => '<div data-id="public-image-12345" data-tooltip="FSTR240017_Front.jpg Image"></div>'
+      })
+    }),
+    /invalid_grant|expired or revoked/
+  );
+});
+
 test("listGoogleDriveReferenceImageFiles preserves Drive API failure when public fallback has no files", async () => {
   const drive = {
     files: {

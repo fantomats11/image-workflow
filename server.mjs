@@ -27,6 +27,7 @@ import { stageCatalogDriveReferencesToSupabase } from "./lib/automation/drive-re
 import {
   GOOGLE_DRIVE_FOLDER_MIME_TYPE,
   findGoogleDriveChildFolderByExactName,
+  isGoogleDriveAuthError,
   listGoogleDriveReferenceImageFiles
 } from "./lib/automation/google-drive-reference-files.mjs";
 import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
@@ -158,6 +159,7 @@ const generationJobs = new Map();
 const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
+let googleDriveStatusCache = null;
 const googleDriveReferenceFilesCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
   30_000,
@@ -1576,7 +1578,10 @@ async function buildWebSkuReferencePayload(item = {}, { stageReferences = true }
       }
     } catch (error) {
       console.warn(`Web SKU reference Drive read failed: ${readableError(error)}`);
-      resolutionSummary.blockers = ["google_drive_reference_read_failed"];
+      resolutionSummary.google_drive_checked = true;
+      resolutionSummary.blockers = [
+        isGoogleDriveAuthError(error) ? "google_drive_oauth_token_invalid" : "google_drive_reference_read_failed"
+      ];
     }
   }
 
@@ -1589,6 +1594,7 @@ async function buildWebSkuReferencePayload(item = {}, { stageReferences = true }
         || buildSignedLineImageProxyUrl({ driveFileId, fileName });
     }
   });
+  applyReferenceResolutionBlockersToContract(contract, resolutionSummary);
 
   return {
     sku: item.sku,
@@ -1682,6 +1688,47 @@ function normalizeDriveFolderCandidateName(value = "") {
     .replace(/[\/\\:*?"<>|]+/g, "-")
     .replace(/\s+/g, "")
     .replace(/[-_]+/g, "");
+}
+
+function applyReferenceResolutionBlockersToContract(contract, resolutionSummary = {}) {
+  const blockers = (resolutionSummary.blockers || [])
+    .map((code) => buildReferenceResolutionBlocker(code))
+    .filter(Boolean);
+  if (!blockers.length || !contract?.reference_readiness) return contract;
+  contract.reference_readiness = {
+    ...contract.reference_readiness,
+    status: "blocked",
+    label_th: "ยังโหลด reference จาก Google Drive ไม่ได้",
+    blockers: [
+      ...(contract.reference_readiness.blockers || []),
+      ...blockers
+    ]
+  };
+  return contract;
+}
+
+function buildReferenceResolutionBlocker(code = "") {
+  const cleanCode = cleanOptionalString(code);
+  if (!cleanCode) return null;
+  if (cleanCode === "google_drive_oauth_token_invalid") {
+    return {
+      code: cleanCode,
+      message_th: "Google Drive token หมดอายุหรือถูก revoke ต้อง reconnect Google Drive ก่อนโหลดรูป SKU"
+    };
+  }
+  if (cleanCode === "google_drive_reference_read_failed") {
+    return {
+      code: cleanCode,
+      message_th: "อ่าน Google Drive reference ไม่สำเร็จ กรุณาตรวจสิทธิ์ Drive หรือ reconnect"
+    };
+  }
+  if (cleanCode === "drive_folder_exact_sku_not_found") {
+    return {
+      code: cleanCode,
+      message_th: "ยังหาโฟลเดอร์ปลายทางของ SKU ใน Google Drive ไม่พบ"
+    };
+  }
+  return { code: cleanCode, message_th: cleanCode };
 }
 
 function logDriveReferenceStageDiagnostic(event = {}) {
@@ -3263,14 +3310,22 @@ app.get("/api/google/oauth/status", requireUser, requireAdminUser, async (_req, 
   try {
     const integrationToken = await readIntegrationToken("google_drive");
     const fileTokenExists = await fileExists(googleDriveTokenPath);
-    const supabaseTokenExists = hasUsableGoogleOAuthToken(integrationToken?.token_json);
-    const tokenExists = supabaseTokenExists || fileTokenExists;
+    const fileToken = integrationToken?.token_json ? null : await readGoogleOAuthFileTokenSafe();
+    const tokenJson = integrationToken?.token_json || fileToken;
+    const tokenValidation = await validateGoogleOAuthToken(tokenJson, {
+      persist: false,
+      updatedBy: null
+    });
+    const tokenExists = hasUsableGoogleOAuthToken(tokenJson) || fileTokenExists;
     res.json({
       ok: true,
       mode: getGoogleDriveAuthMode(),
       configured: isGoogleOAuthConfigured(),
       tokenExists,
-      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenExists,
+      tokenValid: tokenValidation.valid,
+      tokenErrorCode: tokenValidation.valid ? "" : tokenValidation.code,
+      tokenError: tokenValidation.valid ? "" : tokenValidation.message,
+      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
       provider: integrationToken?.provider || (fileTokenExists ? "google" : null),
       updatedAt: integrationToken?.updated_at || null
     });
@@ -7512,7 +7567,12 @@ async function getGoogleDriveClient() {
   if (!googleDriveClientPromise) {
     googleDriveClientPromise = createGoogleDriveClient();
   }
-  return googleDriveClientPromise;
+  try {
+    return await googleDriveClientPromise;
+  } catch (error) {
+    googleDriveClientPromise = null;
+    throw error;
+  }
 }
 
 async function createGoogleDriveClient() {
@@ -7520,10 +7580,18 @@ async function createGoogleDriveClient() {
 
   if (getGoogleDriveAuthMode() === "oauth") {
     const oauth2Client = createGoogleOAuthClient();
-    const tokens = await readGoogleOAuthToken();
+    let tokens = await readGoogleOAuthToken();
     if (!tokens?.refresh_token && !tokens?.access_token) {
       throw new Error("Google Drive ยังไม่ได้เชื่อมต่อ กรุณาให้ Admin เชื่อมต่อก่อน");
     }
+    const tokenValidation = await validateGoogleOAuthToken(tokens, { persist: true });
+    if (!tokenValidation.valid) {
+      const error = new Error(tokenValidation.message);
+      error.code = tokenValidation.code;
+      error.status = 401;
+      throw error;
+    }
+    tokens = { ...tokens, ...(tokenValidation.tokens || {}) };
     oauth2Client.setCredentials(tokens);
     oauth2Client.on("tokens", async (newTokens) => {
       try {
@@ -7627,6 +7695,103 @@ async function readGoogleOAuthToken() {
   }
 }
 
+async function readGoogleOAuthFileTokenSafe() {
+  try {
+    return JSON.parse(await fs.readFile(googleDriveTokenPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    console.warn("Google OAuth file token read failed:", readableError(error));
+    return null;
+  }
+}
+
+async function validateGoogleOAuthToken(tokens, { persist = false, updatedBy = null } = {}) {
+  if (!hasUsableGoogleOAuthToken(tokens)) {
+    return {
+      valid: false,
+      code: "google_drive_oauth_token_missing",
+      message: "Google Drive ยังไม่ได้เชื่อมต่อ"
+    };
+  }
+
+  if (tokens.refresh_token && googleOAuthClientId && googleOAuthClientSecret) {
+    try {
+      const response = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: googleOAuthClientId,
+          client_secret: googleOAuthClientSecret,
+          refresh_token: tokens.refresh_token,
+          grant_type: "refresh_token"
+        })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const code = cleanOptionalString(body.error) || "google_drive_oauth_token_invalid";
+        return {
+          valid: false,
+          code: code === "invalid_grant" ? "google_drive_oauth_token_invalid" : code,
+          message: cleanOptionalString(body.error_description)
+            || "Google Drive token หมดอายุหรือถูก revoke ต้อง reconnect Google Drive"
+        };
+      }
+      const refreshedTokens = {
+        access_token: body.access_token,
+        token_type: body.token_type,
+        scope: body.scope,
+        expiry_date: Date.now() + Math.max(0, Number(body.expires_in || 0) * 1000)
+      };
+      if (persist && refreshedTokens.access_token) {
+        await saveGoogleOAuthToken(refreshedTokens, {
+          updatedBy,
+          eventType: "google_drive_token_validated"
+        });
+      }
+      return {
+        valid: true,
+        code: "",
+        message: "",
+        tokens: refreshedTokens
+      };
+    } catch (error) {
+      return {
+        valid: false,
+        code: isGoogleDriveAuthError(error) ? "google_drive_oauth_token_invalid" : "google_drive_oauth_validation_failed",
+        message: readableError(error) || "ตรวจสอบ Google Drive token ไม่สำเร็จ"
+      };
+    }
+  }
+
+  if (tokens.access_token) {
+    try {
+      const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(tokens.access_token)}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return {
+          valid: false,
+          code: "google_drive_oauth_token_invalid",
+          message: cleanOptionalString(body.error_description)
+            || "Google Drive token หมดอายุหรือใช้ไม่ได้ ต้อง reconnect Google Drive"
+        };
+      }
+      return { valid: true, code: "", message: "", tokens: {} };
+    } catch (error) {
+      return {
+        valid: false,
+        code: "google_drive_oauth_validation_failed",
+        message: readableError(error) || "ตรวจสอบ Google Drive token ไม่สำเร็จ"
+      };
+    }
+  }
+
+  return {
+    valid: false,
+    code: "google_drive_oauth_token_missing",
+    message: "Google Drive ยังไม่ได้เชื่อมต่อ"
+  };
+}
+
 async function saveGoogleOAuthToken(tokens, { updatedBy = null, eventType = "google_drive_token_refreshed" } = {}) {
   const existingToken = await readIntegrationToken("google_drive");
   const existingTokenJson = existingToken?.token_json || {};
@@ -7648,6 +7813,7 @@ async function saveGoogleOAuthToken(tokens, { updatedBy = null, eventType = "goo
   if (error) throw error;
 
   googleDriveClientPromise = null;
+  googleDriveStatusCache = null;
   await recordAuditEvent({
     actorId: updatedBy,
     eventType,
@@ -10032,16 +10198,26 @@ async function readKpiProfiles(userIds) {
 
 async function getSafeGoogleDriveStatus() {
   try {
+    const now = Date.now();
+    if (googleDriveStatusCache?.expiresAt > now) return googleDriveStatusCache.status;
     const integrationToken = await readIntegrationToken("google_drive");
     const fileTokenExists = await fileExists(googleDriveTokenPath);
-    const tokenExists = hasUsableGoogleOAuthToken(integrationToken?.token_json) || fileTokenExists;
-    return {
+    const fileToken = integrationToken?.token_json ? null : await readGoogleOAuthFileTokenSafe();
+    const tokenJson = integrationToken?.token_json || fileToken;
+    const tokenValidation = await validateGoogleOAuthToken(tokenJson, { persist: false });
+    const tokenExists = hasUsableGoogleOAuthToken(tokenJson) || fileTokenExists;
+    const status = {
       mode: getGoogleDriveAuthMode(),
       configured: isGoogleOAuthConfigured(),
-      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenExists,
+      connected: getGoogleDriveAuthMode() === "oauth" && isGoogleOAuthConfigured() && tokenValidation.valid,
       tokenExists,
+      tokenValid: tokenValidation.valid,
+      tokenErrorCode: tokenValidation.valid ? "" : tokenValidation.code,
+      tokenError: tokenValidation.valid ? "" : tokenValidation.message,
       updatedAt: integrationToken?.updated_at || null
     };
+    googleDriveStatusCache = { status, expiresAt: now + 60_000 };
+    return status;
   } catch (error) {
     console.warn("Google Drive KPI status unavailable:", readableError(error));
     return {
@@ -10049,6 +10225,9 @@ async function getSafeGoogleDriveStatus() {
       configured: isGoogleOAuthConfigured(),
       connected: false,
       tokenExists: false,
+      tokenValid: false,
+      tokenErrorCode: "google_drive_status_failed",
+      tokenError: "ตรวจสอบสถานะ Google Drive ไม่สำเร็จ",
       updatedAt: null
     };
   }

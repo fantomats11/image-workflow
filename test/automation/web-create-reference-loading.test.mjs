@@ -99,6 +99,16 @@ test("server falls through parent Drive folders into exact child SKU folder like
   assert.match(serverJs, /reference_source_folder_id: resolvedFolder\.sourceFolderId/);
 });
 
+test("server validates Google OAuth token instead of treating stale tokens as Drive ready", () => {
+  assert.match(serverJs, /isGoogleDriveAuthError/);
+  assert.match(serverJs, /async function validateGoogleOAuthToken/);
+  assert.match(serverJs, /google_drive_oauth_token_invalid/);
+  assert.match(serverJs, /tokenErrorCode/);
+  assert.match(serverJs, /connected: getGoogleDriveAuthMode\(\) === "oauth" && isGoogleOAuthConfigured\(\) && tokenValidation\.valid/);
+  assert.match(appJs, /Google Drive ต้อง reconnect/);
+  assert.match(appJs, /data\.tokenError \|\| "Google Drive ยังไม่ได้เชื่อมต่อ/);
+});
+
 test("Web-first create page is the default and visible navigation path", () => {
   assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
   assert.match(appJs, /#create/);
