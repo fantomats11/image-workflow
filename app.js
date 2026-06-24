@@ -1538,6 +1538,17 @@ function setSkuWorkClaimFailed({ message = "", code = "", httpStatus = 0, endpoi
   });
 }
 
+function formatSkuWorkClaimFailureMessage({ response = null, data = {}, fallback = "claim SKU ไม่สำเร็จ" } = {}) {
+  const code = data?.code || "";
+  if (code === "sku_work_state_store_unavailable") {
+    return "ระบบ claim ยังไม่พร้อม: ยังไม่มีตาราง sku_work_states หรือสิทธิ์อ่านไม่ได้";
+  }
+  if (code === "sku_work_state_store_forbidden") {
+    return "ระบบ claim ยังไม่พร้อม: สิทธิ์อ่าน/เขียนสถานะ SKU ไม่ครบ";
+  }
+  return getApiErrorMessage(response, data, fallback);
+}
+
 function renderSkuWorkClaimCard(message = "") {
   if (!els.skuWorkClaimCard) return;
   if (!selectedCatalogSku?.sku) {
@@ -1609,7 +1620,7 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
     if (requestId !== skuWorkClaimRequestSeq || selectedCatalogSku?.sku !== requestedSku) return null;
     if (!response.ok || data.ok === false) {
       setSkuWorkClaimFailed({
-        message: getApiErrorMessage(response, data, "โหลดสถานะ claim ไม่สำเร็จ"),
+        message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "โหลดสถานะ claim ไม่สำเร็จ" }),
         code: data.code || "",
         httpStatus: response.status,
         endpoint: "GET /api/sku-work/:sku"
@@ -1661,13 +1672,13 @@ async function claimSelectedSkuWork() {
         skuWorkClaimState.status = "claimed_by_other";
       } else {
         setSkuWorkClaimFailed({
-          message: getApiErrorMessage(response, data, "claim SKU ไม่สำเร็จ"),
+          message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "claim SKU ไม่สำเร็จ" }),
           code: data.code || "",
           httpStatus: response.status,
           endpoint: "POST /api/sku-work/:sku/claim"
         });
       }
-      renderSkuWorkClaimCard(getApiErrorMessage(response, data, "claim SKU ไม่สำเร็จ"));
+      renderSkuWorkClaimCard(formatSkuWorkClaimFailureMessage({ response, data, fallback: "claim SKU ไม่สำเร็จ" }));
       updateActionAvailability();
       startSkuWorkClaimPolling();
       return skuWorkClaimState;

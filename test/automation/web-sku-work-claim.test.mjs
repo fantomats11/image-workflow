@@ -68,6 +68,15 @@ test("server writes safe diagnostics for claim status and claim endpoints", () =
   assert.doesNotMatch(diagnosticHelper, /process\.env|SUPABASE_SERVICE_ROLE_KEY|GOOGLE_DRIVE_ACCESS_TOKEN/);
 });
 
+test("claim status failures expose staff-safe store readiness codes instead of generic text", () => {
+  assert.match(serverJs, /function toSkuWorkStatePublicError/);
+  assert.match(serverJs, /sku_work_state_store_unavailable/);
+  assert.match(serverJs, /ระบบ claim ยังไม่พร้อม/);
+  assert.match(serverJs, /res\.status\(claimError\.status\)\.json\(\{\s*ok: false,\s*code: claimError\.code,\s*error: claimError\.publicMessage/);
+  assert.match(appJs, /formatSkuWorkClaimFailureMessage/);
+  assert.match(appJs, /ระบบ claim ยังไม่พร้อม/);
+});
+
 test("jobs and next action surfaces expose claim status without direct frontend service role access", () => {
   assert.match(serverJs, /readSkuWorkStatesForSkus/);
   assert.match(serverJs, /claimStatus: serializeSkuWorkClaimForUser/);

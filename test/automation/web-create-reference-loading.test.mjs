@@ -90,6 +90,15 @@ test("server resolves runtime exact SKU folder before staging Drive references",
   assert.match(serverJs, /drive_folder_exact_sku_not_found/);
 });
 
+test("server falls through parent Drive folders into exact child SKU folder like the fast demo", () => {
+  assert.match(serverJs, /GOOGLE_DRIVE_FOLDER_MIME_TYPE/);
+  assert.match(serverJs, /resolveDriveReferenceChildFolderFromListedFiles/);
+  assert.match(serverJs, /drive_child_folder_exact_sku_fallback/);
+  assert.match(serverJs, /folderId: sourceFolderId \|\| fallbackFolderId/);
+  assert.match(serverJs, /files = await listGoogleDriveReferenceFilesCached\(drive, childFolder\.id\)/);
+  assert.match(serverJs, /reference_source_folder_id: resolvedFolder\.sourceFolderId/);
+});
+
 test("Web-first create page is the default and visible navigation path", () => {
   assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
   assert.match(appJs, /#create/);

@@ -25,6 +25,7 @@ import { buildModelInputStagingManifest } from "./lib/automation/model-input-sta
 import { buildReferenceAssetResolution } from "./lib/automation/reference-asset-resolution.mjs";
 import { stageCatalogDriveReferencesToSupabase } from "./lib/automation/drive-reference-staging-bridge.mjs";
 import {
+  GOOGLE_DRIVE_FOLDER_MIME_TYPE,
   findGoogleDriveChildFolderByExactName,
   listGoogleDriveReferenceImageFiles
 } from "./lib/automation/google-drive-reference-files.mjs";
@@ -1039,18 +1040,19 @@ app.get("/api/sku-work/:sku", requireUser, async (req, res) => {
       claim
     });
   } catch (error) {
+    const claimError = toSkuWorkStatePublicError(error);
     logSkuWorkClaimDiagnostic({
       sku,
       userId: req.user?.id || "",
       endpoint: "GET /api/sku-work/:sku",
-      httpStatus: 500,
-      error: { code: "sku_work_status_failed", message: readableError(error) }
+      httpStatus: claimError.status,
+      error: { code: claimError.code, message: claimError.publicMessage }
     });
     console.error("SKU work status failed:", readableError(error));
-    res.status(500).json({
+    res.status(claimError.status).json({
       ok: false,
-      code: "sku_work_status_failed",
-      error: "โหลดสถานะ claim ของ SKU ไม่สำเร็จ"
+      code: claimError.code,
+      error: claimError.publicMessage
     });
   }
 });
@@ -1154,19 +1156,19 @@ app.post("/api/sku-work/:sku/claim", requireUser, async (req, res) => {
       claim
     });
   } catch (error) {
-    const status = error.status || 500;
+    const claimError = toSkuWorkStatePublicError(error);
     logSkuWorkClaimDiagnostic({
       sku,
       userId: req.user?.id || "",
       endpoint: "POST /api/sku-work/:sku/claim",
-      httpStatus: status,
-      error: { code: error.code || "sku_work_claim_failed", message: error.publicMessage || readableError(error) }
+      httpStatus: claimError.status,
+      error: { code: claimError.code, message: claimError.publicMessage }
     });
     console.error("SKU work claim failed:", readableError(error));
-    res.status(status).json({
+    res.status(claimError.status).json({
       ok: false,
-      code: error.code || "sku_work_claim_failed",
-      error: error.publicMessage || "claim SKU ไม่สำเร็จ"
+      code: claimError.code,
+      error: claimError.publicMessage
     });
   }
 });
@@ -1394,6 +1396,28 @@ function isMissingSkuWorkStateTable(error) {
   return error?.code === "42P01" || /sku_work_states|relation .* does not exist/i.test(String(error?.message || ""));
 }
 
+function toSkuWorkStatePublicError(error) {
+  if (isMissingSkuWorkStateTable(error)) {
+    return {
+      status: 503,
+      code: "sku_work_state_store_unavailable",
+      publicMessage: "ระบบ claim ยังไม่พร้อม: ยังไม่มีตาราง sku_work_states หรือสิทธิ์อ่านไม่ได้"
+    };
+  }
+  if (error?.code === "42501" || /permission denied|row-level security|rls/i.test(String(error?.message || ""))) {
+    return {
+      status: 503,
+      code: "sku_work_state_store_forbidden",
+      publicMessage: "ระบบ claim ยังไม่พร้อม: สิทธิ์อ่าน/เขียนสถานะ SKU ไม่ครบ"
+    };
+  }
+  return {
+    status: error?.status || 500,
+    code: error?.code || "sku_work_claim_failed",
+    publicMessage: error?.publicMessage || "claim SKU ไม่สำเร็จ"
+  };
+}
+
 async function ensureSkuWorkClaimAllowsGeneration({ sku = "", userId = "", actorLabel = "" } = {}) {
   const normalizedSku = sanitizeSku(sku || "").toUpperCase();
   if (!normalizedSku) return null;
@@ -1479,7 +1503,25 @@ async function buildWebSkuReferencePayload(item = {}, { stageReferences = true }
             blockers: [resolvedFolder.blocker || "drive_folder_exact_sku_not_found"].filter(Boolean)
           };
         } else {
-          const files = await listGoogleDriveReferenceFilesCached(drive, folderId);
+          let files = await listGoogleDriveReferenceFilesCached(drive, folderId);
+          const childFolder = resolveDriveReferenceChildFolderFromListedFiles({
+            files,
+            lookupKey: resolvedFolder.lookupKey || item.sku
+          });
+          if (childFolder?.id) {
+            resolvedFolder = {
+              ...resolvedFolder,
+              folderId: childFolder.id,
+              sourceFolderId: resolvedFolder.sourceFolderId || folderId,
+              lookupKey: resolvedFolder.lookupKey || item.sku,
+              strategy: resolvedFolder.strategy || "drive_child_folder_exact_sku_fallback",
+              folderName: childFolder.name || "",
+              resolved: true,
+              blocker: ""
+            };
+            folderId = childFolder.id;
+            files = await listGoogleDriveReferenceFilesCached(drive, childFolder.id);
+          }
           const resolution = buildReferenceAssetResolution({
             batch: { batch_id: null },
             batchItems: [{
@@ -1523,9 +1565,10 @@ async function buildWebSkuReferencePayload(item = {}, { stageReferences = true }
             reference_source_folder_id: resolvedFolder.sourceFolderId,
             reference_lookup_key: resolvedFolder.lookupKey,
             blockers: [
+              resolvedFolder.blocker,
               ...(resolutionItem.blockers || []),
               ...(stageResult?.summary?.blockers || [])
-            ]
+            ].filter(Boolean)
           };
         }
       } else {
@@ -1597,7 +1640,7 @@ async function resolveCatalogDriveReferenceFolder({ drive, item = {}, fallbackFo
   });
   if (!targetFolder?.id) {
     return {
-      folderId: "",
+      folderId: sourceFolderId || fallbackFolderId,
       sourceFolderId,
       lookupKey,
       strategy,
@@ -1617,9 +1660,28 @@ async function resolveCatalogDriveReferenceFolder({ drive, item = {}, fallbackFo
   };
 }
 
+function resolveDriveReferenceChildFolderFromListedFiles({ files = [], lookupKey = "" } = {}) {
+  const targetName = normalizeDriveFolderCandidateName(lookupKey);
+  if (!targetName) return null;
+  const matches = (files || [])
+    .filter((file) => file?.mimeType === GOOGLE_DRIVE_FOLDER_MIME_TYPE)
+    .filter((file) => normalizeDriveFolderCandidateName(file.name) === targetName);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function buildGoogleDriveFolderUrl(folderId = "") {
   const cleanFolderId = cleanOptionalString(folderId);
   return cleanFolderId ? `https://drive.google.com/drive/folders/${cleanFolderId}` : "";
+}
+
+function normalizeDriveFolderCandidateName(value = "") {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\/\\:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "")
+    .replace(/[-_]+/g, "");
 }
 
 function logDriveReferenceStageDiagnostic(event = {}) {
