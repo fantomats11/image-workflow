@@ -198,6 +198,10 @@ test("buildWebSkuReferenceContract creates stageable Drive cards without exposin
       mimeType: "image/jpeg",
       width: 1200,
       height: 1600,
+      staged_public_url: "https://project.supabase.co/storage/v1/object/sign/product-references/catalog/R23CBT0048/front.jpg?token=masked",
+      storage_bucket: "product-references",
+      storage_key: "catalog/R23CBT0048/front.jpg",
+      staging_status: "staged_to_supabase",
       classification: { use_as_reference: true, asset_type: "product_reference" }
     }],
     buildPreviewUrl: ({ driveFileId }) => `https://image-workflow.example.test/api/public/line-image/${driveFileId}?sig=masked`
@@ -209,8 +213,36 @@ test("buildWebSkuReferenceContract creates stageable Drive cards without exposin
   assert.equal(contract.references[0].source, "google_drive");
   assert.equal(contract.references[0].preview_available, true);
   assert.equal(contract.references[0].stage_available, true);
+  assert.equal(contract.references[0].storage_bucket, "product-references");
+  assert.equal(contract.references[0].storage_key, "catalog/R23CBT0048/front.jpg");
   assert.notEqual(contract.references[0].reference_key, "1abcDEFghiJKLMnopQRs");
-  assert.equal(contract.references[0].generation_url.includes("1abcDEFghiJKLMnopQRs"), true);
+  assert.equal(contract.references[0].generation_url.includes("supabase.co/storage"), true);
+  assert.equal(contract.references[0].preview_url.includes("/api/public/line-image/"), true);
+});
+
+test("buildWebSkuReferenceContract keeps Drive preview but blocks generation until Supabase staging exists", () => {
+  const item = findWebSkuPickerItemBySku(rows, "R23CBT0048");
+  const contract = buildWebSkuReferenceContract({
+    item,
+    resolvedReferenceAssets: [{
+      drive_file_id: "1abcDEFghiJKLMnopQRs",
+      name: "R23CBT0048_Front.jpg",
+      mimeType: "image/jpeg",
+      width: 1200,
+      height: 1600,
+      staging_status: "staging_failed",
+      staging_error_code: "permission_or_policy",
+      staging_error_message_th: "stage รูปจาก Drive เข้า Supabase Storage ไม่สำเร็จ",
+      classification: { use_as_reference: true, asset_type: "product_reference" }
+    }],
+    buildPreviewUrl: ({ driveFileId }) => `https://image-workflow.example.test/api/public/line-image/${driveFileId}?sig=masked`
+  });
+
+  assert.equal(contract.reference_readiness.status, "warning");
+  assert.equal(contract.references[0].preview_available, true);
+  assert.equal(contract.references[0].stage_available, false);
+  assert.equal(contract.references[0].generation_url, "");
+  assert.deepEqual(contract.references[0].blockers.map((blocker) => blocker.code), ["permission_or_policy"]);
 });
 
 test("buildWebSkuReferenceContract blocks label/tag assets as visual truth", () => {

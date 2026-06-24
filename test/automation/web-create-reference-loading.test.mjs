@@ -40,6 +40,15 @@ test("server resolves catalog references automatically when requested by create 
   assert.match(serverJs, /ยังโหลดรูป reference จาก Google Drive มาใช้กับ Hero ไม่ได้/);
 });
 
+test("server stages Drive references to Supabase Storage before Hero generation", () => {
+  assert.match(serverJs, /stageWebSkuReferenceAssetsForGeneration/);
+  assert.match(serverJs, /drive\.files\.get\(\s*\{\s*fileId: driveFileId,\s*alt: "media"/);
+  assert.match(serverJs, /\.from\(bucket\)\s*\.upload\(storageKey, uploadStream/);
+  assert.match(serverJs, /const bucket = "product-references";/);
+  assert.match(serverJs, /staged_public_url: staged\.publicUrl/);
+  assert.match(serverJs, /reference_storage_url_unavailable/);
+});
+
 test("Web-first create page is the default and visible navigation path", () => {
   assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
   assert.match(appJs, /#create/);
