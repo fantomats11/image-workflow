@@ -153,6 +153,8 @@
                       <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden></div>
                     </div>
                     <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
+                    <section class="selected-product-summary" id="selectedProductSummary" aria-live="polite" hidden></section>
+                    <section class="reference-readiness-card" id="referenceReadinessCard" aria-live="polite" hidden></section>
                     <div class="catalog-reference-panel" id="catalogReferencePanel" hidden>
                       <div class="catalog-reference-header">
                         <strong>Reference จาก catalog/Drive</strong>
@@ -244,21 +246,26 @@
                   <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
                 </label>
 
-                <div class="upload-grid">
-                  <label>
-                    ภาพสินค้าอ้างอิง
-                    <input id="productImages" type="file" accept="image/*" multiple />
-                    <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
-                    <div class="thumb-grid" id="productPreview"></div>
-                  </label>
+                <details class="manual-reference-fallback" id="fallbackReferenceSection">
+                  <summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้</summary>
+                  <div class="manual-reference-fallback-body">
+                    <div class="upload-grid">
+                      <label>
+                        ภาพสินค้าอ้างอิง
+                        <input id="productImages" type="file" accept="image/*" multiple />
+                        <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
+                        <div class="thumb-grid" id="productPreview"></div>
+                      </label>
 
-                  <label>
-                    ภาพโมเดลอ้างอิง
-                    <input id="modelImages" type="file" accept="image/*" multiple />
-                    <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
-                    <div class="thumb-grid" id="modelPreview"></div>
-                  </label>
-                </div>
+                      <label>
+                        ภาพโมเดลอ้างอิง
+                        <input id="modelImages" type="file" accept="image/*" multiple />
+                        <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
+                        <div class="thumb-grid" id="modelPreview"></div>
+                      </label>
+                    </div>
+                  </div>
+                </details>
               </section>
 
               <section class="control-section">
@@ -277,7 +284,10 @@
             </div>
 
             <div class="actions action-bar">
-              <span>สร้างเฉพาะ Hero ก่อน แล้วค่อยส่งเข้าตรวจ</span>
+              <span>
+                สร้างเฉพาะ Hero ก่อน แล้วค่อยส่งเข้าตรวจ
+                <small class="generate-button-reason" id="generateButtonReason" role="status" aria-live="polite"></small>
+              </span>
               <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้าง Hero</button>
               <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
             </div>

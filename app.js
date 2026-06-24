@@ -295,6 +295,8 @@ const els = {
   skuPickerClearButton: document.getElementById("skuPickerClearButton"),
   skuPickerResults: document.getElementById("skuPickerResults"),
   skuPickerStatus: document.getElementById("skuPickerStatus"),
+  selectedProductSummary: document.getElementById("selectedProductSummary"),
+  referenceReadinessCard: document.getElementById("referenceReadinessCard"),
   catalogReferencePanel: document.getElementById("catalogReferencePanel"),
   catalogReferenceStatus: document.getElementById("catalogReferenceStatus"),
   catalogReferenceCards: document.getElementById("catalogReferenceCards"),
@@ -311,6 +313,7 @@ const els = {
   imageSize: document.getElementById("imageSize"),
   quality: document.getElementById("quality"),
   imageReference: document.getElementById("imageReference"),
+  fallbackReferenceSection: document.getElementById("fallbackReferenceSection"),
   productImages: document.getElementById("productImages"),
   modelImages: document.getElementById("modelImages"),
   productPreview: document.getElementById("productPreview"),
@@ -322,6 +325,7 @@ const els = {
   promptRisk: document.getElementById("promptRisk"),
   copyButton: document.getElementById("copyButton"),
   generateButton: document.getElementById("generateButton"),
+  generateButtonReason: document.getElementById("generateButtonReason"),
   approveButton: document.getElementById("approveButton"),
   resultCard: document.getElementById("resultCard"),
   generationState: document.getElementById("generationState"),
@@ -630,6 +634,9 @@ async function init() {
   renderFilePreview(els.productImages, els.productPreview, 10);
   renderFilePreview(els.modelImages, els.modelPreview, 5);
   renderSkuPickerStatus();
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard();
+  updateCatalogDrivenFieldHierarchy();
   renderHistory();
   renderAssets();
   updateAssetLibraryHelper();
@@ -969,6 +976,9 @@ function resetTransientWorkflowState() {
   renderAssets();
   renderSkuPickerStatus();
   renderCatalogReferencePanel();
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard();
+  updateCatalogDrivenFieldHierarchy();
   appState.currentJobId = null;
   appState.currentGenerationId = null;
 }
@@ -998,8 +1008,13 @@ function clearActionLoadingStates() {
 }
 
 function updateActionAvailability() {
+  const readiness = getGenerateHeroReadiness();
+  els.generateButton.disabled = readiness.disabled;
+  if (els.generateButtonReason) {
+    els.generateButtonReason.textContent = readiness.reason;
+    els.generateButtonReason.className = `generate-button-reason ${readiness.tone ? `is-${readiness.tone}` : ""}`.trim();
+  }
   const ready = isAppReady();
-  els.generateButton.disabled = !ready || appState.actions.generate || isSelectedSkuReferenceBlockedWithoutFallback();
   els.approveButton.disabled = !ready || appState.actions.approve || !currentGeneratedImageUrl;
   els.generateSupportButton.disabled = !ready || !canGenerateSupport();
   els.approveSupportButton.disabled = !ready || !supportResults.some((item) => item.imageUrl && item.status === "done");
@@ -1206,6 +1221,154 @@ function getSelectedSkuReferenceBlockerMessage() {
   return blocker?.message_th || "SKU นี้ยังไม่มี reference พร้อมใช้ กรุณาใช้ reference จาก catalog/Drive หรืออัปโหลดภาพอ้างอิงก่อน Generate Hero";
 }
 
+function countSelectedReferenceFiles() {
+  const summary = selectedCatalogSku?.resolution_summary || {};
+  const readiness = selectedCatalogSku?.reference_readiness || {};
+  const foundFiles = Number(summary.file_count || readiness.reference_count || selectedCatalogReferences.length || 0) || 0;
+  const stageableImages = selectedCatalogReferences.filter((reference) => reference.stage_available && reference.reference_key).length
+    || Number(summary.stageable_image_count || readiness.stageable_reference_count || 0)
+    || stagedCatalogReferenceKeys.length
+    || 0;
+  const blockedFiles = selectedCatalogReferences.filter((reference) => (reference.blockers || []).length).length
+    || Number(summary.blocked_file_count || readiness.blocked_reference_count || 0)
+    || 0;
+  return { foundFiles, stageableImages, blockedFiles };
+}
+
+function getCatalogDriveUrl() {
+  const driveFolderId = selectedCatalogSku?.reference_drive_id || "";
+  return selectedCatalogSku?.reference_url || (driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : "");
+}
+
+function getReferenceReadinessViewModel(message = "") {
+  const counts = countSelectedReferenceFiles();
+  const readiness = selectedCatalogSku?.reference_readiness || {};
+  const driveUrl = getCatalogDriveUrl();
+  const hasManualFallback = hasManualProductReferenceUpload();
+  const hasSource = hasSelectedCatalogReferenceSource();
+  const stageable = hasSelectedCatalogStageableReferences();
+  const staged = hasStagedCatalogReferences();
+  const blockers = (readiness.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
+  const warnings = (readiness.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
+
+  if (!selectedCatalogSku?.sku) {
+    return {
+      state: "empty",
+      className: "reference-state-warning",
+      title: "ยังไม่ได้เลือก SKU",
+      description: message || "เลือก SKU จาก catalog เพื่อดู readiness ของ reference",
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  if (catalogReferenceLoading) {
+    return {
+      state: "loading",
+      className: "reference-state-loading",
+      title: "กำลังโหลด reference จาก Drive",
+      description: message || "summary สินค้าพร้อมแล้ว ระบบกำลังโหลด Drive reference แยก async",
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  if (isSelectedSkuReferenceBlockedWithoutFallback()) {
+    return {
+      state: "blocked",
+      className: "reference-state-blocked",
+      title: "reference ยังติด blocker",
+      description: message || getSelectedSkuReferenceBlockerMessage(),
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  if (staged || stageable) {
+    return {
+      state: "ready",
+      className: "reference-state-ready",
+      title: staged ? "staged reference พร้อมสร้าง Hero" : "reference พร้อม stage อัตโนมัติ",
+      description: message || (staged ? `แนบ reference แล้ว ${stagedCatalogReferenceKeys.length} รูป` : "ระบบจะใช้ reference จาก catalog กับ Hero โดยอัตโนมัติ"),
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  if (hasSource && warnings.length) {
+    return {
+      state: "warning",
+      className: "reference-state-warning",
+      title: "พบ reference แต่ยังต้องตรวจ",
+      description: message || warnings[0] || "พบ Google Drive source แล้ว แต่ยังไม่มีรูปที่ stage ได้",
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  if (!hasSource && !hasManualFallback) {
+    return {
+      state: "manual_fallback_needed",
+      className: "reference-state-warning",
+      title: "ต้องอัปโหลด fallback",
+      description: message || "SKU นี้ยังไม่มี Drive reference ใน catalog ให้ใช้ภาพสินค้าอ้างอิงเอง",
+      counts,
+      driveUrl,
+      blockers,
+      warnings
+    };
+  }
+
+  return {
+    state: hasManualFallback ? "manual_fallback_ready" : "manual_fallback_needed",
+    className: hasManualFallback ? "reference-state-ready" : "reference-state-warning",
+    title: hasManualFallback ? "ใช้ fallback upload พร้อมสร้าง Hero" : "ต้องอัปโหลด fallback",
+    description: message || (hasManualFallback ? "ระบบจะใช้ภาพที่อัปโหลดเองเป็น reference หลัก" : "ยังไม่มี staged reference จาก catalog"),
+    counts,
+    driveUrl,
+    blockers,
+    warnings
+  };
+}
+
+function getGenerateHeroReadiness() {
+  if (!isAppReady()) {
+    return { disabled: true, tone: "blocked", reason: "ยังไม่ได้ login หรือบัญชียังไม่พร้อมใช้งาน" };
+  }
+  if (appState.actions.generate) {
+    return { disabled: true, tone: "loading", reason: "กำลังสร้าง Hero..." };
+  }
+  if (catalogReferenceLoading && selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !hasManualProductReferenceUpload()) {
+    return { disabled: true, tone: "loading", reason: "กำลังโหลด reference จาก Google Drive" };
+  }
+  if (isSelectedSkuReferenceBlockedWithoutFallback()) {
+    return { disabled: true, tone: "blocked", reason: `ต้องอัปโหลด fallback: ${getSelectedSkuReferenceBlockerMessage()}` };
+  }
+  if (!hasManualProductReferenceUpload() && selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) {
+    return { disabled: true, tone: "warning", reason: "ยังไม่มี staged reference จาก catalog/Drive" };
+  }
+  if (!hasManualProductReferenceUpload() && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) {
+    return { disabled: true, tone: "warning", reason: "ต้องอัปโหลด fallback หรือเลือก SKU ที่มี reference พร้อมใช้" };
+  }
+  return {
+    disabled: false,
+    tone: "ready",
+    reason: hasStagedCatalogReferences() || canAutoUseCatalogReferencesForHero()
+      ? "พร้อมสร้าง Hero จาก staged reference"
+      : "พร้อมสร้าง Hero จาก fallback upload"
+  };
+}
+
 function normalizeCatalogSkuLookup(value = "") {
   return String(value || "").trim().toUpperCase();
 }
@@ -1245,14 +1408,115 @@ function renderSkuPickerStatus(message = "") {
   updateActionAvailability();
 }
 
+function renderSelectedProductSummary() {
+  if (!els.selectedProductSummary) return;
+  if (!selectedCatalogSku?.sku) {
+    els.selectedProductSummary.hidden = true;
+    els.selectedProductSummary.innerHTML = "";
+    return;
+  }
+  const brandProfile = getSelectedBrandProfile();
+  const readiness = selectedCatalogSku.reference_readiness || {};
+  const referenceLabel = readiness.label_th || readiness.status || "ยังไม่ทราบสถานะ";
+  const driveUrl = getCatalogDriveUrl();
+  const summaryRows = [
+    ["SKU", selectedCatalogSku.sku],
+    ["product_name", selectedCatalogSku.product_name || "-"],
+    ["branch / brand profile", [selectedCatalogSku.branch, brandProfile.shortName].filter(Boolean).join(" / ") || "-"],
+    ["category / subcategory", [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / ") || "-"],
+    ["feature notes", selectedCatalogSku.feature_notes || "-"],
+    ["Drive folder/source", driveUrl || selectedCatalogSku.canonical_source || "-"],
+    ["reference readiness", referenceLabel]
+  ];
+  els.selectedProductSummary.hidden = false;
+  els.selectedProductSummary.classList.add("selected-product-summary");
+  els.selectedProductSummary.innerHTML = `
+    <div class="selected-product-summary-heading">
+      <strong>${escapeHtml(selectedCatalogSku.product_name || selectedCatalogSku.sku)}</strong>
+      <span>${escapeHtml(referenceLabel)}</span>
+    </div>
+    <dl>
+      ${summaryRows.map(([label, value]) => `
+        <div>
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${driveUrl && label === "Drive folder/source"
+            ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener">${escapeHtml(value)}</a>`
+            : escapeHtml(value)}</dd>
+        </div>
+      `).join("")}
+    </dl>
+  `;
+}
+
+function renderReferenceReadinessCard(message = "") {
+  if (!els.referenceReadinessCard) return;
+  if (!selectedCatalogSku?.sku) {
+    els.referenceReadinessCard.hidden = true;
+    els.referenceReadinessCard.innerHTML = "";
+    return;
+  }
+  const view = getReferenceReadinessViewModel(message);
+  const countLabels = [
+    ["found files", view.counts.foundFiles],
+    ["stageable images", view.counts.stageableImages],
+    ["blocked files", view.counts.blockedFiles]
+  ];
+  els.referenceReadinessCard.hidden = false;
+  els.referenceReadinessCard.className = `reference-readiness-card ${view.className}`;
+  els.referenceReadinessCard.innerHTML = `
+    <div class="reference-readiness-heading">
+      <strong>${escapeHtml(view.title)}</strong>
+      <span>${escapeHtml(view.state)}</span>
+    </div>
+    <p>${escapeHtml(view.description)}</p>
+    <div class="reference-readiness-counts">
+      ${countLabels.map(([label, value]) => `<span><strong>${Number(value || 0)}</strong>${escapeHtml(label)}</span>`).join("")}
+    </div>
+    ${view.driveUrl ? `<a class="reference-drive-link" href="${escapeHtml(view.driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a>` : ""}
+    ${view.blockers.length ? `<small class="danger-text">${escapeHtml(view.blockers.join(" · "))}</small>` : ""}
+    ${view.warnings.length ? `<small>${escapeHtml(view.warnings.join(" · "))}</small>` : ""}
+  `;
+}
+
+function updateCatalogDrivenFieldHierarchy() {
+  const catalogDrivenSelected = Boolean(selectedCatalogSku?.sku);
+  if (els.form) els.form.classList.toggle("catalog-driven-selected", catalogDrivenSelected);
+  [els.productSku, els.imageReference].forEach((field) => {
+    if (!field) return;
+    field.readOnly = catalogDrivenSelected;
+    field.setAttribute("aria-readonly", String(catalogDrivenSelected));
+  });
+  [
+    els.brandProfile,
+    els.category,
+    els.productSubtype,
+    els.imageType,
+    els.modelProfile,
+    els.shotType,
+    els.imageSize,
+    els.quality
+  ].forEach((field) => {
+    if (!field) return;
+    field.classList.toggle("catalog-derived-field", catalogDrivenSelected);
+  });
+  if (els.fallbackReferenceSection && catalogDrivenSelected && !hasManualProductReferenceUpload()) {
+    const needsFallback = getReferenceReadinessViewModel().state === "manual_fallback_needed";
+    els.fallbackReferenceSection.open = needsFallback;
+  }
+}
+
 function renderCatalogReferencePanel(message = "") {
   if (!els.catalogReferencePanel || !els.catalogReferenceCards || !els.catalogReferenceStatus) return;
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard(message);
+  updateCatalogDrivenFieldHierarchy();
   const hasSku = Boolean(selectedCatalogSku?.sku);
   els.catalogReferencePanel.hidden = !hasSku;
   if (!hasSku) {
     els.catalogReferenceCards.innerHTML = "";
     els.catalogReferenceStatus.textContent = message || "เลือก SKU เพื่อโหลด reference";
     if (els.useCatalogReferencesButton) els.useCatalogReferencesButton.disabled = true;
+    updateActionAvailability();
     return;
   }
 
@@ -1317,6 +1581,9 @@ async function loadCatalogReferencesForSelectedSku() {
     selectedCatalogReferences = [];
     stagedCatalogReferenceKeys = [];
     renderCatalogReferencePanel();
+    renderSelectedProductSummary();
+    renderReferenceReadinessCard();
+    updateCatalogDrivenFieldHierarchy();
     return;
   }
   catalogReferenceLoading = true;
@@ -1326,6 +1593,9 @@ async function loadCatalogReferencesForSelectedSku() {
   let finalMessage = "";
   renderCatalogReferencePanel();
   renderSkuPickerStatus();
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard();
+  updateActionAvailability();
   try {
     const response = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
     const data = await readJsonResponse(response, "โหลด reference ของ SKU ไม่สำเร็จ");
@@ -1348,6 +1618,10 @@ async function loadCatalogReferencesForSelectedSku() {
     catalogReferenceLoading = false;
     renderSkuPickerStatus();
     renderCatalogReferencePanel(finalMessage);
+    renderSelectedProductSummary();
+    renderReferenceReadinessCard(finalMessage);
+    updateCatalogDrivenFieldHierarchy();
+    updateActionAvailability();
   }
 }
 
@@ -1359,6 +1633,8 @@ function useCatalogReferencesForHero() {
   renderCatalogReferencePanel(stagedCatalogReferenceKeys.length
     ? `แนบ reference จาก catalog/Drive แล้ว ${stagedCatalogReferenceKeys.length} รูป`
     : "ยังไม่มี reference ที่ใช้กับ Hero ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+  renderReferenceReadinessCard();
+  updateActionAvailability();
 }
 
 function autoStageCatalogReferencesForHero() {
@@ -1492,6 +1768,9 @@ function selectCatalogSku(item) {
   renderSkuPickerResults([]);
   if (els.skuPickerSearch) els.skuPickerSearch.value = `${item.sku} · ${item.product_name || ""}`.trim();
   renderSkuPickerStatus();
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard();
+  updateCatalogDrivenFieldHierarchy();
   loadCatalogReferencesForSelectedSku();
   if (currentPrompt) buildPrompt();
 }
@@ -1505,6 +1784,10 @@ function clearCatalogSkuSelection() {
   renderSkuPickerResults([]);
   renderSkuPickerStatus();
   renderCatalogReferencePanel();
+  renderSelectedProductSummary();
+  renderReferenceReadinessCard();
+  updateCatalogDrivenFieldHierarchy();
+  updateActionAvailability();
 }
 
 function applyCatalogSkuToForm(item) {
@@ -2019,6 +2302,9 @@ function bindEvents() {
     renderFilePreview(els.productImages, els.productPreview, 10);
     renderSkuPickerStatus();
     renderCatalogReferencePanel();
+    renderReferenceReadinessCard();
+    updateCatalogDrivenFieldHierarchy();
+    updateActionAvailability();
   });
   els.modelImages.addEventListener("change", () => renderFilePreview(els.modelImages, els.modelPreview, 5));
   els.skuPickerSearch.addEventListener("input", () => {
@@ -2039,6 +2325,10 @@ function bindEvents() {
       stagedCatalogReferenceKeys = [];
       renderSkuPickerStatus("SKU ถูกแก้เองแล้ว ข้อมูล catalog ถูกปลดล็อกเป็น manual mode");
       renderCatalogReferencePanel();
+      renderSelectedProductSummary();
+      renderReferenceReadinessCard();
+      updateCatalogDrivenFieldHierarchy();
+      updateActionAvailability();
     }
   });
   els.keyFeature.addEventListener("input", () => renderSupportShots());

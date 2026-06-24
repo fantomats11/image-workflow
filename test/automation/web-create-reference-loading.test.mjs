@@ -125,5 +125,47 @@ test("manual create shows product summary before async Drive reference load fini
   assert.match(appJs, /ข้อมูลสินค้า:/);
   assert.match(appJs, /มี Google Drive reference/);
   assert.match(appJs, /กำลังโหลด Drive reference แยกจากการเลือก SKU/);
-  assert.match(appJs, /renderSkuPickerStatus\(\);\n  loadCatalogReferencesForSelectedSku\(\);/);
+  assert.match(appJs, /renderSkuPickerStatus\(\);\n  renderSelectedProductSummary\(\);[\s\S]*loadCatalogReferencesForSelectedSku\(\);/);
+});
+
+test("create flow renders a compact product summary as the primary catalog path", () => {
+  assert.match(indexHtml, /id="selectedProductSummary"/);
+  assert.match(appJs, /function renderSelectedProductSummary\(\)/);
+  assert.match(appJs, /selected-product-summary/);
+  assert.match(appJs, /SKU/);
+  assert.match(appJs, /product_name/);
+  assert.match(appJs, /branch \/ brand profile/);
+  assert.match(appJs, /category \/ subcategory/);
+  assert.match(appJs, /renderSelectedProductSummary\(\);[\s\S]*loadCatalogReferencesForSelectedSku\(\);/);
+});
+
+test("manual upload controls are a native fallback disclosure, not the primary path", () => {
+  assert.match(indexHtml, /<details class="manual-reference-fallback"/);
+  assert.match(indexHtml, /<summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้<\/summary>/);
+  assert.match(indexHtml, /id="fallbackReferenceSection"/);
+  assert.match(appJs, /function updateCatalogDrivenFieldHierarchy\(\)/);
+  assert.match(appJs, /catalog-driven-selected/);
+});
+
+test("reference readiness card separates loading ready blocked warning and fallback states", () => {
+  assert.match(indexHtml, /id="referenceReadinessCard"/);
+  assert.match(appJs, /function getReferenceReadinessViewModel\(/);
+  assert.match(appJs, /reference-state-loading/);
+  assert.match(appJs, /reference-state-ready/);
+  assert.match(appJs, /reference-state-blocked/);
+  assert.match(appJs, /reference-state-warning/);
+  assert.match(appJs, /manual_fallback_needed/);
+  assert.match(appJs, /found files/);
+  assert.match(appJs, /stageable images/);
+  assert.match(appJs, /blocked files/);
+});
+
+test("create Hero button exposes a specific disabled reason", () => {
+  assert.match(indexHtml, /id="generateButtonReason"/);
+  assert.match(appJs, /function getGenerateHeroReadiness\(\)/);
+  assert.match(appJs, /กำลังโหลด reference/);
+  assert.match(appJs, /ยังไม่มี staged reference/);
+  assert.match(appJs, /ต้องอัปโหลด fallback/);
+  assert.match(appJs, /ยังไม่ได้ login/);
+  assert.match(appJs, /els\.generateButtonReason\.textContent = readiness\.reason/);
 });
