@@ -18,11 +18,11 @@ test("manual create reference load keeps user-safe error message after loading e
   assert.match(appJs, /if \(selectedCatalogSku\?\.sku !== requestedSku\) return;/);
 });
 
-test("web SKU Drive reference lookup is image-only and cached", () => {
+test("web SKU Drive reference lookup is recursive, timeout-safe, and cached", () => {
   assert.match(serverJs, /GOOGLE_DRIVE_REFERENCE_FILES_CACHE_TTL_MS/);
   assert.match(serverJs, /listGoogleDriveReferenceFilesCached\(drive, folderId\)/);
-  assert.match(serverJs, /mimeType contains 'image\/'/);
-  assert.match(serverJs, /pageSize: 200/);
+  assert.match(serverJs, /listGoogleDriveReferenceImageFiles\(drive, folderId/);
+  assert.match(serverJs, /requestTimeoutMs: googleDriveReferenceFilesTimeoutMs/);
 });
 
 test("manual create auto-uses catalog references for one-click Hero generation", () => {

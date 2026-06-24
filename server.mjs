@@ -23,6 +23,7 @@ import {
 } from "./lib/automation/live-generation-input-staging.mjs";
 import { buildModelInputStagingManifest } from "./lib/automation/model-input-staging.mjs";
 import { buildReferenceAssetResolution } from "./lib/automation/reference-asset-resolution.mjs";
+import { listGoogleDriveReferenceImageFiles } from "./lib/automation/google-drive-reference-files.mjs";
 import { extractDriveIdFromUrl } from "./lib/automation/product-catalog-sheet-refresh.mjs";
 import { buildHeroReviewSupportAssets } from "./lib/automation/hero-review-support-assets.mjs";
 import { buildSupportReviewDecisionState } from "./lib/automation/support-review-decision-state.mjs";
@@ -146,6 +147,10 @@ const googleDriveReferenceFilesCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
   30_000,
   Number(process.env.GOOGLE_DRIVE_REFERENCE_FILES_CACHE_TTL_MS || 300_000) || 300_000
+);
+const googleDriveReferenceFilesTimeoutMs = Math.max(
+  2_000,
+  Number(process.env.GOOGLE_DRIVE_REFERENCE_FILES_TIMEOUT_MS || 8_000) || 8_000
 );
 const googleOAuthStateById = new Map();
 let automationEmbeddedWorkerRunning = false;
@@ -5473,21 +5478,12 @@ async function readLiveGenerationModelInputStagingManifest({ batchItems, referen
 }
 
 async function listGoogleDriveReferenceFiles(drive, folderId) {
-  const files = [];
-  let pageToken;
-  do {
-    const response = await drive.files.list({
-      q: `'${escapeGoogleDriveQueryValue(folderId)}' in parents and trashed = false and mimeType contains 'image/'`,
-      fields: "nextPageToken, files(id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink, imageMediaMetadata(width,height), createdTime, modifiedTime)",
-      pageSize: 200,
-      pageToken,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true
-    });
-    files.push(...(response.data.files || []));
-    pageToken = response.data.nextPageToken;
-  } while (pageToken);
-  return files;
+  return listGoogleDriveReferenceImageFiles(drive, folderId, {
+    maxDepth: 1,
+    pageSize: 100,
+    maxFiles: 120,
+    requestTimeoutMs: googleDriveReferenceFilesTimeoutMs
+  });
 }
 
 async function listGoogleDriveReferenceFilesCached(drive, folderId) {
