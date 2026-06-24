@@ -107,10 +107,18 @@ test("exact SKU lookup retries after warm catalog timeout instead of staying stu
   assert.match(appJs, /lookupExactCatalogSku\(sku, requestId, \{ retryAfterMs: nextRetryAfterMs, attempt: attempt \+ 1 \}\)/);
 });
 
-test("server returns catalog warming before deferred cold index load blocks requests", () => {
-  assert.match(serverJs, /delay\(warmWaitMs \+ 50\)\s*\.then\(\(\) => loadWebSkuPickerSkuIndex\(\)\)/);
-  assert.match(serverJs, /webSkuPickerIndexWarmPromise = null;/);
+test("server tries exact row scan before returning catalog warming", () => {
+  assert.match(serverJs, /readWebSkuPickerCatalogItemBySku\(\{ sku \}\)/);
+  assert.match(serverJs, /lookup_strategy: "exact_row_scan"/);
   assert.match(serverJs, /catalog_warming/);
+});
+
+test("SKU picker results listbox stays hidden when empty to avoid layout jumps", () => {
+  assert.match(indexHtml, /<div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden><\/div>/);
+  assert.match(appJs, /els\.skuPickerResults\.hidden = !items\.length;/);
+  assert.match(appJs, /els\.skuPickerResults\.setAttribute\("aria-hidden", String\(!items\.length\)\);/);
+  assert.match(indexHtml, /<div class="sku-picker-combobox">/);
+  assert.match(indexHtml, /<\/div>\s*<div class="sku-picker-status"/);
 });
 
 test("manual create shows product summary before async Drive reference load finishes", () => {

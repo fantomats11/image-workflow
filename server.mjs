@@ -72,6 +72,7 @@ import {
   getCachedWebSkuPickerSkuIndex,
   loadWebSkuPickerSkuIndex,
   loadWebSkuPickerCatalogSnapshot,
+  readWebSkuPickerCatalogItemBySku,
   searchWebSkuPickerCatalog,
   WEB_SKU_PICKER_MIN_QUERY_LENGTH
 } from "./lib/automation/web-sku-picker-catalog.mjs";
@@ -146,7 +147,6 @@ const generationJobs = new Map();
 const rateLimitBuckets = new Map();
 const seenLineWebhookEventIds = new Map();
 let googleDriveClientPromise = null;
-let webSkuPickerIndexWarmPromise = null;
 const googleDriveReferenceFilesCache = new Map();
 const googleDriveReferenceStagingCache = new Map();
 const googleDriveReferenceFilesCacheTtlMs = Math.max(
@@ -1007,16 +1007,8 @@ async function readWebSkuPickerItemFast(sku = "", { warmWaitMs = 700, retryAfter
   }
 
   const warmStartedAt = Date.now();
-  if (!webSkuPickerIndexWarmPromise) {
-    webSkuPickerIndexWarmPromise = delay(warmWaitMs + 50)
-      .then(() => loadWebSkuPickerSkuIndex())
-      .finally(() => {
-        webSkuPickerIndexWarmPromise = null;
-      });
-  }
-
   const raceResult = await Promise.race([
-    webSkuPickerIndexWarmPromise.then((index) => ({ index })),
+    readWebSkuPickerCatalogItemBySku({ sku }).then((result) => ({ exact: result })),
     delay(warmWaitMs).then(() => ({ warming: true }))
   ]);
 
@@ -1033,17 +1025,16 @@ async function readWebSkuPickerItemFast(sku = "", { warmWaitMs = 700, retryAfter
     };
   }
 
-  const lookupStartedAt = Date.now();
-  const item = findWebSkuPickerItemBySku(raceResult.index, sku);
-  const lookupMs = Date.now() - lookupStartedAt;
+  const exactResult = raceResult.exact || {};
   return {
     warming: false,
-    item,
+    item: exactResult.item || null,
     diagnostics: {
-      load_ms: Number(raceResult.index?.diagnostics?.load_ms || 0),
-      normalize_ms: Number(raceResult.index?.diagnostics?.normalize_ms || 0),
-      lookup_ms: lookupMs,
-      total_ms: Date.now() - startedAt
+      load_ms: Number(exactResult.diagnostics?.load_ms || 0),
+      normalize_ms: Number(exactResult.diagnostics?.normalize_ms || 0),
+      lookup_ms: Number(exactResult.diagnostics?.lookup_ms || 0),
+      total_ms: Date.now() - startedAt,
+      lookup_strategy: "exact_row_scan"
     }
   };
 }

@@ -1372,6 +1372,8 @@ function autoStageCatalogReferencesForHero() {
 function renderSkuPickerResults(items = []) {
   if (!els.skuPickerResults) return;
   latestSkuPickerResults = items;
+  els.skuPickerResults.hidden = !items.length;
+  els.skuPickerResults.setAttribute("aria-hidden", String(!items.length));
   if (!items.length) {
     els.skuPickerResults.innerHTML = "";
     return;
@@ -1500,7 +1502,7 @@ function clearCatalogSkuSelection() {
   stagedCatalogReferenceKeys = [];
   latestSkuPickerResults = [];
   if (els.skuPickerSearch) els.skuPickerSearch.value = "";
-  if (els.skuPickerResults) els.skuPickerResults.innerHTML = "";
+  renderSkuPickerResults([]);
   renderSkuPickerStatus();
   renderCatalogReferencePanel();
 }
@@ -2104,7 +2106,7 @@ function bindEvents() {
     stagedCatalogReferenceKeys = [];
     latestSkuPickerResults = [];
     if (els.skuPickerSearch) els.skuPickerSearch.value = "";
-    if (els.skuPickerResults) els.skuPickerResults.innerHTML = "";
+    renderSkuPickerResults([]);
     appState.currentJobId = null;
     appState.currentGenerationId = null;
     lastSubmittedQcKey = "";

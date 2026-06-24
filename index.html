@@ -145,11 +145,13 @@
 
                   <div class="sku-picker-panel form-grid-full">
                     <label for="skuPickerSearch">เลือก SKU จาก catalog</label>
-                    <div class="sku-picker-search">
-                      <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
-                      <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
+                    <div class="sku-picker-combobox">
+                      <div class="sku-picker-search">
+                        <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
+                        <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
+                      </div>
+                      <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden></div>
                     </div>
-                    <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU"></div>
                     <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
                     <div class="catalog-reference-panel" id="catalogReferencePanel" hidden>
                       <div class="catalog-reference-header">

@@ -11,6 +11,7 @@ import {
   loadWebSkuPickerSkuIndex,
   loadWebSkuPickerCatalogSnapshot,
   normalizeWebSkuPickerRows,
+  readWebSkuPickerCatalogItemBySku,
   searchWebSkuPickerCatalog
 } from "../../lib/automation/web-sku-picker-catalog.mjs";
 
@@ -246,6 +247,28 @@ test("loadWebSkuPickerSkuIndex rebuilds cache when source mtime or size changes"
   assert.notEqual(second, first);
   assert.equal(second.itemsBySku.get("INDEX002").product_name, "New Indexed Catalog Coat");
   assert.equal(second.itemsBySku.get("INDEX003").product_name, "Second Indexed Catalog Coat");
+});
+
+test("readWebSkuPickerCatalogItemBySku returns one exact normalized row without full index warmup", async () => {
+  const outputsDir = await fs.mkdtemp(path.join(os.tmpdir(), "web-sku-picker-exact-row-"));
+  await fs.writeFile(
+    path.join(outputsDir, "generation-input-catalog.csv"),
+    [
+      "sku,product_name,category,subcategory,reference_url,reference_drive_id,reference_lookup_strategy,reference_verified,generation_status,reference_branch",
+      "MISS001,Wrong Catalog Coat,เสื้อ,เสื้อโค้ท,,,,manual_reference_needed,needs_reference_image,GO Mall",
+      "FSTR240017,BLUE DOG The Spirit of Adventure,เสื้อ,เสื้อขนเป็ด,https://drive.google.com/drive/folders/ref-folder,ref-folder,product_catalog_sheet,product_catalog_sheet_row_matched,ready_via_product_catalog_sheet,GO Mall",
+      "MISS002,Another Catalog Coat,เสื้อ,เสื้อโค้ท,,,,manual_reference_needed,needs_reference_image,Rent A Coat"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const result = await readWebSkuPickerCatalogItemBySku({ sku: "fstr240017", outputsDir });
+
+  assert.equal(result.item.sku, "FSTR240017");
+  assert.equal(result.item.product_name, "BLUE DOG The Spirit of Adventure");
+  assert.equal(result.item.branch, "GO Mall");
+  assert.equal(result.item.reference_readiness.status, "warning");
+  assert.equal(result.diagnostics.lookup_strategy, "exact_row_scan");
 });
 
 test("exact SKU lookup uses SKU index map instead of broad catalog search", () => {
