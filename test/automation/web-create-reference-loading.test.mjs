@@ -9,8 +9,8 @@ const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
 const driveStagingBridgeJs = fs.readFileSync(path.resolve("lib/automation/drive-reference-staging-bridge.mjs"), "utf8");
 
 test("manual create reference panel distinguishes Drive loading from SKU search", () => {
-  assert.match(appJs, /กำลังโหลดไฟล์ภาพจาก Google Drive/);
-  assert.match(appJs, /กำลังโหลดรายการไฟล์ภาพจาก Google Drive/);
+  assert.match(appJs, /กำลังโหลดรูปจาก Google Drive/);
+  assert.match(appJs, /กำลังโหลดรูปอ้างอิงจาก Google Drive/);
   assert.doesNotMatch(appJs, /กำลังโหลด reference จาก catalog\/Drive/);
 });
 
@@ -71,7 +71,7 @@ test("create flow lists Drive reference cards before Supabase staging", () => {
   assert.match(serverJs, /if \(stageReferences\) \{[\s\S]*stageCatalogDriveReferencesToSupabase/);
   assert.match(serverJs, /staging_status: stageReferences \? "staged" : "not_requested"/);
   assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references`\)/);
-  assert.match(appJs, /พบรายการ reference จาก Drive แล้ว กำลัง stage เข้า Supabase สำหรับสร้าง Hero/);
+  assert.match(appJs, /พบรูปจาก Drive แล้ว กำลังเตรียมให้พร้อมสร้างภาพหลัก/);
   assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references\/stage`, \{\s*method: "POST"/);
 });
 
@@ -128,15 +128,15 @@ test("Web-first create page is the default and visible navigation path", () => {
 test("reference panel shows Drive source and only auto-uses stageable images", () => {
   assert.match(appJs, /function hasSelectedCatalogStageableReferences\(\)/);
   assert.match(appJs, /selectedCatalogReferences\.some\(\(reference\) => reference\.stage_available && \(reference\.generation_url \|\| reference\.staged_url\) && reference\.reference_key\)/);
-  assert.match(appJs, /เปิด Google Drive folder/);
+  assert.match(appJs, /เปิดโฟลเดอร์ใน Google Drive/);
   assert.match(appJs, /resolution_summary/);
-  assert.match(appJs, /ยังไม่มีภาพ reference จาก Google Drive ที่ใช้กับ Hero ได้/);
+  assert.match(appJs, /ยังไม่มีรูปจาก Google Drive ที่ใช้สร้างภาพหลักได้/);
 });
 
 test("SKU picker avoids broad two-character searches", () => {
   assert.match(appJs, /const skuPickerMinQueryLength = 3;/);
   assert.match(appJs, /query\.length < skuPickerMinQueryLength/);
-  assert.match(appJs, /พิมพ์ SKU หรือชื่อสินค้าอย่างน้อย/);
+  assert.match(appJs, /พิมพ์รหัสสินค้าหรือชื่อสินค้าอย่างน้อย/);
   assert.match(serverJs, /WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
   assert.match(serverJs, /min_query_length: WEB_SKU_PICKER_MIN_QUERY_LENGTH/);
 });
@@ -144,7 +144,7 @@ test("SKU picker avoids broad two-character searches", () => {
 test("SKU picker search fails fast and ignores stale responses", () => {
   assert.match(appJs, /const skuPickerSearchTimeoutMs = 8000;/);
   assert.match(appJs, /authFetchWithTimeout\(\s*`\/api\/catalog\/sku-search/);
-  assert.match(appJs, /ค้นหา SKU ใช้เวลานานผิดปกติ/);
+  assert.match(appJs, /ค้นหาสินค้าใช้เวลานานผิดปกติ/);
   assert.match(appJs, /requestId !== skuPickerSearchRequestSeq/);
 });
 
@@ -183,7 +183,7 @@ test("server tries exact row scan before returning catalog warming", () => {
 });
 
 test("SKU picker results listbox stays hidden when empty to avoid layout jumps", () => {
-  assert.match(indexHtml, /<div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden><\/div>/);
+  assert.match(indexHtml, /<div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหาสินค้า" hidden><\/div>/);
   assert.match(appJs, /els\.skuPickerResults\.hidden = !items\.length;/);
   assert.match(appJs, /els\.skuPickerResults\.setAttribute\("aria-hidden", String\(!items\.length\)\);/);
   assert.match(indexHtml, /<div class="sku-picker-combobox">/);
@@ -194,33 +194,33 @@ test("SKU picker results listbox stays hidden when empty to avoid layout jumps",
 
 test("manual create shows product summary before async Drive reference load finishes", () => {
   assert.match(appJs, /ข้อมูลสินค้า:/);
-  assert.match(appJs, /มี Google Drive reference/);
-  assert.match(appJs, /กำลังโหลด Drive reference แยกจากการเลือก SKU/);
+  assert.match(appJs, /มีรูปใน Google Drive/);
+  assert.match(appJs, /กำลังโหลดรูปจาก Google Drive/);
   assert.match(appJs, /renderSkuPickerStatus\(\);\n  renderSelectedProductSummary\(\);[\s\S]*loadCatalogReferencesForSelectedSku\(\);/);
 });
 
 test("manual create stages Drive references asynchronously and opens Hero only after staged URL exists", () => {
-  assert.match(appJs, /กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero/);
+  assert.match(appJs, /กำลังเตรียมรูปจาก Drive/);
   assert.match(appJs, /authFetch\(`\/api\/catalog\/sku\/\$\{encodeURIComponent\(requestedSku\)\}\/references\/stage`, \{\s*method: "POST"/);
   assert.match(appJs, /reference\.stage_available && \(reference\.generation_url \|\| reference\.staged_url\)/);
   assert.match(appJs, /reference\.blocker_message \|\| reference\.blocker_code/);
-  assert.match(appJs, /stage สำเร็จ/);
+  assert.match(appJs, /เตรียมรูปสำเร็จ/);
 });
 
 test("create flow renders a compact product summary as the primary catalog path", () => {
   assert.match(indexHtml, /id="selectedProductSummary"/);
   assert.match(appJs, /function renderSelectedProductSummary\(\)/);
   assert.match(appJs, /selected-product-summary/);
-  assert.match(appJs, /SKU/);
-  assert.match(appJs, /product_name/);
-  assert.match(appJs, /branch \/ brand profile/);
-  assert.match(appJs, /category \/ subcategory/);
+  assert.match(appJs, /รหัสสินค้า/);
+  assert.match(appJs, /ชื่อสินค้า/);
+  assert.match(appJs, /สาขา \/ โปรไฟล์ภาพ/);
+  assert.match(appJs, /หมวดสินค้า/);
   assert.match(appJs, /renderSelectedProductSummary\(\);[\s\S]*loadCatalogReferencesForSelectedSku\(\);/);
 });
 
 test("manual upload controls are a native fallback disclosure, not the primary path", () => {
   assert.match(indexHtml, /<details class="manual-reference-fallback"/);
-  assert.match(indexHtml, /<summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้<\/summary>/);
+  assert.match(indexHtml, /<summary>อัปโหลดรูปเองเมื่อใช้รูปจากแคตตาล็อกไม่ได้<\/summary>/);
   assert.match(indexHtml, /id="fallbackReferenceSection"/);
   assert.match(appJs, /function updateCatalogDrivenFieldHierarchy\(\)/);
   assert.match(appJs, /catalog-driven-selected/);
@@ -234,14 +234,14 @@ test("reference readiness card separates loading ready blocked warning and fallb
   assert.match(appJs, /reference-state-blocked/);
   assert.match(appJs, /reference-state-warning/);
   assert.match(appJs, /manual_fallback_needed/);
-  assert.match(appJs, /found files/);
-  assert.match(appJs, /stageable images/);
-  assert.match(appJs, /blocked files/);
+  assert.match(appJs, /ไฟล์ที่พบ/);
+  assert.match(appJs, /รูปที่ใช้ได้/);
+  assert.match(appJs, /ติดปัญหา/);
 });
 
 test("create diagnostics live in an inspector disclosure instead of the command readiness card", () => {
   assert.match(indexHtml, /<details class="control-section diagnostics-section catalog-secondary-section" id="diagnosticsSection">/);
-  assert.match(indexHtml, /<strong>Diagnostics<\/strong>/);
+  assert.match(indexHtml, /<strong>ตรวจปัญหา<\/strong>/);
   assert.match(indexHtml, /id="createDiagnosticsPanel" aria-live="off"/);
   assert.match(appJs, /function buildCreateDiagnosticsModel\(/);
   assert.match(appJs, /function renderCreateDiagnosticsPanel\(/);
@@ -254,9 +254,9 @@ test("create diagnostics live in an inspector disclosure instead of the command 
 test("create Hero button exposes a specific disabled reason", () => {
   assert.match(indexHtml, /id="generateButtonReason"/);
   assert.match(appJs, /function getGenerateHeroReadiness\(\)/);
-  assert.match(appJs, /กำลังโหลด reference/);
-  assert.match(appJs, /ยังไม่มี staged reference/);
-  assert.match(appJs, /ต้องอัปโหลด fallback/);
-  assert.match(appJs, /ยังไม่ได้ login/);
+  assert.match(appJs, /กำลังโหลดรูปอ้างอิง/);
+  assert.match(appJs, /ยังไม่มีรูปจากแคตตาล็อก\/Drive ที่พร้อมใช้/);
+  assert.match(appJs, /ต้องอัปโหลดรูปเอง/);
+  assert.match(appJs, /กรุณาเข้าสู่ระบบก่อนเริ่มสร้างภาพ/);
   assert.match(appJs, /els\.generateButtonReason\.textContent = readiness\.reason/);
 });

@@ -211,7 +211,7 @@ const modelProfiles = [
 
 const shotTypes = [
   "ระบบเลือกให้อัตโนมัติ",
-  "ภาพหลัก Hero - เห็นสินค้าชัดที่สุด",
+  "ภาพหลัก - เห็นสินค้าชัดที่สุด",
   "ด้านหน้า",
   "ด้านหลัง",
   "ด้านข้าง",
@@ -610,7 +610,7 @@ const pageMeta = {
   kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
   costs: { eyebrow: "ต้นทุน", title: "ต้นทุนและการใช้งาน" },
   monitoring: { eyebrow: "สถานะระบบ", title: "ติดตามระบบ" },
-  review: { eyebrow: "ตรวจ Hero", title: "ตรวจ Hero ก่อนสร้าง Support" },
+  review: { eyebrow: "ตรวจภาพหลัก", title: "ตรวจภาพหลักก่อนสร้างภาพเสริม" },
   batch: { eyebrow: "ตรวจชุดงาน", title: "Batch Review" },
   settings: { eyebrow: "ผู้ดูแลระบบ", title: "ตั้งค่าระบบภาพ" }
 };
@@ -979,10 +979,10 @@ function resetTransientWorkflowState() {
   els.approveButton.disabled = true;
   els.generateSupportButton.disabled = true;
   els.approveSupportButton.disabled = true;
-  els.generateButton.textContent = "สร้าง Hero";
+  els.generateButton.textContent = "สร้างภาพหลัก";
   els.approveButton.textContent = "อนุมัติและบันทึก";
-  els.generateSupportButton.textContent = "สร้างภาพ Support";
-  els.approveSupportButton.textContent = "อนุมัติภาพ Support";
+  els.generateSupportButton.textContent = "สร้างภาพเสริม";
+  els.approveSupportButton.textContent = "อนุมัติภาพเสริม";
   els.resultImage.hidden = true;
   els.resultImage.removeAttribute("src");
   els.resultStatus.textContent = "";
@@ -1018,7 +1018,7 @@ function clearActionLoadingStates() {
   appState.actions.approve = false;
   appState.actions.logout = false;
   setHeroLoading(false);
-  els.generateButton.textContent = "สร้าง Hero";
+  els.generateButton.textContent = "สร้างภาพหลัก";
   els.approveButton.textContent = "อนุมัติและบันทึก";
   els.logoutButton.textContent = "ออกจากระบบ";
   els.authBlockedLogoutButton.textContent = "ออกจากระบบ";
@@ -1044,7 +1044,7 @@ function setActionLoading(name, isLoading) {
     appState.actions[name] = isLoading;
   }
   if (name === "generate") {
-    els.generateButton.textContent = isLoading ? "กำลังสร้าง..." : "สร้าง Hero";
+    els.generateButton.textContent = isLoading ? "กำลังสร้าง..." : "สร้างภาพหลัก";
   }
   if (name === "approve") {
     els.approveButton.textContent = isLoading ? "กำลังบันทึก..." : "อนุมัติและบันทึก";
@@ -1235,7 +1235,7 @@ function isSelectedSkuReferenceBlockedWithoutFallback() {
 
 function getSelectedSkuReferenceBlockerMessage() {
   const blocker = selectedCatalogSku?.reference_readiness?.blockers?.[0];
-  return blocker?.message_th || "SKU นี้ยังไม่มี reference พร้อมใช้ กรุณาใช้ reference จาก catalog/Drive หรืออัปโหลดภาพอ้างอิงก่อน Generate Hero";
+  return blocker?.message_th || "สินค้านี้ยังไม่มีรูปอ้างอิงที่พร้อมใช้ กรุณาใช้รูปจากแคตตาล็อก/Drive หรืออัปโหลดรูปสินค้าเองก่อนสร้างภาพหลัก";
 }
 
 function countSelectedReferenceFiles() {
@@ -1274,8 +1274,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "empty",
       className: "reference-state-warning",
-      title: "ยังไม่ได้เลือก SKU",
-      description: message || "เลือก SKU จาก catalog เพื่อดู readiness ของ reference",
+      title: "ยังไม่ได้เลือกสินค้า",
+      description: message || "เลือกสินค้าจากแคตตาล็อก แล้วแอปจะตรวจรูปอ้างอิงให้",
       counts,
       driveUrl,
       blockers,
@@ -1287,8 +1287,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "loading",
       className: "reference-state-loading",
-      title: "กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero",
-      description: message || "summary สินค้าพร้อมแล้ว ระบบกำลัง stage รูปจาก Drive เข้า Supabase แยก async",
+      title: "กำลังเตรียมรูปจาก Drive",
+      description: message || "เจอข้อมูลสินค้าแล้ว กำลังดึงรูปอ้างอิงมาให้ใช้สร้างภาพหลัก",
       counts,
       driveUrl,
       blockers,
@@ -1300,7 +1300,7 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "blocked",
       className: "reference-state-blocked",
-      title: "reference ยังติด blocker",
+      title: "รูปอ้างอิงยังติดปัญหา",
       description: message || getSelectedSkuReferenceBlockerMessage(),
       counts,
       driveUrl,
@@ -1313,8 +1313,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "ready",
       className: "reference-state-ready",
-      title: staged ? "staged reference พร้อมสร้าง Hero" : "reference พร้อม stage อัตโนมัติ",
-      description: message || (staged ? `แนบ reference แล้ว ${stagedCatalogReferenceKeys.length} รูป` : "ระบบจะใช้ reference จาก catalog กับ Hero โดยอัตโนมัติ"),
+      title: staged ? "รูปอ้างอิงพร้อมสร้างภาพหลัก" : "รูปอ้างอิงพร้อมใช้งาน",
+      description: message || (staged ? `เตรียมรูปไว้แล้ว ${stagedCatalogReferenceKeys.length} รูป` : "แอปจะใช้รูปจากแคตตาล็อกให้อัตโนมัติ"),
       counts,
       driveUrl,
       blockers,
@@ -1326,8 +1326,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "warning",
       className: "reference-state-warning",
-      title: "พบ reference แต่ยังต้องตรวจ",
-      description: message || warnings[0] || "พบ Google Drive source แล้ว แต่ยังไม่มีรูปที่ stage ได้",
+      title: "เจอรูปอ้างอิง แต่ควรตรวจดูอีกครั้ง",
+      description: message || warnings[0] || "พบโฟลเดอร์ Google Drive แล้ว แต่ยังไม่มีรูปที่พร้อมใช้",
       counts,
       driveUrl,
       blockers,
@@ -1339,8 +1339,8 @@ function getReferenceReadinessViewModel(message = "") {
     return {
       state: "manual_fallback_needed",
       className: "reference-state-warning",
-      title: "ต้องอัปโหลด fallback",
-      description: message || "SKU นี้ยังไม่มี Drive reference ใน catalog ให้ใช้ภาพสินค้าอ้างอิงเอง",
+      title: "ต้องอัปโหลดรูปเอง",
+      description: message || "สินค้านี้ยังไม่มีรูปจาก Drive ในแคตตาล็อก กรุณาแนบรูปสินค้าเอง",
       counts,
       driveUrl,
       blockers,
@@ -1351,8 +1351,8 @@ function getReferenceReadinessViewModel(message = "") {
   return {
     state: hasManualFallback ? "manual_fallback_ready" : "manual_fallback_needed",
     className: hasManualFallback ? "reference-state-ready" : "reference-state-warning",
-    title: hasManualFallback ? "ใช้ fallback upload พร้อมสร้าง Hero" : "ต้องอัปโหลด fallback",
-    description: message || (hasManualFallback ? "ระบบจะใช้ภาพที่อัปโหลดเองเป็น reference หลัก" : "ยังไม่มี staged reference จาก catalog"),
+    title: hasManualFallback ? "ใช้รูปที่อัปโหลดเองได้แล้ว" : "ต้องอัปโหลดรูปเอง",
+    description: message || (hasManualFallback ? "จะใช้รูปที่อัปโหลดเป็นรูปอ้างอิงหลัก" : "ยังไม่มีรูปจากแคตตาล็อกที่พร้อมใช้"),
     counts,
     driveUrl,
     blockers,
@@ -1362,31 +1362,31 @@ function getReferenceReadinessViewModel(message = "") {
 
 function getGenerateHeroReadiness() {
   if (!isAppReady()) {
-    return { disabled: true, tone: "blocked", reason: "ยังไม่ได้ login หรือบัญชียังไม่พร้อมใช้งาน" };
+    return { disabled: true, tone: "blocked", reason: "กรุณาเข้าสู่ระบบก่อนเริ่มสร้างภาพ" };
   }
   if (appState.actions.generate) {
-    return { disabled: true, tone: "loading", reason: "กำลังสร้าง Hero..." };
+    return { disabled: true, tone: "loading", reason: "กำลังสร้างภาพหลัก..." };
   }
   const claimReadiness = getSkuWorkClaimReadiness();
   if (claimReadiness.disabled) return claimReadiness;
   if (catalogReferenceLoading && selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !hasManualProductReferenceUpload()) {
-    return { disabled: true, tone: "loading", reason: "กำลังโหลด reference จาก Google Drive" };
+    return { disabled: true, tone: "loading", reason: "กำลังโหลดรูปอ้างอิงจาก Google Drive" };
   }
   if (isSelectedSkuReferenceBlockedWithoutFallback()) {
-    return { disabled: true, tone: "blocked", reason: `ต้องอัปโหลด fallback: ${getSelectedSkuReferenceBlockerMessage()}` };
+    return { disabled: true, tone: "blocked", reason: `ต้องอัปโหลดรูปเอง: ${getSelectedSkuReferenceBlockerMessage()}` };
   }
   if (!hasManualProductReferenceUpload() && selectedCatalogSku?.sku && hasSelectedCatalogReferenceSource() && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) {
-    return { disabled: true, tone: "warning", reason: "ยังไม่มี staged reference จาก catalog/Drive" };
+    return { disabled: true, tone: "warning", reason: "ยังไม่มีรูปจากแคตตาล็อก/Drive ที่พร้อมใช้" };
   }
   if (!hasManualProductReferenceUpload() && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) {
-    return { disabled: true, tone: "warning", reason: "ต้องอัปโหลด fallback หรือเลือก SKU ที่มี reference พร้อมใช้" };
+    return { disabled: true, tone: "warning", reason: "เลือกสินค้าที่มีรูปพร้อมใช้ หรืออัปโหลดรูปเองก่อน" };
   }
   return {
     disabled: false,
     tone: "ready",
     reason: hasStagedCatalogReferences() || canAutoUseCatalogReferencesForHero()
-      ? "พร้อมสร้าง Hero จาก staged reference"
-      : "พร้อมสร้าง Hero จาก fallback upload"
+      ? "พร้อมสร้างภาพหลักจากรูปอ้างอิง"
+      : "พร้อมสร้างภาพหลักจากรูปที่อัปโหลด"
   };
 }
 
@@ -1404,7 +1404,7 @@ function renderSkuPickerStatus(message = "") {
   const readiness = selectedCatalogSku?.reference_readiness;
   els.skuPickerStatus.classList.remove("is-ready", "is-warning", "is-blocked");
   if (!selectedCatalogSku) {
-    els.skuPickerStatus.textContent = message || "เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ";
+    els.skuPickerStatus.textContent = message || "เลือกสินค้า 1 รายการ แล้วข้อมูลกับรูปอ้างอิงจะเติมให้เอง";
     updateActionAvailability();
     return;
   }
@@ -1414,13 +1414,13 @@ function renderSkuPickerStatus(message = "") {
   const productSummary = [
     selectedCatalogSku.branch || "",
     [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / "),
-    selectedCatalogSku.reference_url ? "มี Google Drive reference" : ""
+    selectedCatalogSku.reference_url ? "มีรูปใน Google Drive" : ""
   ].filter(Boolean);
   els.skuPickerStatus.classList.add(status === "blocked" ? "is-blocked" : status === "ready" ? "is-ready" : "is-warning");
   els.skuPickerStatus.textContent = [
     `${selectedCatalogSku.sku} · ${selectedCatalogSku.product_name || "-"}`,
     productSummary.length ? `ข้อมูลสินค้า: ${productSummary.join(" · ")}` : "",
-    catalogReferenceLoading ? "กำลังโหลด Drive reference แยกจากการเลือก SKU... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero" : `Reference: ${readiness?.label_th || status}`,
+    catalogReferenceLoading ? "กำลังโหลดรูปจาก Google Drive..." : `รูปอ้างอิง: ${readiness?.label_th || status}`,
     blockers.length ? blockers[0] : "",
     warnings.length && !blockers.length ? warnings[0] : ""
   ].filter(Boolean).join("\n");
@@ -1439,13 +1439,13 @@ function renderSelectedProductSummary() {
   const referenceLabel = readiness.label_th || readiness.status || "ยังไม่ทราบสถานะ";
   const driveUrl = getCatalogDriveUrl();
   const summaryRows = [
-    ["SKU", selectedCatalogSku.sku],
-    ["product_name", selectedCatalogSku.product_name || "-"],
-    ["branch / brand profile", [selectedCatalogSku.branch, brandProfile.shortName].filter(Boolean).join(" / ") || "-"],
-    ["category / subcategory", [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / ") || "-"],
-    ["feature notes", selectedCatalogSku.feature_notes || "-"],
-    ["Drive folder/source", driveUrl || selectedCatalogSku.canonical_source || "-"],
-    ["reference readiness", referenceLabel]
+    ["รหัสสินค้า", selectedCatalogSku.sku],
+    ["ชื่อสินค้า", selectedCatalogSku.product_name || "-"],
+    ["สาขา / โปรไฟล์ภาพ", [selectedCatalogSku.branch, brandProfile.shortName].filter(Boolean).join(" / ") || "-"],
+    ["หมวดสินค้า", [selectedCatalogSku.category, selectedCatalogSku.subcategory].filter(Boolean).join(" / ") || "-"],
+    ["จุดเด่น", selectedCatalogSku.feature_notes || "-"],
+    ["โฟลเดอร์รูป", driveUrl || selectedCatalogSku.canonical_source || "-"],
+    ["สถานะรูปอ้างอิง", referenceLabel]
   ];
   els.selectedProductSummary.hidden = false;
   els.selectedProductSummary.classList.add("selected-product-summary");
@@ -1458,7 +1458,7 @@ function renderSelectedProductSummary() {
       ${summaryRows.map(([label, value]) => `
         <div>
           <dt>${escapeHtml(label)}</dt>
-          <dd>${driveUrl && label === "Drive folder/source"
+          <dd>${driveUrl && label === "โฟลเดอร์รูป"
             ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener">${escapeHtml(value)}</a>`
             : escapeHtml(value)}</dd>
         </div>
@@ -1472,16 +1472,16 @@ function buildCreateDiagnosticsModel(message = "") {
   const claim = skuWorkClaimState || {};
   const sourceFields = selectedCatalogSku?.reference_source_fields || {};
   const rows = [
-    ["SKU", selectedCatalogSku?.sku || "-"],
-    ["reference_state", readinessView.state || "-"],
-    ["claim_status", claim.status || "-"],
-    ["claim_version", String(claim.version || 0)],
-    ["claim_status_endpoint", claim.claim_status_endpoint || "-"],
-    ["http_status", claim.http_status ? String(claim.http_status) : "-"],
-    ["error_code", claim.error_code || "-"],
-    ["drive_folder", readinessView.driveUrl || "-"],
-    ["source_row", sourceFields.source_row ? String(sourceFields.source_row) : "-"],
-    ["resolved_folder_id", sourceFields.resolved_reference_folder_id || sourceFields.reference_folder_id || "-"]
+    ["รหัสสินค้า", selectedCatalogSku?.sku || "-"],
+    ["สถานะรูปอ้างอิง", readinessView.state || "-"],
+    ["สถานะงานที่ล็อกไว้", claim.status || "-"],
+    ["เวอร์ชันงาน", String(claim.version || 0)],
+    ["จุดตรวจสถานะงาน", claim.claim_status_endpoint || "-"],
+    ["สถานะจากเซิร์ฟเวอร์", claim.http_status ? String(claim.http_status) : "-"],
+    ["รหัสปัญหา", claim.error_code || "-"],
+    ["โฟลเดอร์รูป", readinessView.driveUrl || "-"],
+    ["แถวข้อมูลต้นทาง", sourceFields.source_row ? String(sourceFields.source_row) : "-"],
+    ["โฟลเดอร์ที่เลือกใช้", sourceFields.resolved_reference_folder_id || sourceFields.reference_folder_id || "-"]
   ];
   const referenceIssues = [];
   for (const reference of selectedCatalogReferences) {
@@ -1494,7 +1494,7 @@ function buildCreateDiagnosticsModel(message = "") {
     ].filter(Boolean);
     if (details.length) {
       referenceIssues.push({
-        label: reference.label_th || reference.file_name || reference.reference_key || "reference",
+        label: reference.label_th || reference.file_name || reference.reference_key || "รูปอ้างอิง",
         tone: blockers.length || reference.blocker_code || reference.blocker_message ? "danger" : "warning",
         details
       });
@@ -1514,7 +1514,7 @@ function renderCreateDiagnosticsPanel(message = "") {
   if (!els.createDiagnosticsPanel) return;
   const diagnostics = buildCreateDiagnosticsModel(message);
   if (diagnostics.empty) {
-    els.createDiagnosticsPanel.innerHTML = `<p class="diagnostics-empty">เลือก SKU เพื่อดู diagnostics ของ reference, claim และ Drive staging</p>`;
+    els.createDiagnosticsPanel.innerHTML = `<p class="diagnostics-empty">เลือกสินค้าก่อน แล้วจะแสดงสาเหตุเมื่อรูปหรืองานนี้มีปัญหา</p>`;
     return;
   }
   const statusRows = diagnostics.rows
@@ -1534,17 +1534,17 @@ function renderCreateDiagnosticsPanel(message = "") {
     ${diagnostics.claimMessage ? `<div class="diagnostics-callout danger">${escapeHtml(diagnostics.claimMessage)}</div>` : ""}
     ${readinessIssues.length ? `
       <div class="diagnostics-group">
-        <strong>Readiness issues</strong>
+        <strong>สิ่งที่ต้องแก้ก่อนสร้างภาพ</strong>
         ${readinessIssues.map((issue) => `<span class="${escapeHtml(issue.tone)}">${escapeHtml(issue.text)}</span>`).join("")}
       </div>
     ` : ""}
     ${diagnostics.referenceIssues.length ? `
       <div class="diagnostics-group">
-        <strong>Reference files</strong>
+        <strong>รูปอ้างอิงที่ต้องตรวจ</strong>
         ${diagnostics.referenceIssues.map((issue) => `
           <details class="diagnostics-file">
             <summary>
-              <span class="${escapeHtml(issue.tone)}">${escapeHtml(issue.tone === "danger" ? "blocked" : "warning")}</span>
+              <span class="${escapeHtml(issue.tone)}">${escapeHtml(issue.tone === "danger" ? "ติดปัญหา" : "ควรตรวจ")}</span>
               ${escapeHtml(issue.label)}
             </summary>
             ${issue.details.map((detail) => `<small>${escapeHtml(detail)}</small>`).join("")}
@@ -1553,7 +1553,7 @@ function renderCreateDiagnosticsPanel(message = "") {
       </div>
     ` : ""}
     ${!diagnostics.claimMessage && !readinessIssues.length && !diagnostics.referenceIssues.length
-      ? `<p class="diagnostics-empty">ยังไม่มี diagnostics ที่ต้องตรวจเป็นพิเศษ</p>`
+      ? `<p class="diagnostics-empty">ยังไม่พบปัญหาที่ต้องตรวจเพิ่ม</p>`
       : ""}
   `;
 }
@@ -1568,22 +1568,31 @@ function renderReferenceReadinessCard(message = "") {
   }
   const view = getReferenceReadinessViewModel(message);
   const countLabels = [
-    ["found files", view.counts.foundFiles],
-    ["stageable images", view.counts.stageableImages],
-    ["blocked files", view.counts.blockedFiles]
+    ["ไฟล์ที่พบ", view.counts.foundFiles],
+    ["รูปที่ใช้ได้", view.counts.stageableImages],
+    ["ติดปัญหา", view.counts.blockedFiles]
   ];
+  const stateLabels = {
+    empty: "รอเลือกสินค้า",
+    loading: "กำลังเตรียม",
+    blocked: "ติดปัญหา",
+    ready: "พร้อมใช้",
+    warning: "ควรตรวจ",
+    manual_fallback_needed: "ต้องอัปโหลด",
+    manual_fallback_ready: "พร้อมใช้"
+  };
   els.referenceReadinessCard.hidden = false;
   els.referenceReadinessCard.className = `reference-readiness-card ${view.className}`;
   els.referenceReadinessCard.innerHTML = `
     <div class="reference-readiness-heading">
       <strong>${escapeHtml(view.title)}</strong>
-      <span>${escapeHtml(view.state)}</span>
+      <span>${escapeHtml(stateLabels[view.state] || view.state)}</span>
     </div>
     <p>${escapeHtml(view.description)}</p>
     <div class="reference-readiness-counts">
       ${countLabels.map(([label, value]) => `<span><strong>${Number(value || 0)}</strong>${escapeHtml(label)}</span>`).join("")}
     </div>
-    ${view.driveUrl ? `<a class="reference-drive-link" href="${escapeHtml(view.driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a>` : ""}
+    ${view.driveUrl ? `<a class="reference-drive-link" href="${escapeHtml(view.driveUrl)}" target="_blank" rel="noopener">เปิดโฟลเดอร์ใน Google Drive</a>` : ""}
   `;
   renderCreateDiagnosticsPanel(message);
 }
@@ -1628,13 +1637,13 @@ function setSkuWorkClaimFailed({ message = "", code = "", httpStatus = 0, endpoi
   });
 }
 
-function formatSkuWorkClaimFailureMessage({ response = null, data = {}, fallback = "claim SKU ไม่สำเร็จ" } = {}) {
+function formatSkuWorkClaimFailureMessage({ response = null, data = {}, fallback = "ล็อกงานไม่สำเร็จ" } = {}) {
   const code = data?.code || "";
   if (code === "sku_work_state_store_unavailable") {
-    return "ระบบ claim ยังไม่พร้อม: ยังไม่มีตาราง sku_work_states หรือสิทธิ์อ่านไม่ได้";
+    return "ยังล็อกงานไม่ได้ เพราะฐานข้อมูลสถานะงานยังไม่พร้อมหรืออ่านไม่ได้";
   }
   if (code === "sku_work_state_store_forbidden") {
-    return "ระบบ claim ยังไม่พร้อม: สิทธิ์อ่าน/เขียนสถานะ SKU ไม่ครบ";
+    return "ยังล็อกงานไม่ได้ เพราะสิทธิ์อ่าน/เขียนสถานะงานไม่ครบ";
   }
   return getApiErrorMessage(response, data, fallback);
 }
@@ -1650,23 +1659,23 @@ function renderSkuWorkClaimCard(message = "") {
   const state = skuWorkClaimState || {};
   const label = state.locked_by_label || "ทีมอื่น";
   const view = state.status === "claimed_by_me"
-    ? { className: "claim-state-ready", title: "คุณ claim SKU นี้แล้ว", description: "พร้อมทำงานต่อโดยไม่ชนกับคนอื่น" }
+    ? { className: "claim-state-ready", title: "ล็อกงานนี้ไว้ให้คุณแล้ว", description: "พร้อมทำต่อได้ โดยไม่ชนกับคนอื่น" }
     : skuWorkClaimState.status === "claimed_by_other"
-      ? { className: "claim-state-blocked", title: `SKU นี้ถูก claim โดย ${label}`, description: message || "ไม่ให้กดสร้าง Hero ซ้ำจนกว่า claim จะถูก release หรือหมดอายุ" }
+      ? { className: "claim-state-blocked", title: `งานนี้มีคนทำอยู่: ${label}`, description: message || "รอให้คนนั้นปล่อยงาน หรือให้เวลาล็อกหมดอายุก่อน" }
       : state.status === "checking"
-        ? { className: "claim-state-loading", title: "กำลังตรวจสถานะ claim", description: message || "กำลังตรวจว่า SKU นี้ว่างหรือไม่" }
+        ? { className: "claim-state-loading", title: "กำลังตรวจว่างานนี้ว่างไหม", description: message || "ระบบกำลังดูว่าสามารถล็อกงานนี้ให้คุณได้หรือไม่" }
         : state.status === "claim_failed"
-          ? { className: "claim-state-blocked", title: "โหลดสถานะ claim ไม่สำเร็จ", description: message || state.message || "claim SKU ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน" }
-          : { className: "claim-state-warning", title: "SKU ยังไม่ถูก claim", description: message || "ระบบจะ claim SKU นี้ก่อนให้สร้าง Hero" };
+          ? { className: "claim-state-blocked", title: "ตรวจสถานะงานไม่สำเร็จ", description: message || state.message || "ยังล็อกงานนี้ไม่ได้ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน" }
+          : { className: "claim-state-warning", title: "งานนี้ยังไม่ได้ล็อก", description: message || "แอปจะล็อกงานนี้ให้ก่อนเริ่มสร้างภาพหลัก" };
   els.skuWorkClaimCard.hidden = false;
   els.skuWorkClaimCard.className = `sku-work-claim-card ${view.className}`;
   els.skuWorkClaimCard.innerHTML = `
     <div class="sku-work-claim-heading">
       <strong>${escapeHtml(view.title)}</strong>
-      <span>v${escapeHtml(String(state.version || 0))}</span>
+      <span>${state.status === "claimed_by_me" ? "ล็อกแล้ว" : `v${escapeHtml(String(state.version || 0))}`}</span>
     </div>
     <p>${escapeHtml(view.description)}</p>
-    ${state.expires_at ? `<small>claim หมดอายุ ${escapeHtml(formatJobTime(state.expires_at))}</small>` : ""}
+    ${state.expires_at ? `<small>ปล่อยงานอัตโนมัติ ${escapeHtml(formatJobTime(state.expires_at))}</small>` : ""}
   `;
   renderCreateDiagnosticsPanel(message);
 }
@@ -1678,11 +1687,11 @@ function getSkuWorkClaimReadiness() {
     return {
       disabled: true,
       tone: "blocked",
-      reason: `SKU นี้ถูก claim โดย ${skuWorkClaimState.locked_by_label || "ทีมอื่น"} อยู่ ไม่ให้กดสร้าง Hero ซ้ำ`
+      reason: `งานนี้มี ${skuWorkClaimState.locked_by_label || "ทีมอื่น"} ทำอยู่ จึงยังสร้างภาพซ้ำไม่ได้`
     };
   }
   if (skuWorkClaimState.status === "checking") {
-    return { disabled: true, tone: "loading", reason: "กำลังตรวจสถานะ claim ของ SKU" };
+    return { disabled: true, tone: "loading", reason: "กำลังตรวจว่างานนี้ล็อกให้คุณได้ไหม" };
   }
   if (skuWorkClaimState.status === "claim_failed") {
     const referenceReady = hasStagedCatalogReferences() || canAutoUseCatalogReferencesForHero() || hasManualProductReferenceUpload();
@@ -1690,11 +1699,11 @@ function getSkuWorkClaimReadiness() {
       disabled: true,
       tone: "blocked",
       reason: referenceReady
-        ? "staged reference พร้อมแล้ว แต่ claim SKU ไม่สำเร็จ"
-        : "claim SKU ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน"
+        ? "รูปพร้อมแล้ว แต่ยังล็อกงานนี้ไม่ได้"
+        : "ยังล็อกงานนี้ไม่ได้ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ใช้งาน"
     };
   }
-  return { disabled: true, tone: "loading", reason: "กำลัง claim SKU นี้ก่อนสร้าง Hero" };
+  return { disabled: true, tone: "loading", reason: "กำลังล็อกงานนี้ก่อนสร้างภาพหลัก" };
 }
 
 async function loadSkuWorkClaimStatus({ silent = false } = {}) {
@@ -1703,16 +1712,16 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
   const requestId = ++skuWorkClaimRequestSeq;
   if (!silent) {
     skuWorkClaimState = normalizeSkuWorkClaimState({ ...skuWorkClaimState, status: "checking" });
-    renderSkuWorkClaimCard("กำลังตรวจสถานะ claim ของ SKU");
+    renderSkuWorkClaimCard("กำลังตรวจว่างานนี้ล็อกให้คุณได้หรือไม่");
     updateActionAvailability();
   }
   try {
     const response = await authFetch(`/api/sku-work/${encodeURIComponent(requestedSku)}`);
-    const data = await readJsonResponse(response, "โหลดสถานะ claim ไม่สำเร็จ");
+    const data = await readJsonResponse(response, "ตรวจสถานะงานไม่สำเร็จ");
     if (requestId !== skuWorkClaimRequestSeq || selectedCatalogSku?.sku !== requestedSku) return null;
     if (!response.ok || data.ok === false) {
       setSkuWorkClaimFailed({
-        message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "โหลดสถานะ claim ไม่สำเร็จ" }),
+        message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "ตรวจสถานะงานไม่สำเร็จ" }),
         code: data.code || "",
         httpStatus: response.status,
         endpoint: "GET /api/sku-work/:sku"
@@ -1728,7 +1737,7 @@ async function loadSkuWorkClaimStatus({ silent = false } = {}) {
   } catch (error) {
     if (requestId !== skuWorkClaimRequestSeq) return null;
     setSkuWorkClaimFailed({
-      message: getSafeAuthErrorMessage(error) || "โหลดสถานะ claim ไม่สำเร็จ",
+      message: getSafeAuthErrorMessage(error) || "ตรวจสถานะงานไม่สำเร็จ",
       endpoint: "GET /api/sku-work/:sku"
     });
     renderSkuWorkClaimCard(skuWorkClaimState.message);
@@ -1741,7 +1750,7 @@ async function claimSelectedSkuWork() {
   if (!selectedCatalogSku?.sku) return null;
   const requestedSku = selectedCatalogSku.sku;
   skuWorkClaimState = normalizeSkuWorkClaimState({ ...skuWorkClaimState, status: "checking" });
-  renderSkuWorkClaimCard("กำลัง claim SKU นี้ก่อนเริ่มงาน");
+  renderSkuWorkClaimCard("กำลังล็อกงานนี้ให้คุณก่อนเริ่มงาน");
   updateActionAvailability();
   try {
     const currentClaim = await loadSkuWorkClaimStatus({ silent: true });
@@ -1756,7 +1765,7 @@ async function claimSelectedSkuWork() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ submittedVersion: skuWorkClaimState.version || 0 })
     });
-    const data = await readJsonResponse(response, "claim SKU ไม่สำเร็จ");
+    const data = await readJsonResponse(response, "ล็อกงานไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return null;
     if (!response.ok || data.ok === false) {
       if (data.code === "sku_work_claim_conflict") {
@@ -1764,13 +1773,13 @@ async function claimSelectedSkuWork() {
         skuWorkClaimState.status = "claimed_by_other";
       } else {
         setSkuWorkClaimFailed({
-          message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "claim SKU ไม่สำเร็จ" }),
+          message: formatSkuWorkClaimFailureMessage({ response, data, fallback: "ล็อกงานไม่สำเร็จ" }),
           code: data.code || "",
           httpStatus: response.status,
           endpoint: "POST /api/sku-work/:sku/claim"
         });
       }
-      renderSkuWorkClaimCard(formatSkuWorkClaimFailureMessage({ response, data, fallback: "claim SKU ไม่สำเร็จ" }));
+      renderSkuWorkClaimCard(formatSkuWorkClaimFailureMessage({ response, data, fallback: "ล็อกงานไม่สำเร็จ" }));
       updateActionAvailability();
       startSkuWorkClaimPolling();
       return skuWorkClaimState;
@@ -1782,7 +1791,7 @@ async function claimSelectedSkuWork() {
     return skuWorkClaimState;
   } catch (error) {
     setSkuWorkClaimFailed({
-      message: getSafeAuthErrorMessage(error) || "claim SKU ไม่สำเร็จ",
+      message: getSafeAuthErrorMessage(error) || "ล็อกงานไม่สำเร็จ",
       endpoint: "POST /api/sku-work/:sku/claim"
     });
     renderSkuWorkClaimCard(skuWorkClaimState.message);
@@ -1874,7 +1883,7 @@ function renderCatalogReferencePanel(message = "") {
   els.catalogReferencePanel.hidden = !hasSku;
   if (!hasSku) {
     els.catalogReferenceCards.innerHTML = "";
-    els.catalogReferenceStatus.textContent = message || "เลือก SKU เพื่อโหลด reference";
+    els.catalogReferenceStatus.textContent = message || "เลือกสินค้าเพื่อโหลดรูปอ้างอิง";
     if (els.useCatalogReferencesButton) els.useCatalogReferencesButton.disabled = true;
     updateActionAvailability();
     return;
@@ -1886,30 +1895,30 @@ function renderCatalogReferencePanel(message = "") {
   const resolutionSummary = selectedCatalogSku.resolution_summary || {};
   const driveUrl = getCatalogDriveUrl();
   const sourceTextParts = [
-    driveUrl ? "มี Google Drive folder" : "",
-    sourceFields.source_row ? `row ${escapeHtml(sourceFields.source_row)}` : "",
+    driveUrl ? "มีโฟลเดอร์ใน Google Drive" : "",
+    sourceFields.source_row ? `แถวข้อมูล ${escapeHtml(sourceFields.source_row)}` : "",
     resolutionSummary.google_drive_checked ? `ตรวจแล้ว: ${Number(resolutionSummary.file_count || 0)} ไฟล์ / ${Number(resolutionSummary.image_file_count || 0)} รูป` : ""
   ].filter(Boolean).join(" · ");
   els.catalogReferenceStatus.textContent = message || [
-    catalogReferenceLoading ? "กำลังโหลดไฟล์ภาพจาก Google Drive... กำลังเตรียมรูปจาก Drive สำหรับสร้าง Hero..." : "",
-    `Hero-ready ${stageable.length} รูป`,
-    stagedCount ? `แนบกับ Hero แล้ว: ${stagedCount} รูป` : "",
+    catalogReferenceLoading ? "กำลังโหลดรูปจาก Google Drive..." : "",
+    `รูปที่ใช้สร้างภาพหลักได้ ${stageable.length} รูป`,
+    stagedCount ? `เตรียมไว้แล้ว ${stagedCount} รูป` : "",
     sourceTextParts
   ].filter(Boolean).join(" · ");
   if (els.useCatalogReferencesButton) {
     els.useCatalogReferencesButton.disabled = catalogReferenceLoading || !stageable.length;
-    els.useCatalogReferencesButton.textContent = stagedCount ? "ใช้ reference ชุดนี้แล้ว" : "ใช้ reference ชุดนี้กับ Hero";
+    els.useCatalogReferencesButton.textContent = stagedCount ? "ใช้รูปชุดนี้แล้ว" : "ใช้รูปชุดนี้สร้างภาพหลัก";
   }
 
   if (!selectedCatalogReferences.length) {
     els.catalogReferenceCards.innerHTML = catalogReferenceLoading
-      ? `<div class="catalog-reference-empty">กำลังโหลดรายการไฟล์ภาพจาก Google Drive...</div>`
-      : `<div class="catalog-reference-empty">ยังไม่มี reference card สำหรับ SKU นี้</div>`;
+      ? `<div class="catalog-reference-empty">กำลังโหลดรูปจาก Google Drive...</div>`
+      : `<div class="catalog-reference-empty">ยังไม่มีรูปอ้างอิงสำหรับสินค้านี้</div>`;
     updateActionAvailability();
     return;
   }
   const sourceHtml = driveUrl
-    ? `<div class="catalog-reference-source"><a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a></div>`
+    ? `<div class="catalog-reference-source"><a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener">เปิดโฟลเดอร์ใน Google Drive</a></div>`
     : "";
 
   els.catalogReferenceCards.innerHTML = selectedCatalogReferences.map((reference) => {
@@ -1920,12 +1929,12 @@ function renderCatalogReferencePanel(message = "") {
     return `
       <article class="catalog-reference-card ${isStaged ? "is-staged" : ""}" role="listitem">
         <div class="catalog-reference-preview">
-          ${reference.preview_url ? `<img src="${escapeHtml(reference.preview_url)}" alt="${escapeHtml(reference.label_th || "reference image")}" loading="lazy" />` : `<span>ไม่มี preview</span>`}
+          ${reference.preview_url ? `<img src="${escapeHtml(reference.preview_url)}" alt="${escapeHtml(reference.label_th || "รูปอ้างอิง")}" loading="lazy" />` : `<span>ไม่มีภาพตัวอย่าง</span>`}
         </div>
         <div class="catalog-reference-meta">
-          <strong>${escapeHtml(reference.label_th || "reference")}</strong>
-          <span>${reference.stage_available ? "Hero-ready" : "Fallback needed"} · ${escapeHtml(reference.source || "-")}</span>
-          ${isStaged ? `<small class="success-text">แนบแล้ว</small>` : ""}
+          <strong>${escapeHtml(reference.label_th || "รูปอ้างอิง")}</strong>
+          <span>${reference.stage_available ? "ใช้สร้างภาพหลักได้" : "ต้องใช้รูปอื่นแทน"} · ${escapeHtml(reference.source || "-")}</span>
+          ${isStaged ? `<small class="success-text">เตรียมไว้แล้ว</small>` : ""}
           ${warnings.length ? `<small>${escapeHtml(warnings.slice(0, 1).join(" · "))}</small>` : ""}
           ${blockers.length || blockerDetail ? `<small class="danger-text">${escapeHtml([blockerDetail, ...blockers].filter(Boolean).slice(0, 2).join(" · "))}</small>` : ""}
         </div>
@@ -1957,8 +1966,8 @@ async function loadCatalogReferencesForSelectedSku() {
   updateActionAvailability();
   try {
     const listResponse = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references`);
-    const listData = await readJsonResponse(listResponse, "โหลดรายการ reference ของ SKU ไม่สำเร็จ");
-    if (!listResponse.ok || listData.ok === false) throw new Error(listData.error || "โหลดรายการ reference ของ SKU ไม่สำเร็จ");
+    const listData = await readJsonResponse(listResponse, "โหลดรูปอ้างอิงของสินค้านี้ไม่สำเร็จ");
+    if (!listResponse.ok || listData.ok === false) throw new Error(listData.error || "โหลดรูปอ้างอิงของสินค้านี้ไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return;
     selectedCatalogReferences = listData.references || [];
     selectedCatalogSku = {
@@ -1973,7 +1982,7 @@ async function loadCatalogReferencesForSelectedSku() {
       if (els.imageReference) els.imageReference.value = selectedCatalogSku.reference_url;
     }
     finalMessage = selectedCatalogReferences.length
-      ? "พบรายการ reference จาก Drive แล้ว กำลัง stage เข้า Supabase สำหรับสร้าง Hero..."
+      ? "พบรูปจาก Drive แล้ว กำลังเตรียมให้พร้อมสร้างภาพหลัก..."
       : "";
     renderSkuPickerStatus();
     renderCatalogReferencePanel(finalMessage);
@@ -1985,8 +1994,8 @@ async function loadCatalogReferencesForSelectedSku() {
     const stageResponse = await authFetch(`/api/catalog/sku/${encodeURIComponent(requestedSku)}/references/stage`, {
       method: "POST"
     });
-    const data = await readJsonResponse(stageResponse, "stage reference ของ SKU ไม่สำเร็จ");
-    if (!stageResponse.ok || data.ok === false) throw new Error(data.error || "stage reference ของ SKU ไม่สำเร็จ");
+    const data = await readJsonResponse(stageResponse, "เตรียมรูปอ้างอิงไม่สำเร็จ");
+    if (!stageResponse.ok || data.ok === false) throw new Error(data.error || "เตรียมรูปอ้างอิงไม่สำเร็จ");
     if (selectedCatalogSku?.sku !== requestedSku) return;
     selectedCatalogReferences = data.references || [];
     selectedCatalogSku = {
@@ -2002,7 +2011,7 @@ async function loadCatalogReferencesForSelectedSku() {
     }
     autoStageCatalogReferencesForHero();
     if (hasSelectedCatalogStageableReferences()) {
-      finalMessage = `stage สำเร็จ ${selectedCatalogReferences.filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url)).length} รูป พร้อมสร้าง Hero`;
+      finalMessage = `เตรียมรูปสำเร็จ ${selectedCatalogReferences.filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url)).length} รูป พร้อมสร้างภาพหลัก`;
     }
   } catch (error) {
     if (!selectedCatalogReferences.length) {
@@ -2010,8 +2019,8 @@ async function loadCatalogReferencesForSelectedSku() {
       stagedCatalogReferenceKeys = [];
     }
     finalMessage = selectedCatalogReferences.length
-      ? (getSafeAuthErrorMessage(error) || "stage reference ไม่สำเร็จ แต่ยังเปิดดูรายการไฟล์จาก Drive ได้ กรุณาอัปโหลดภาพสินค้าเอง")
-      : (getSafeAuthErrorMessage(error) || "โหลด reference ไม่สำเร็จ กรุณาอัปโหลดภาพสินค้าเอง");
+      ? (getSafeAuthErrorMessage(error) || "เตรียมรูปอ้างอิงไม่สำเร็จ แต่ยังเปิดดูไฟล์จาก Drive ได้ ถ้าต้องรีบงานนี้ให้อัปโหลดรูปเอง")
+      : (getSafeAuthErrorMessage(error) || "โหลดรูปอ้างอิงไม่สำเร็จ กรุณาอัปโหลดรูปสินค้าเอง");
   } finally {
     if (selectedCatalogSku?.sku !== requestedSku) return;
     catalogReferenceLoading = false;
@@ -2030,8 +2039,8 @@ function useCatalogReferencesForHero() {
     .map((reference) => reference.reference_key);
   stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
   renderCatalogReferencePanel(stagedCatalogReferenceKeys.length
-    ? `แนบ reference จาก catalog/Drive แล้ว ${stagedCatalogReferenceKeys.length} รูป`
-    : "ยังไม่มี reference ที่ใช้กับ Hero ได้ กรุณาอัปโหลดภาพสินค้าเอง");
+    ? `แนบรูปอ้างอิงจากแคตตาล็อก/Drive แล้ว ${stagedCatalogReferenceKeys.length} รูป`
+    : "ยังไม่มีรูปอ้างอิงที่ใช้สร้างภาพหลักได้ กรุณาอัปโหลดรูปสินค้าเอง");
   renderReferenceReadinessCard();
   updateActionAvailability();
 }
@@ -2110,7 +2119,7 @@ async function lookupExactCatalogSku(query, requestId, { retryAfterMs = 0, attem
       return;
     }
     renderSkuPickerResults([]);
-    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ไม่พบ SKU นี้ใน catalog");
+    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ไม่พบรหัสสินค้านี้ในแคตตาล็อก");
   }
 }
 
@@ -2124,11 +2133,11 @@ async function searchCatalogSkus() {
   }
   if (query.length < skuPickerMinQueryLength) {
     renderSkuPickerResults([]);
-    renderSkuPickerStatus(`พิมพ์ SKU หรือชื่อสินค้าอย่างน้อย ${skuPickerMinQueryLength} ตัวอักษร`);
+    renderSkuPickerStatus(`พิมพ์รหัสสินค้าหรือชื่อสินค้าอย่างน้อย ${skuPickerMinQueryLength} ตัวอักษร`);
     return;
   }
   if (!isAppReady()) {
-    renderSkuPickerStatus("กรุณาเข้าสู่ระบบก่อนค้นหา SKU จาก catalog");
+    renderSkuPickerStatus("กรุณาเข้าสู่ระบบก่อนค้นหาสินค้าจากแคตตาล็อก");
     return;
   }
   if (looksLikeExactCatalogSku(query)) {
@@ -2136,25 +2145,25 @@ async function searchCatalogSkus() {
     return;
   }
   try {
-    renderSkuPickerStatus("กำลังค้นหา SKU จาก catalog...");
+    renderSkuPickerStatus("กำลังค้นหาสินค้าในแคตตาล็อก...");
     const params = new URLSearchParams({ q: query, limit: "20" });
     const response = await authFetchWithTimeout(
       `/api/catalog/sku-search?${params.toString()}`,
       {},
       skuPickerSearchTimeoutMs,
-      "ค้นหา SKU ใช้เวลานานผิดปกติ กรุณาลองค้นหาอีกครั้ง"
+      "ค้นหาสินค้าใช้เวลานานผิดปกติ กรุณาลองค้นหาอีกครั้ง"
     );
-    const data = await readJsonResponse(response, "ค้นหา SKU ไม่สำเร็จ");
+    const data = await readJsonResponse(response, "ค้นหาสินค้าไม่สำเร็จ");
     if (requestId !== skuPickerSearchRequestSeq || query !== (els.skuPickerSearch?.value?.trim() || "")) return;
-    if (!response.ok || data.ok === false) throw new Error(data.error || "ค้นหา SKU ไม่สำเร็จ");
+    if (!response.ok || data.ok === false) throw new Error(data.error || "ค้นหาสินค้าไม่สำเร็จ");
     renderSkuPickerResults(data.items || []);
     if (!selectedCatalogSku) {
-      renderSkuPickerStatus((data.items || []).length ? "เลือก SKU จากผลค้นหา 1 รายการ" : "ไม่พบ SKU ใน catalog");
+      renderSkuPickerStatus((data.items || []).length ? "เลือกสินค้าจากผลค้นหา 1 รายการ" : "ไม่พบสินค้าในแคตตาล็อก");
     }
   } catch (error) {
     if (requestId !== skuPickerSearchRequestSeq) return;
     renderSkuPickerResults([]);
-    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ค้นหา SKU ไม่สำเร็จ");
+    renderSkuPickerStatus(getSafeAuthErrorMessage(error) || "ค้นหาสินค้าไม่สำเร็จ");
   }
 }
 
@@ -2837,7 +2846,7 @@ function bindEvents() {
     supportResults = [];
     customSupportShots = [];
     resetQc();
-    els.promptOutput.textContent = "กรอกข้อมูลงาน แล้วกด “สร้าง Prompt”";
+    els.promptOutput.textContent = "กรอกข้อมูลงาน แล้วกดสร้างภาพหลัก คำสั่งจะพร้อมให้ตรวจเอง";
     els.resultCard.hidden = true;
     els.emptyHero.hidden = false;
     setHeroLoading(false);
@@ -3003,7 +3012,7 @@ async function generateImage() {
     logAction("generate", "early exit", { reason: "not app-ready" });
     els.resultCard.hidden = false;
     els.emptyHero.hidden = false;
-    els.resultStatus.textContent = "กรุณาเข้าสู่ระบบและตรวจสอบสิทธิ์ให้เรียบร้อยก่อน Generate";
+    els.resultStatus.textContent = "กรุณาเข้าสู่ระบบและตรวจสอบสิทธิ์ให้เรียบร้อยก่อนสร้างภาพ";
     updateAuthUi(currentSession);
     return;
   }
@@ -3045,7 +3054,7 @@ async function generateImage() {
   els.emptyHero.hidden = true;
   els.resultImage.hidden = true;
   els.resultImage.removeAttribute("src");
-  setHeroLoading(true, "กำลังสร้างภาพ Hero", "ระบบกำลังอัปโหลดภาพอ้างอิงและส่งงานเข้า AI queue");
+  setHeroLoading(true, "กำลังสร้างภาพหลัก", "กำลังแนบรูปอ้างอิงและส่งงานให้ AI สร้างภาพ");
   els.resultStatus.textContent = "กำลังเริ่มงานสร้างภาพ...";
   els.generateButton.disabled = true;
   els.approveButton.disabled = true;
@@ -3093,7 +3102,7 @@ async function generateImage() {
   } finally {
     updateActionAvailability();
     els.approveButton.disabled = !currentGeneratedImageUrl;
-    els.generateButton.textContent = "สร้าง Hero";
+    els.generateButton.textContent = "สร้างภาพหลัก";
   }
 }
 
@@ -3120,17 +3129,17 @@ async function approveImage() {
 
   if (!currentGeneratedImageUrl) {
     logAction("approve", "early exit", { reason: "missing generated image" });
-    els.resultStatus.textContent = "ยังไม่มีภาพ generated สำหรับ approve";
+    els.resultStatus.textContent = "ยังไม่มีภาพที่สร้างเสร็จให้อนุมัติ";
     return;
   }
   if (!currentJobId || !currentHeroGenerationId) {
     logAction("approve", "early exit", { reason: "missing job or generation id", currentJobId, currentHeroGenerationId });
-    els.resultStatus.textContent = "ยังไม่มีข้อมูลงานหรือ generation สำหรับบันทึก กรุณา Generate ใหม่อีกครั้ง";
+    els.resultStatus.textContent = "ยังไม่มีข้อมูลงานสำหรับบันทึก กรุณาสร้างภาพใหม่อีกครั้ง";
     return;
   }
 
   els.approveButton.disabled = true;
-  els.approveButton.textContent = "Saving...";
+  els.approveButton.textContent = "กำลังบันทึก...";
 
   try {
     logAction("approve", "before request", { currentJobId, currentHeroGenerationId });
@@ -3174,7 +3183,7 @@ async function approveImage() {
       name: getJobBaseName("สินค้าที่อนุมัติแล้ว"),
       type: els.imageType.value,
       category: els.category.value,
-      status: "Hero อนุมัติแล้ว"
+      status: "ภาพหลักอนุมัติแล้ว"
     });
     logAction("approve", "success", { currentJobId, currentHeroGenerationId });
     refreshMetrics();
@@ -3193,17 +3202,17 @@ async function generateSupportSet() {
   const validationMessage = validateInputFiles();
 
   if (!heroUrl) {
-    renderSupportMessage("ต้องสร้างและอนุมัติ Hero ก่อน หรืออย่างน้อยต้องมีภาพ Hero ที่สร้างสำเร็จ");
+    renderSupportMessage("ต้องสร้างและอนุมัติภาพหลักก่อน หรืออย่างน้อยต้องมีภาพหลักที่สร้างสำเร็จ");
     return;
   }
 
   if (!approvedHeroImageUrl) {
-    renderSupportMessage("แนะนำให้กดอนุมัติ Hero ก่อน เพื่อใช้ภาพที่ผ่านการตรวจแล้วเป็นภาพตั้งต้น");
+    renderSupportMessage("แนะนำให้อนุมัติภาพหลักก่อน เพื่อใช้ภาพที่ผ่านการตรวจแล้วเป็นภาพตั้งต้น");
     return;
   }
 
   if (!isQcComplete()) {
-    renderSupportMessage("ต้องตรวจให้ครบ 7/7 ก่อนสร้างภาพ Support เพื่อยืนยันว่า Hero พร้อมใช้เป็นภาพตั้งต้น");
+    renderSupportMessage("ต้องตรวจให้ครบ 7/7 ก่อนสร้างภาพเสริม เพื่อยืนยันว่าภาพหลักพร้อมใช้เป็นตัวตั้งต้น");
     return;
   }
 
@@ -3213,14 +3222,14 @@ async function generateSupportSet() {
   }
 
   if (!selectedShots.length) {
-    renderSupportMessage("เลือกช็อตรองอย่างน้อย 1 ช็อตก่อนสร้างภาพ Support");
+    renderSupportMessage("เลือกมุมภาพอย่างน้อย 1 มุมก่อนสร้างภาพเสริม");
     return;
   }
 
   supportResults = selectedShots.map((shot) => ({ shot, status: "waiting", imageUrl: "" }));
   renderSupportGallery();
   els.generateSupportButton.disabled = true;
-  els.generateSupportButton.textContent = "กำลังสร้างภาพ Support...";
+  els.generateSupportButton.textContent = "กำลังสร้างภาพเสริม...";
 
   for (let index = 0; index < selectedShots.length; index += 1) {
     const shot = selectedShots[index];
@@ -3253,18 +3262,18 @@ async function generateSupportSet() {
 
   updateWorkflowGate();
   refreshMetrics();
-  els.generateSupportButton.textContent = "สร้างภาพ Support";
+  els.generateSupportButton.textContent = "สร้างภาพเสริม";
 }
 
 async function approveSupportSet() {
   const readyItems = supportResults.filter((item) => item.imageUrl && item.status === "done");
   if (!readyItems.length) {
-    renderSupportMessage("ยังไม่มีภาพ support ที่พร้อม approve");
+    renderSupportMessage("ยังไม่มีภาพเสริมที่พร้อมอนุมัติ");
     return;
   }
 
   els.approveSupportButton.disabled = true;
-  els.approveSupportButton.textContent = "Saving set...";
+  els.approveSupportButton.textContent = "กำลังบันทึกภาพเสริม...";
 
   let savedCount = 0;
   try {
@@ -3292,8 +3301,8 @@ async function approveSupportSet() {
     }
 
     addHistoryItem({
-      name: `${getJobBaseName("Support set")} (${savedCount} ภาพ)`,
-      type: "Support Set",
+      name: `${getJobBaseName("ชุดภาพเสริม")} (${savedCount} ภาพ)`,
+      type: "ชุดภาพเสริม",
       category: els.category.value,
       status: savedCount === readyItems.length ? "อนุมัติแล้ว" : "อนุมัติบางส่วน"
     });
@@ -3302,7 +3311,7 @@ async function approveSupportSet() {
     refreshMetrics();
   } finally {
     els.approveSupportButton.disabled = false;
-    els.approveSupportButton.textContent = "อนุมัติภาพ Support";
+    els.approveSupportButton.textContent = "อนุมัติภาพเสริม";
   }
 }
 
@@ -3311,13 +3320,13 @@ async function rerunSupportImage(index) {
   if (!item) return;
 
   if (!approvedHeroImageUrl) {
-    supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องมี Hero ที่อนุมัติแล้วก่อน" };
+    supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องมีภาพหลักที่อนุมัติแล้วก่อน" };
     renderSupportGallery();
     return;
   }
 
   if (!isQcComplete()) {
-    supportResults[index] = { ...item, status: "rerun blocked: ต้อง QC ให้ครบ 7/7 ก่อน" };
+    supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องตรวจให้ครบ 7/7 ก่อน" };
     renderSupportGallery();
     return;
   }
@@ -3332,7 +3341,7 @@ async function rerunSupportImage(index) {
   const previousImageUrl = item.imageUrl;
   supportResults[index] = {
     ...item,
-    status: "rerun: preparing",
+    status: "กำลังเตรียมสร้างใหม่",
     imageUrl: previousImageUrl,
     requestId: "",
     savedPath: ""
@@ -3346,7 +3355,7 @@ Rerun correction: regenerate only this support shot from the approved hero ancho
     const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
       supportResults[index] = {
         ...supportResults[index],
-        status: `rerun: ${getJobTitle(job)}${job.message ? ` · ${job.message}` : ""}`,
+        status: `กำลังสร้างใหม่: ${getJobTitle(job)}${job.message ? ` · ${job.message}` : ""}`,
         imageUrl: previousImageUrl
       };
       renderSupportGallery();
@@ -3362,7 +3371,7 @@ Rerun correction: regenerate only this support shot from the approved hero ancho
   } catch (error) {
     supportResults[index] = {
       ...item,
-      status: `rerun error: ${error.message}`,
+      status: `สร้างใหม่ไม่สำเร็จ: ${error.message}`,
       imageUrl: previousImageUrl
     };
   }
@@ -3522,11 +3531,11 @@ async function pollGenerationJob(jobId, onProgress) {
 function getJobTitle(job) {
   const titles = {
     queued: "เข้าคิวแล้ว",
-    uploading: "กำลังอัปโหลด reference",
+    uploading: "กำลังอัปโหลดรูปอ้างอิง",
     generating: "กำลังสร้างภาพ",
     reconnecting: "กำลังเชื่อมต่อใหม่",
-    done: "Generate สำเร็จ",
-    error: "Generate ไม่สำเร็จ"
+    done: "สร้างภาพสำเร็จ",
+    error: "สร้างภาพไม่สำเร็จ"
   };
   return titles[job.status] || "กำลังทำงาน";
 }
@@ -3539,9 +3548,9 @@ function validateInputFiles() {
   const productFiles = Array.from(els.productImages.files || []);
   const modelFiles = getSelectedBrandProfile().forceOffModel ? [] : Array.from(els.modelImages.files || []);
   if (isSelectedSkuReferenceBlockedWithoutFallback()) return getSelectedSkuReferenceBlockerMessage();
-  if (!productFiles.length && catalogReferenceLoading && hasSelectedCatalogReferenceSource()) return "กำลังโหลดรูป reference จาก Google Drive กรุณารอสักครู่แล้วกดสร้าง Hero อีกครั้ง";
-  if (!productFiles.length && hasSelectedCatalogReferenceSource() && !hasSelectedCatalogStageableReferences()) return "ยังไม่มีภาพ reference จาก Google Drive ที่ใช้กับ Hero ได้ กรุณาเปิดดู Reference panel หรือตรวจสิทธิ์ Drive";
-  if (!productFiles.length && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) return "กรุณาอัปโหลดภาพสินค้าอย่างน้อย 1 รูป หรือเลือก SKU ที่มี reference จาก catalog/Drive";
+  if (!productFiles.length && catalogReferenceLoading && hasSelectedCatalogReferenceSource()) return "กำลังโหลดรูปอ้างอิงจาก Google Drive กรุณารอสักครู่แล้วกดสร้างภาพหลักอีกครั้ง";
+  if (!productFiles.length && hasSelectedCatalogReferenceSource() && !hasSelectedCatalogStageableReferences()) return "ยังไม่มีรูปจาก Google Drive ที่ใช้สร้างภาพหลักได้ กรุณาตรวจรูปอ้างอิงหรือสิทธิ์ของ Drive";
+  if (!productFiles.length && !hasStagedCatalogReferences() && !canAutoUseCatalogReferencesForHero()) return "กรุณาอัปโหลดรูปสินค้าอย่างน้อย 1 รูป หรือเลือกสินค้าที่มีรูปจากแคตตาล็อก/Drive";
   if (productFiles.length > 10) return "ภาพสินค้าอ้างอิงใส่ได้สูงสุด 10 ภาพ";
   if (modelFiles.length > 5) return "ภาพโมเดลอ้างอิงใส่ได้สูงสุด 5 ภาพ";
   return "";
@@ -4086,23 +4095,23 @@ function getRisk(brand, feature) {
 }
 
 function updateMeta(mode, category, risk) {
-  els.promptMode.textContent = `Mode: ${mode}`;
-  els.promptCategory.textContent = `Category: ${category}`;
-  els.promptRisk.textContent = `Risk: ${risk}`;
+  els.promptMode.textContent = `รูปแบบ: ${mode}`;
+  els.promptCategory.textContent = `หมวด: ${category}`;
+  els.promptRisk.textContent = `จุดที่ต้องระวัง: ${risk}`;
 }
 
 function updateHeroStatus() {
   if (approvedHeroImageUrl) {
-    els.heroStatus.textContent = isQcComplete() ? "Hero อนุมัติแล้ว · ตรวจครบ 7/7" : "Hero อนุมัติแล้ว · รอตรวจ";
+    els.heroStatus.textContent = isQcComplete() ? "ภาพหลักอนุมัติแล้ว · ตรวจครบ 7/7" : "ภาพหลักอนุมัติแล้ว · รอตรวจ";
     els.heroStatus.classList.toggle("ready", isQcComplete());
     return;
   }
   if (currentGeneratedImageUrl) {
-    els.heroStatus.textContent = "รออนุมัติ Hero";
+    els.heroStatus.textContent = "รออนุมัติภาพหลัก";
     els.heroStatus.classList.remove("ready");
     return;
   }
-  els.heroStatus.textContent = "ยังไม่มี Hero";
+  els.heroStatus.textContent = "ยังไม่มีภาพหลัก";
   els.heroStatus.classList.remove("ready");
 }
 
@@ -4116,15 +4125,15 @@ function updateWorkflowGate() {
   const isLoggedIn = isAppReady();
   els.generateSupportButton.disabled = !ready || !isLoggedIn;
   els.approveSupportButton.disabled = !supportResults.some((item) => item.imageUrl && item.status === "done");
-  els.supportStatus.textContent = ready ? "พร้อมทำช็อตรอง" : "ล็อกอยู่";
+  els.supportStatus.textContent = ready ? "พร้อมทำภาพเสริม" : "ล็อกอยู่";
   els.supportStatus.classList.toggle("ready", ready);
   els.generateSupportButton.title = ready
     ? isLoggedIn
-      ? "พร้อมสร้างภาพ Support"
+      ? "พร้อมสร้างภาพเสริม"
       : hasSession
-        ? "กรุณาตั้งรหัสผ่านใหม่ก่อนสร้างภาพ Support"
-        : "กรุณาเข้าสู่ระบบก่อนสร้างภาพ Support"
-    : "ต้องอนุมัติ Hero และตรวจครบ 7/7 ก่อน";
+        ? "กรุณาตั้งรหัสผ่านใหม่ก่อนสร้างภาพเสริม"
+        : "กรุณาเข้าสู่ระบบก่อนสร้างภาพเสริม"
+    : "ต้องอนุมัติภาพหลักและตรวจครบ 7/7 ก่อน";
   updateHeroStatus();
 }
 
@@ -4918,8 +4927,8 @@ function getNextActionBuckets() {
     {
       key: "batch_review",
       tone: "info",
-      label: "รอตรวจ Batch",
-      helper: "ตรวจ SKU ที่ LINE เลือกมาก่อนเริ่มสร้าง Hero",
+      label: "รอตรวจชุดงาน",
+      helper: "ตรวจสินค้าที่ LINE ส่งมาก่อนเริ่มสร้างภาพหลัก",
       match: (job) => {
         const state = getBatchWorkflowState(job);
         const actionType = getWorkflowActionType(getBatchWorkflowNextAction(job));
@@ -4930,15 +4939,15 @@ function getNextActionBuckets() {
     {
       key: "hero_review",
       tone: "warning",
-      label: "รอตรวจ Hero",
-      helper: "เปิดภาพ Hero เพื่อตัดสินใจ approve หรือ regenerate",
+      label: "รอตรวจภาพหลัก",
+      helper: "เปิดภาพหลักเพื่อตัดสินใจอนุมัติหรือสั่งสร้างใหม่",
       match: (job) => getItemWorkflowState(job) === "hero_waiting_review" || isHeroReviewReady(job)
     },
     {
       key: "support_generation",
       tone: "ok",
-      label: "Hero approved แล้ว พร้อมสร้าง Support",
-      helper: "Hero ผ่านแล้ว งานถัดไปคือปลดล็อกหรือสร้างภาพ Support",
+      label: "ภาพหลักผ่านแล้ว พร้อมทำภาพเสริม",
+      helper: "งานถัดไปคือสร้างภาพเสริม",
       match: (job) => {
         const state = getItemWorkflowState(job);
         return ["hero_approved", "support_ready", "support_queued", "support_generating"].includes(state) ||
@@ -4948,8 +4957,8 @@ function getNextActionBuckets() {
     {
       key: "support_review",
       tone: "warning",
-      label: "รอตรวจ Support",
-      helper: "ตรวจชุดภาพ Support ก่อนอนุมัติและส่งออก",
+      label: "รอตรวจภาพเสริม",
+      helper: "ตรวจชุดภาพเสริมก่อนอนุมัติและส่งออก",
       match: (job) => getItemWorkflowState(job) === "support_waiting_review" || isSupportReviewReady(job)
     },
     {
@@ -5105,7 +5114,7 @@ function formatJobStatus(status) {
     draft: "ฉบับร่าง",
     queued: "รอคิว",
     generating: "กำลังสร้างภาพ",
-    hero_ready: "Hero พร้อมตรวจ",
+    hero_ready: "ภาพหลักพร้อมตรวจ",
     failed: "ไม่สำเร็จ"
   };
   return labels[status] || status || "-";
@@ -5163,10 +5172,10 @@ function getProductionFlowStage(job = {}) {
 function renderProductionFlowBoard(items = []) {
   if (!els.productionFlowBoard) return;
   const stages = [
-    { key: "line_intake", label: "รับชุดงาน", helper: "รับคำสั่ง BATCH และเลือก SKU" },
-    { key: "hero_review", label: "ตรวจ Hero", helper: "อนุมัติหรือสร้าง Hero ใหม่" },
-    { key: "support_generation", label: "สร้าง Support", helper: "สร้างภาพประกอบหลังอนุมัติ Hero" },
-    { key: "support_review", label: "ตรวจ Support", helper: "เลือกภาพที่พร้อมใช้ก่อนส่งออก" },
+    { key: "line_intake", label: "รับชุดงาน", helper: "รับรายการสินค้าและเลือกรหัสที่ต้องทำ" },
+    { key: "hero_review", label: "ตรวจภาพหลัก", helper: "อนุมัติหรือสั่งสร้างภาพหลักใหม่" },
+    { key: "support_generation", label: "สร้างภาพเสริม", helper: "สร้างมุมเพิ่มเติมหลังภาพหลักผ่านแล้ว" },
+    { key: "support_review", label: "ตรวจภาพเสริม", helper: "เลือกภาพที่พร้อมใช้ก่อนส่งออก" },
     { key: "media_preflight", label: "ตรวจไฟล์ก่อนส่งออก", helper: "เช็กไฟล์และรายการที่ยังติดอยู่" },
     { key: "wordpress", label: "ส่งออก WordPress", helper: "พร้อมส่งออกหรือส่งออกแล้ว" }
   ];
@@ -5191,7 +5200,7 @@ async function loadBatchReviewPage() {
   latestBatchReviewData = null;
   batchReviewError = "";
   if (!batchId) {
-    batchReviewError = "ลิงก์นี้ไม่มี batch_id";
+    batchReviewError = "ลิงก์นี้ไม่มีรหัสชุดงาน";
     renderBatchReviewPage();
     return;
   }
@@ -5226,8 +5235,8 @@ function renderBatchReviewPage() {
   els.batchReviewStatus.textContent = stateLabel;
   els.batchReviewTitle.textContent = data ? `Batch ${shortId(batch.batch_id || batch.id || "")}` : "ตรวจชุดงานจาก LINE";
   els.batchReviewRequest.textContent = data
-    ? `Source: ${formatBatchSource(batch.source)} · Request: ${batch.raw_request_text || "-"}`
-    : "ตรวจรายการ SKU ที่ LINE เลือกมา ก่อนเริ่มสร้าง Hero";
+    ? `ที่มา: ${formatBatchSource(batch.source)} · ข้อความที่รับมา: ${batch.raw_request_text || "-"}`
+    : "ตรวจรายการสินค้าที่ส่งมาจาก LINE ก่อนเริ่มสร้างภาพหลัก";
   els.batchReviewNextAction.textContent = data?.next_action?.label_th || getBatchEmptyActionLabel();
   renderBatchPrimaryButton(data);
   renderBatchProgress(data);
@@ -5243,16 +5252,16 @@ function getBatchEmptyStateLabel() {
 }
 
 function getBatchEmptyActionLabel() {
-  if (batchReviewLoading) return "กำลังโหลด Batch";
+  if (batchReviewLoading) return "กำลังโหลดชุดงาน";
   if (batchReviewError) return "ตรวจลิงก์หรือสิทธิ์";
-  return "รอข้อมูล Batch";
+  return "รอข้อมูลชุดงาน";
 }
 
 function getBatchErrorCopy(message = "") {
   if (!message) return "";
-  if (/not found|ไม่พบ|batch_not_found/i.test(message)) return "ไม่พบ Batch นี้ กรุณาตรวจลิงก์จาก LINE อีกครั้ง";
-  if (/permission|forbidden|ไม่มีสิทธิ์|401|403/i.test(message)) return "ไม่มีสิทธิ์ดู Batch นี้ กรุณาติดต่อ admin";
-  return message.includes("batch_id") ? message : `ระบบยังสร้าง review summary ไม่ได้: ${message}`;
+  if (/not found|ไม่พบ|batch_not_found/i.test(message)) return "ไม่พบชุดงานนี้ กรุณาตรวจลิงก์จาก LINE อีกครั้ง";
+  if (/permission|forbidden|ไม่มีสิทธิ์|401|403/i.test(message)) return "ไม่มีสิทธิ์ดูชุดงานนี้ กรุณาติดต่อผู้ดูแล";
+  return message.includes("batch_id") || message.includes("รหัสชุดงาน") ? message : `ยังเตรียมสรุปสำหรับตรวจไม่ได้: ${message}`;
 }
 
 function renderBatchPrimaryButton(data) {
@@ -5278,11 +5287,11 @@ function getBatchPrimaryAction(type, data = {}) {
 
 function getBatchPrimaryLabel(type, fallback = "") {
   const labels = {
-    confirm_batch: "ตรวจรายการแล้วเริ่ม Hero",
+    confirm_batch: "ตรวจรายการแล้วเริ่มสร้างภาพหลัก",
     open_review: fallback || "เปิดหน้าตรวจ",
     open_export_preflight: "เปิดไฟล์ export",
     resolve_reference: "เปิดคลังภาพอ้างอิง",
-    wait_system: "รอระบบทำงาน",
+    wait_system: "รอคิวทำงาน",
     none: "ไม่ต้องทำอะไรต่อ"
   };
   return labels[type] || fallback || "รอข้อมูล";
@@ -5306,12 +5315,12 @@ function buildBatchProgressCards(data = {}) {
   return [
     { label: "เลือกแล้ว", count: Number(progress.selected_items || items.filter((item) => item.selected).length || 0) },
     { label: "ข้าม", count: Number(progress.skipped_items || countState(["skipped"])) },
-    { label: "Hero สร้างแล้ว", count: countState(["hero_waiting_review", "hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
-    { label: "รอตรวจ Hero", count: countState(["hero_waiting_review"]) },
-    { label: "Hero อนุมัติแล้ว", count: countState(["hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
-    { label: "Support พร้อม", count: countState(["support_ready", "support_generating"]) },
-    { label: "Support สร้างแล้ว", count: countState(["support_waiting_review", "support_approved", "exported"]) },
-    { label: "Support/Export ผ่าน", count: countState(["support_approved", "exported"]) },
+    { label: "ภาพหลักสร้างแล้ว", count: countState(["hero_waiting_review", "hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
+    { label: "รอตรวจภาพหลัก", count: countState(["hero_waiting_review"]) },
+    { label: "ภาพหลักผ่านแล้ว", count: countState(["hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"]) },
+    { label: "พร้อมทำภาพเสริม", count: countState(["support_ready", "support_generating"]) },
+    { label: "ภาพเสริมสร้างแล้ว", count: countState(["support_waiting_review", "support_approved", "exported"]) },
+    { label: "ภาพเสริมผ่านแล้ว", count: countState(["support_approved", "exported"]) },
     { label: "ไม่สำเร็จ", count: Number(progress.failed_items || countState(["hero_failed", "support_failed"])) }
   ];
 }
@@ -5359,9 +5368,9 @@ function renderBatchSkuCard(item = {}) {
         <span class="batch-item-state">${escapeHtml(item.label_th || "-")}</span>
       </div>
       <div class="batch-sku-status-grid">
-        ${renderBatchItemStatus("Reference", getReferenceStatusLabel(item))}
-        ${renderBatchItemStatus("Hero", getHeroStatusLabel(item.state))}
-        ${renderBatchItemStatus("Support", getSupportStatusLabel(item.state))}
+        ${renderBatchItemStatus("รูปอ้างอิง", getReferenceStatusLabel(item))}
+        ${renderBatchItemStatus("ภาพหลัก", getHeroStatusLabel(item.state))}
+        ${renderBatchItemStatus("ภาพเสริม", getSupportStatusLabel(item.state))}
       </div>
       ${blockers.length ? `<div class="batch-item-blockers">${blockers.map((blocker) => `<span>${escapeHtml(blocker.label_th || blocker.code || "ติดเงื่อนไข")}</span>`).join("")}</div>` : ""}
       ${itemActions.length ? `<div class="batch-item-actions">${itemActions.map((action) => renderBatchItemActionButton(action, item)).join("")}</div>` : ""}
@@ -5398,7 +5407,7 @@ function getReferenceStatusLabel(item = {}) {
 }
 
 function getHeroStatusLabel(state = "") {
-  if (["hero_waiting_review"].includes(state)) return "รอตรวจ Hero";
+  if (["hero_waiting_review"].includes(state)) return "รอตรวจภาพหลัก";
   if (["hero_approved", "support_ready", "support_generating", "support_waiting_review", "support_approved", "exported"].includes(state)) return "อนุมัติแล้ว";
   if (state === "hero_generating") return "กำลังสร้าง";
   if (state === "hero_failed") return "สร้างไม่สำเร็จ";
@@ -5409,10 +5418,10 @@ function getHeroStatusLabel(state = "") {
 function getSupportStatusLabel(state = "") {
   if (state === "support_ready") return "พร้อมสร้าง";
   if (state === "support_generating") return "กำลังสร้าง";
-  if (state === "support_waiting_review") return "รอตรวจ Support";
+  if (state === "support_waiting_review") return "รอตรวจภาพเสริม";
   if (["support_approved", "exported"].includes(state)) return "อนุมัติแล้ว";
   if (state === "support_failed") return "สร้างไม่สำเร็จ";
-  if (state === "support_blocked_waiting_hero") return "รออนุมัติ Hero";
+  if (state === "support_blocked_waiting_hero") return "รอภาพหลักผ่านก่อน";
   if (state === "skipped") return "ข้าม";
   return "ล็อกอยู่";
 }
@@ -5551,9 +5560,9 @@ function renderProductionJobRow(job) {
         <div class="production-status-stack">
           ${renderStatusBadge(job.status, "งาน")}
           ${renderStatusBadge(job.generationStatus || "no_generation", "สร้างภาพ")}
-          ${renderStatusBadge(job.heroStatus || "no_hero", "Hero")}
-          ${renderStatusBadge(job.supportStatus || "no_support", "Support")}
-          ${hasGeneratedSupport(job) ? renderStatusBadge(job.supportReviewStatus || "pending", "ตรวจ Support") : ""}
+          ${renderStatusBadge(job.heroStatus || "no_hero", "ภาพหลัก")}
+          ${renderStatusBadge(job.supportStatus || "no_support", "ภาพเสริม")}
+          ${hasGeneratedSupport(job) ? renderStatusBadge(job.supportReviewStatus || "pending", "ตรวจภาพเสริม") : ""}
           ${job.mediaPreflightStatus ? renderStatusBadge(job.mediaPreflightStatus, "ตรวจส่งออก") : ""}
           ${renderStatusBadge(job.approvalStatus || "pending", "อนุมัติ")}
         </div>
@@ -5612,26 +5621,26 @@ function getJobNextAction(job = {}) {
     return { tone: "ok", label: "เสร็จแล้ว", helper: "อนุมัติและมีลิงก์ส่งออกแล้ว" };
   }
   if (isMediaPreflightReady(job)) {
-    const gate = job.mediaPreflightStatus ? getProductionStatusText(job.mediaPreflightStatus) : "ตรวจ Support ครบแล้ว";
+    const gate = job.mediaPreflightStatus ? getProductionStatusText(job.mediaPreflightStatus) : "ตรวจภาพเสริมครบแล้ว";
     return { tone: "ok", label: "ตรวจไฟล์ก่อนส่งออก", helper: `${gate} · ขั้นถัดไปคือส่งออก WordPress` };
   }
   if (isSupportReviewReady(job)) {
     const count = Number(job.supportCount || 0);
-    return { tone: "warning", label: "ตรวจ Support", helper: `มีภาพ Support ${formatThaiNumber(count)} ภาพแล้ว ต้องอนุมัติหรือสั่งสร้างใหม่ก่อนส่งออก` };
+    return { tone: "warning", label: "ตรวจภาพเสริม", helper: `มีภาพเสริม ${formatThaiNumber(count)} ภาพแล้ว ต้องอนุมัติหรือสั่งสร้างใหม่ก่อนส่งออก` };
   }
   if (isSupportGenerationWaiting(job)) {
-    return { tone: "info", label: "รอสร้าง Support", helper: "Hero อนุมัติแล้ว ระบบต้องสร้างภาพ Support ต่อ" };
+    return { tone: "info", label: "รอสร้างภาพเสริม", helper: "ภาพหลักผ่านแล้ว ขั้นถัดไปคือสร้างภาพเสริม" };
   }
   if (isHeroReviewReady(job)) {
     if (job.supportStatus && job.supportStatus !== "no_support") {
-      return { tone: "warning", label: "ตรวจชุดภาพ", helper: "ตรวจ Hero และภาพ Support ในหน้าเดียว" };
+      return { tone: "warning", label: "ตรวจชุดภาพ", helper: "ตรวจภาพหลักและภาพเสริมในหน้าเดียว" };
     }
-    return { tone: "warning", label: "ตรวจ Hero", helper: "เปิดหน้าตรวจเพื่ออนุมัติ หรือสั่งสร้าง Hero ใหม่" };
+    return { tone: "warning", label: "ตรวจภาพหลัก", helper: "เปิดหน้าตรวจเพื่ออนุมัติ หรือสั่งสร้างภาพหลักใหม่" };
   }
   if (/generating|queued|running/i.test([job.status, job.generationStatus].join(" "))) {
-    return { tone: "info", label: "กำลังสร้างภาพ", helper: "ระบบกำลังทำงานหรือรอคิว" };
+    return { tone: "info", label: "กำลังสร้างภาพ", helper: "กำลังทำงานหรือรอคิว" };
   }
-  return { tone: "muted", label: "รอข้อมูล", helper: "ยังไม่มีภาพ Hero พร้อมให้ตรวจ" };
+  return { tone: "muted", label: "รอข้อมูล", helper: "ยังไม่มีภาพหลักพร้อมให้ตรวจ" };
 }
 
 function buildJobReviewHref(job = {}) {
@@ -5723,7 +5732,7 @@ function updateAssetLibraryHelper() {
   if (!els.assetLibraryHelper) return;
   els.assetLibraryHelper.textContent = selectedAssetType === "references"
     ? "ภาพอ้างอิงคือภาพจริงที่ใช้ประกอบการสร้างงาน เช่น ภาพสินค้าและภาพโมเดล"
-    : "คลังภาพสำหรับดูผลงานที่สร้างจากระบบ เช่น Hero, Support และภาพที่อนุมัติหรือส่งออกแล้ว";
+    : "คลังภาพสำหรับดูผลงานที่สร้างไว้ เช่น ภาพหลัก ภาพเสริม และภาพที่อนุมัติหรือส่งออกแล้ว";
 }
 
 function renderRecoveryActions(item, source) {
@@ -5828,7 +5837,7 @@ function getProductionStatusText(status) {
   const normalized = String(status || "unknown").toLowerCase();
   const labels = {
     approved: "อนุมัติแล้ว",
-    awaiting_support_review: "รอตรวจ Support",
+    awaiting_support_review: "รอตรวจภาพเสริม",
     candidate_manifest_ready: "ชุดภาพพร้อมส่งออก",
     completed: "เสร็จแล้ว",
     done: "เสร็จแล้ว",
@@ -5838,10 +5847,10 @@ function getProductionStatusText(status) {
     failed: "ไม่สำเร็จ",
     generating: "กำลังสร้าง",
     google_drive: "ส่งเข้า Google Drive แล้ว",
-    hero_ready: "Hero พร้อมตรวจ",
+    hero_ready: "ภาพหลักพร้อมตรวจ",
     no_generation: "ยังไม่สร้าง",
-    no_hero: "ยังไม่มี Hero",
-    no_support: "ยังไม่มี Support",
+    no_hero: "ยังไม่มีภาพหลัก",
+    no_support: "ยังไม่มีภาพเสริม",
     not_exported: "ยังไม่ส่งออก",
     not_started: "ยังไม่เริ่ม",
     pending: "รอดำเนินการ",
@@ -5850,7 +5859,7 @@ function getProductionStatusText(status) {
     regenerate_requested: "ขอสร้างใหม่",
     running: "กำลังทำงาน",
     succeeded: "เสร็จแล้ว",
-    support_ready_for_review: "Support พร้อมตรวจ"
+    support_ready_for_review: "ภาพเสริมพร้อมตรวจ"
   };
   return labels[normalized] || String(status || "ไม่ทราบสถานะ").replace(/_/g, " ");
 }
@@ -5865,8 +5874,8 @@ function renderStatusBadge(status, label = "") {
 function formatAssetTypeLabel(typeGroup, rawType) {
   const labels = {
     reference: "ภาพอ้างอิง",
-    hero: "ภาพ Hero",
-    support: "ภาพ Support",
+    hero: "ภาพหลัก",
+    support: "ภาพเสริม",
     approved: "ภาพที่อนุมัติหรือส่งออกแล้ว",
     other: rawType || "ไฟล์ภาพ"
   };
@@ -6985,8 +6994,8 @@ async function loadHeroReviewPage() {
   const assetId = params.get("asset_id") || params.get("assetId") || "";
   const sku = params.get("sku") || "";
   if (!generationId && !assetId) {
-    setHeroReviewMessage("ลิงก์นี้ไม่มี generation_id หรือ asset_id จึงยัง approve จากหน้าเว็บไม่ได้", "danger");
-    els.heroReviewStatus.textContent = "missing generation";
+    setHeroReviewMessage("ลิงก์นี้ไม่มีรหัสภาพ จึงยังอนุมัติจากหน้านี้ไม่ได้", "danger");
+    els.heroReviewStatus.textContent = "ไม่พบรหัสภาพ";
     return;
   }
 
@@ -6995,7 +7004,7 @@ async function loadHeroReviewPage() {
   try {
     const response = await authFetch(`/api/review/hero?${params.toString()}`);
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || "โหลด Hero Review ไม่สำเร็จ");
+    if (!response.ok || !data.ok) throw new Error(data.error || "โหลดหน้าตรวจภาพไม่สำเร็จ");
     renderHeroReviewPage(data.review || {}, { generationId, sku });
   } catch (error) {
     els.heroReviewStatus.textContent = "โหลดไม่สำเร็จ";
@@ -7030,13 +7039,13 @@ function renderHeroReviewProductSummary(review = {}, { sku = "" } = {}) {
   const job = review.job || {};
   const rows = [
     ["SKU", sku || review.sku || job.sku || "-"],
-    ["Product", job.product_name || review.product_name || "-"],
-    ["Category", job.product_type || job.category || review.category || "-"],
-    ["Stage", review.review_stage || "hero_review"],
-    ["Hero gate", review.hero_approved === true || review.approved === true ? "approved" : "pending"]
+    ["สินค้า", job.product_name || review.product_name || "-"],
+    ["หมวด", job.product_type || job.category || review.category || "-"],
+    ["ขั้นตอน", review.review_stage === "support_review" ? "ตรวจภาพเสริม" : "ตรวจภาพหลัก"],
+    ["ภาพหลัก", review.hero_approved === true || review.approved === true ? "ผ่านแล้ว" : "รอตรวจ"]
   ];
   els.heroReviewProductSummary.innerHTML = `
-    <strong>SKU/product summary</strong>
+    <strong>สรุปสินค้าที่ตรวจ</strong>
     <dl>
       ${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}
     </dl>
@@ -7052,14 +7061,14 @@ function renderHeroReviewReferenceSummary(review = {}, refs = []) {
   const stageableImages = Number(summary.stageable_images ?? summary.stageable_reference_count ?? refs.length ?? 0);
   const blockedFiles = Number(summary.blocked_files ?? summary.blocked_reference_count ?? 0);
   els.heroReviewReferenceSummary.innerHTML = `
-    <strong>Reference summary</strong>
+    <strong>สรุปรูปอ้างอิง</strong>
     <dl>
-      <dt>source</dt><dd>${escapeHtml(source || "-")}</dd>
-      <dt>found files</dt><dd>${foundFiles}</dd>
-      <dt>stageable images</dt><dd>${stageableImages}</dd>
-      <dt>blocked files</dt><dd>${blockedFiles}</dd>
+      <dt>ที่มา</dt><dd>${escapeHtml(source || "-")}</dd>
+      <dt>ไฟล์ที่พบ</dt><dd>${foundFiles}</dd>
+      <dt>รูปที่ใช้ได้</dt><dd>${stageableImages}</dd>
+      <dt>ไฟล์ที่ใช้ไม่ได้</dt><dd>${blockedFiles}</dd>
     </dl>
-    ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noreferrer">เปิด Google Drive folder</a>` : ""}
+    ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noreferrer">เปิดโฟลเดอร์ Google Drive</a>` : ""}
   `;
 }
 
@@ -7080,18 +7089,18 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   const mediaExportPreflightGate = review.media_export_preflight_gate || null;
   const batchId = review.batch_id || getHashParams().get("batch_id") || "";
 
-  els.heroReviewTitle.textContent = hasSupportAssets ? `ตรวจชุดภาพ / ${sku}` : `ตรวจ Hero / ${sku}`;
-  els.heroReviewStatus.textContent = hasSupportAssets ? "Support พร้อมตรวจ" : heroApproved ? "อนุมัติแล้ว" : "พร้อมตรวจ";
+  els.heroReviewTitle.textContent = hasSupportAssets ? `ตรวจชุดภาพ / ${sku}` : `ตรวจภาพหลัก / ${sku}`;
+  els.heroReviewStatus.textContent = hasSupportAssets ? "ภาพเสริมพร้อมตรวจ" : heroApproved ? "อนุมัติแล้ว" : "พร้อมตรวจ";
   if (getPageFromHash() === "review") {
-    els.topbarEyebrow.textContent = hasSupportAssets ? "ตรวจ Support" : "ตรวจ Hero";
-    els.topbarTitle.textContent = hasSupportAssets ? "ตรวจ Support ก่อนส่งออก" : "ตรวจ Hero ก่อนสร้าง Support";
+    els.topbarEyebrow.textContent = hasSupportAssets ? "ตรวจภาพเสริม" : "ตรวจภาพหลัก";
+    els.topbarTitle.textContent = hasSupportAssets ? "ตรวจภาพเสริมก่อนส่งออก" : "ตรวจภาพหลักก่อนสร้างภาพเสริม";
   }
   els.heroReviewMeta.textContent = [
     job.product_name,
     job.product_type,
     getProductionStatusText(job.status),
-    hasSupportAssets ? `${supportAssets.length} ภาพ Support · ตรวจก่อนส่งออก` : "ระบบจะสร้าง Support หลังอนุมัติ Hero"
-  ].filter(Boolean).join(" · ") || "เทียบภาพอ้างอิงกับ Hero ที่ระบบสร้าง";
+    hasSupportAssets ? `${supportAssets.length} ภาพเสริม · ตรวจก่อนส่งออก` : "ภาพเสริมจะเปิดหลังภาพหลักผ่านแล้ว"
+  ].filter(Boolean).join(" · ") || "เทียบรูปอ้างอิงกับภาพหลักที่สร้างไว้";
   renderHeroReviewProductSummary({ ...review, hero_approved: heroApproved }, { sku });
   renderHeroReviewReferenceSummary(review, refs);
   els.heroReviewGenerationId.textContent = generationId ? shortId(generationId) : "-";
@@ -7106,7 +7115,7 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   els.heroReviewApproveButton.hidden = hasSupportAssets;
   els.heroReviewRegenerateButton.hidden = hasSupportAssets;
   if (els.heroReviewDecisionDock) els.heroReviewDecisionDock.hidden = hasSupportAssets;
-  els.heroReviewApproveButton.textContent = "อนุมัติ Hero";
+  els.heroReviewApproveButton.textContent = "อนุมัติภาพหลัก";
   if (els.supportReviewSaveButton) {
     els.supportReviewSaveButton.dataset.batchId = batchId;
     els.supportReviewSaveButton.dataset.sku = sku;
@@ -7115,14 +7124,14 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
   }
   if (els.heroReviewApprovedAnchor) {
     els.heroReviewApprovedAnchor.textContent = heroApproved
-      ? `Approved Hero anchor: ${shortId(approvedHeroAnchor?.generation_id || generationId || "")}`
-      : "Support จะเปิดหลัง Hero approved เท่านั้น";
+      ? `ภาพหลักที่อนุมัติ: ${shortId(approvedHeroAnchor?.generation_id || generationId || "")}`
+      : "ภาพเสริมจะเปิดหลังภาพหลักผ่านแล้ว";
   }
   if (els.heroReviewRegenerateReason) els.heroReviewRegenerateReason.value = "";
 
   els.heroReviewHero.innerHTML = heroUrl
-    ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="ภาพ Hero ${escapeHtml(sku)}" /></a>`
-    : `<p class="empty-state">ไม่พบภาพ Hero</p>`;
+    ? `<a href="${escapeHtml(heroUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(heroUrl)}" alt="ภาพหลัก ${escapeHtml(sku)}" /></a>`
+    : `<p class="empty-state">ไม่พบภาพหลัก</p>`;
 
   if (!refs.length) {
     els.heroReviewRefs.innerHTML = `<p class="empty-state">ไม่พบภาพอ้างอิงในงานนี้</p>`;
@@ -7145,15 +7154,15 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     els.heroReviewSupportAssets.innerHTML = hasSupportAssets
       ? supportAssets.map((asset, index) => {
         const url = asset.public_url || asset.url || asset.source_url || "";
-        const label = asset.slot || asset.file_name || `ภาพ Support ${index + 1}`;
+        const label = asset.slot || asset.file_name || `ภาพเสริม ${index + 1}`;
         const assetKey = getSupportAssetKey(asset) || `${sku}:support:${index + 1}`;
         const decisionRecord = supportDecisionMap.get(assetKey) || {};
         const decision = decisionRecord.decision || "pending_support_qc";
         const reason = decisionRecord.reason || "";
-        const statusLabel = decision === "approve_support" ? "approved" :
-          decision === "regenerate_support" ? "regeneration requested" :
-            decision === "reject_support" ? "rejected" :
-              decision === "needs_manual_review" ? "pending manual review" : "pending";
+        const statusLabel = decision === "approve_support" ? "ผ่านแล้ว" :
+          decision === "regenerate_support" ? "ขอสร้างใหม่" :
+            decision === "reject_support" ? "ไม่ใช้ภาพนี้" :
+              decision === "needs_manual_review" ? "ต้องตรวจเพิ่ม" : "รอตรวจ";
         return `
           <figure class="review-image-tile support-shot-card" data-shot-role="${escapeHtml(asset.slot || asset.shot_key || label)}">
             ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></a>` : `<p class="empty-state">ไม่มี URL</p>`}
@@ -7180,13 +7189,13 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
               </select>
             </label>
             <label class="support-decision-control">
-              <span>เหตุผล reject/regenerate</span>
-              <textarea data-support-reason data-asset-key="${escapeHtml(assetKey)}" rows="2" placeholder="เช่น โลโก้เพี้ยน / สีไม่ตรง / shot role ซ้ำ">${escapeHtml(reason)}</textarea>
+              <span>เหตุผลหรือสิ่งที่ต้องแก้</span>
+              <textarea data-support-reason data-asset-key="${escapeHtml(assetKey)}" rows="2" placeholder="เช่น โลโก้เพี้ยน / สีไม่ตรง / มุมภาพซ้ำ">${escapeHtml(reason)}</textarea>
             </label>
           </figure>
         `;
       }).join("")
-      : `<p class="empty-state">ยังไม่มีภาพ Support ในชุดงานนี้</p>`;
+      : `<p class="empty-state">ยังไม่มีภาพเสริมในชุดงานนี้</p>`;
   }
 
   const reviewMessage = mediaExportPreflightGate?.gate_status
@@ -7194,9 +7203,9 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
     : supportCandidateManifest?.manifest_status
       ? `ชุดภาพพร้อมส่งออก: ${getProductionStatusText(supportCandidateManifest.manifest_status)}`
       : hasSupportAssets
-        ? "ภาพ Support พร้อมให้ตรวจแล้ว"
+        ? "ภาพเสริมพร้อมให้ตรวจแล้ว"
         : review.approved
-          ? "Hero นี้อนุมัติแล้ว"
+          ? "ภาพหลักนี้อนุมัติแล้ว"
           : "";
   setHeroReviewMessage(
     reviewMessage,
@@ -7206,9 +7215,9 @@ function renderHeroReviewPage(review = {}, fallback = {}) {
 
 async function approveHeroFromReviewPage() {
   const generationId = els.heroReviewApproveButton?.dataset.generationId || "";
-  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับอนุมัติ Hero", "danger");
+  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับอนุมัติภาพหลัก", "danger");
   els.heroReviewApproveButton.disabled = true;
-  setHeroReviewMessage("กำลังบันทึกการอนุมัติ Hero...", "");
+  setHeroReviewMessage("กำลังบันทึกการอนุมัติภาพหลัก...", "");
   try {
     const response = await authFetch("/api/approvals", {
       method: "POST",
@@ -7223,7 +7232,7 @@ async function approveHeroFromReviewPage() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกการอนุมัติไม่สำเร็จ");
     els.heroReviewStatus.textContent = "อนุมัติแล้ว";
-    setHeroReviewMessage("อนุมัติ Hero แล้ว ระบบจะไปสร้าง Support ต่อ", "success");
+    setHeroReviewMessage("อนุมัติภาพหลักแล้ว ขั้นถัดไปคือสร้างภาพเสริม", "success");
   } catch (error) {
     els.heroReviewApproveButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
@@ -7232,11 +7241,11 @@ async function approveHeroFromReviewPage() {
 
 async function regenerateHeroFromReviewPage() {
   const generationId = els.heroReviewRegenerateButton?.dataset.generationId || "";
-  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับสร้าง Hero ใหม่", "danger");
+  if (!generationId) return setHeroReviewMessage("ไม่มีรหัสภาพสำหรับสร้างภาพหลักใหม่", "danger");
   const reason = els.heroReviewRegenerateReason.value.trim();
-  if (!reason) return setHeroReviewMessage("กรุณาระบุเหตุผลก่อนส่งคำขอสร้าง Hero ใหม่", "danger");
+  if (!reason) return setHeroReviewMessage("กรุณาระบุเหตุผลก่อนส่งคำขอสร้างภาพหลักใหม่", "danger");
   els.heroReviewRegenerateButton.disabled = true;
-  setHeroReviewMessage("กำลังส่งคำขอสร้าง Hero ใหม่...", "");
+  setHeroReviewMessage("กำลังส่งคำขอสร้างภาพหลักใหม่...", "");
   try {
     const response = await authFetch("/api/review/hero/regenerate", {
       method: "POST",
@@ -7251,7 +7260,7 @@ async function regenerateHeroFromReviewPage() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกคำขอสร้างใหม่ไม่สำเร็จ");
     els.heroReviewStatus.textContent = "รอสร้างใหม่";
-    setHeroReviewMessage("รับคำขอสร้าง Hero ใหม่แล้ว ระบบจะเริ่มงานตามคิว", "success");
+    setHeroReviewMessage("รับคำขอสร้างภาพหลักใหม่แล้ว งานจะเริ่มตามคิว", "success");
   } catch (error) {
     els.heroReviewRegenerateButton.disabled = false;
     setHeroReviewMessage(error.message, "danger");
@@ -7267,8 +7276,8 @@ async function saveSupportReviewDecisions() {
     Array.from(els.heroReviewSupportAssets?.querySelectorAll("[data-support-reason]") || [])
       .map((input) => [input.dataset.assetKey || "", input])
   );
-  if (!batchId || !sku) return setHeroReviewMessage("ไม่มีรหัสชุดงานหรือ SKU สำหรับบันทึกผลตรวจ Support", "danger");
-  if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มีภาพ Support ให้บันทึก", "danger");
+  if (!batchId || !sku) return setHeroReviewMessage("ไม่มีรหัสชุดงานหรือ SKU สำหรับบันทึกผลตรวจภาพเสริม", "danger");
+  if (!decisionInputs.length) return setHeroReviewMessage("ยังไม่มีภาพเสริมให้บันทึก", "danger");
 
   const decisions = decisionInputs.map((input) => {
     const reasonInput = reasonInputs.get(input.dataset.assetKey || "");
@@ -7285,7 +7294,7 @@ async function saveSupportReviewDecisions() {
   });
 
   els.supportReviewSaveButton.disabled = true;
-  setHeroReviewMessage("กำลังบันทึกผลตรวจ Support...", "");
+  setHeroReviewMessage("กำลังบันทึกผลตรวจภาพเสริม...", "");
   try {
     const response = await authFetch("/api/review/support-decisions", {
       method: "POST",
@@ -7293,7 +7302,7 @@ async function saveSupportReviewDecisions() {
       body: JSON.stringify({ batch_id: batchId, sku, generation_id: generationId, decisions })
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกผลตรวจ Support ไม่สำเร็จ");
+    if (!response.ok || !result.ok) throw new Error(result.error || "บันทึกผลตรวจภาพเสริมไม่สำเร็จ");
     const state = result.decision_state || {};
     els.heroReviewStatus.textContent = state.review_status || "support review saved";
     if (state.candidate_manifest_ready) {
@@ -7301,14 +7310,14 @@ async function saveSupportReviewDecisions() {
       const mediaGateStatus = result.media_export_preflight_gate?.gate_status || "";
       setHeroReviewMessage(
         mediaGateStatus
-          ? `ตรวจ Support ครบแล้ว: ${getProductionStatusText(mediaGateStatus)}`
-          : `ตรวจ Support ครบแล้ว: ${getProductionStatusText(manifestStatus)}`,
+          ? `ตรวจภาพเสริมครบแล้ว: ${getProductionStatusText(mediaGateStatus)}`
+          : `ตรวจภาพเสริมครบแล้ว: ${getProductionStatusText(manifestStatus)}`,
         "success"
       );
     } else if (state.review_status === "support_regeneration_requested") {
-      setHeroReviewMessage("รับคำขอสร้าง Support ใหม่แล้ว ระบบจะยังไม่ไปขั้นส่งออก", "success");
+      setHeroReviewMessage("รับคำขอสร้างภาพเสริมใหม่แล้ว งานนี้จะยังไม่ไปขั้นส่งออก", "success");
     } else {
-      setHeroReviewMessage("บันทึกผลตรวจ Support แล้ว", "success");
+      setHeroReviewMessage("บันทึกผลตรวจภาพเสริมแล้ว", "success");
     }
   } catch (error) {
     setHeroReviewMessage(error.message, "danger");

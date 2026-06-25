@@ -74,7 +74,7 @@
         </nav>
 
         <section class="sidebar-note">
-          <p>Production workflow สำหรับเลือก SKU สร้าง Hero ตรวจ QC และส่งออกไฟล์ภาพ</p>
+          <p>พื้นที่ทำงานสำหรับเลือกสินค้า สร้างภาพหลัก ตรวจภาพ และส่งไฟล์ออกใช้งาน</p>
         </section>
       </aside>
 
@@ -103,16 +103,16 @@
 
         <section class="page-view create-page" id="page-create" data-page="create">
           <form class="create-shell" id="requestForm">
-            <section class="create-command-bar" aria-label="Create command center">
+            <section class="create-command-bar" aria-label="เริ่มงานสร้างภาพ">
               <div class="create-command-title">
-                <p class="eyebrow">Create Studio</p>
-                <h3 id="request">เลือก SKU และ Reference</h3>
-                <div class="create-brief-steps" aria-label="Create workflow">
-                  <span>SKU</span>
-                  <span>Reference</span>
-                  <span>Hero</span>
-                  <span>QC</span>
-                  <span>Support</span>
+                <p class="eyebrow">เริ่มงานใหม่</p>
+                <h3 id="request">เลือกสินค้าและรูปอ้างอิง</h3>
+                <div class="create-brief-steps" aria-label="ลำดับงานสร้างภาพ">
+                  <span>เลือกสินค้า</span>
+                  <span>เตรียมรูป</span>
+                  <span>สร้างภาพหลัก</span>
+                  <span>ตรวจภาพ</span>
+                  <span>ภาพเสริม</span>
                 </div>
               </div>
 
@@ -123,20 +123,20 @@
                 </label>
 
                 <label>
-                  SKU / รหัสอ้างอิง
-                  <input id="productSku" type="text" placeholder="ใช้ตั้งชื่อไฟล์เมื่อไม่มี catalog" />
+                  รหัสสินค้า / SKU
+                  <input id="productSku" type="text" placeholder="ใช้ตั้งชื่อไฟล์เมื่อไม่ได้เลือกจากแคตตาล็อก" />
                 </label>
 
                 <div class="sku-picker-panel command-sku-panel">
-                  <label for="skuPickerSearch">เลือก SKU จาก catalog</label>
+                  <label for="skuPickerSearch">เลือกสินค้าจากแคตตาล็อก</label>
                   <div class="sku-picker-combobox">
                     <div class="sku-picker-search">
-                      <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
+                      <input id="skuPickerSearch" type="search" placeholder="ค้นหารหัสสินค้า ชื่อสินค้า หรือสาขา" autocomplete="off" />
                       <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
                     </div>
-                    <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden></div>
+                    <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหาสินค้า" hidden></div>
                   </div>
-                  <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
+                  <div class="sku-picker-status" id="skuPickerStatus">เลือกสินค้า 1 รายการ แล้วข้อมูลกับรูปอ้างอิงจะเติมให้เอง</div>
                 </div>
               </div>
 
@@ -148,7 +148,7 @@
                 <div class="generate-button-reason" id="generateButtonReason" role="status" aria-live="polite"></div>
                 <div class="actions">
                   <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
-                  <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้าง Hero</button>
+                  <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้างภาพหลัก</button>
                   <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
                 </div>
               </div>
@@ -160,12 +160,12 @@
                 <section class="sku-work-claim-card" id="skuWorkClaimCard" aria-live="polite" hidden></section>
 
                 <div class="flow-rail-card">
-                  <p class="eyebrow">Path</p>
+                  <p class="eyebrow">ขั้นตอนงาน</p>
                   <ol class="create-flow-list">
-                    <li><span>01</span><strong>Claim SKU</strong></li>
-                    <li><span>02</span><strong>Stage refs</strong></li>
-                    <li><span>03</span><strong>Generate Hero</strong></li>
-                    <li><span>04</span><strong>QC → Support</strong></li>
+                    <li><span>01</span><strong>ล็อกงาน</strong></li>
+                    <li><span>02</span><strong>เตรียมรูป</strong></li>
+                    <li><span>03</span><strong>สร้างภาพหลัก</strong></li>
+                    <li><span>04</span><strong>ตรวจและทำภาพเสริม</strong></li>
                   </ol>
                 </div>
               </aside>
@@ -173,32 +173,32 @@
               <main class="create-stage">
                 <section class="catalog-reference-panel reference-filmstrip" id="catalogReferencePanel" hidden>
                   <div class="catalog-reference-header">
-                    <strong>Reference จาก catalog/Drive</strong>
-                    <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้ reference ชุดนี้กับ Hero</button>
+                    <strong>รูปอ้างอิงจากแคตตาล็อก/Drive</strong>
+                    <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้รูปชุดนี้สร้างภาพหลัก</button>
                   </div>
-                  <div class="catalog-reference-status" id="catalogReferenceStatus">เลือก SKU เพื่อโหลด reference</div>
+                  <div class="catalog-reference-status" id="catalogReferenceStatus">เลือกสินค้าเพื่อโหลดรูปอ้างอิง</div>
                   <div class="catalog-reference-grid" id="catalogReferenceCards" role="list"></div>
                 </section>
 
                 <section class="panel preview-panel studio-panel" id="hero">
                   <div class="panel-heading">
                     <div>
-                      <p class="eyebrow">Workbench</p>
-                      <h3>ภาพ Hero และด่านตรวจ</h3>
+                      <p class="eyebrow">พื้นที่ทำงาน</p>
+                      <h3>ภาพหลักและการตรวจ</h3>
                     </div>
-                    <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
+                    <span class="workflow-status" id="heroStatus">ยังไม่มีภาพหลัก</span>
                   </div>
 
                   <div class="studio-canvas">
                     <div class="result-card" id="resultCard" hidden>
                       <div class="result-toolbar">
-                        <strong>ภาพ Hero</strong>
+                        <strong>ภาพหลัก</strong>
                         <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">อนุมัติและบันทึก</button>
                       </div>
                       <div class="generation-state" id="generationState" hidden>
                         <div class="loader-ring" aria-hidden="true"></div>
-                        <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
-                        <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
+                        <strong id="generationTitle">กำลังสร้างภาพหลัก</strong>
+                        <span id="generationHint">กำลังแนบรูปอ้างอิงและส่งงานให้ AI สร้างภาพ</span>
                         <div class="progress-track"><div class="progress-bar"></div></div>
                       </div>
                       <img id="resultImage" alt="ภาพสินค้าที่ระบบสร้าง" />
@@ -206,66 +206,66 @@
                     </div>
 
                     <div class="empty-hero" id="emptyHero">
-                      <strong>ยังไม่มีภาพ Hero</strong>
-                      <span>เลือก SKU แล้วกดสร้าง Hero เพื่อเริ่มงาน</span>
+                      <strong>ยังไม่มีภาพหลัก</strong>
+                      <span>เลือกสินค้าแล้วกดสร้างภาพหลักเพื่อเริ่มงาน</span>
                     </div>
                   </div>
 
                   <details class="prompt-details" id="prompt">
-                    <summary>ขั้นสูง: ดู Prompt ก่อนส่ง</summary>
+                    <summary>ขั้นสูง: ดูคำสั่งสร้างภาพก่อนส่ง</summary>
                     <div class="prompt-card">
-                      <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกดสร้าง Hero</p>
+                      <p id="promptOutput">คำสั่งสร้างภาพจะพร้อมให้ตรวจเมื่อกดสร้างภาพหลัก</p>
                     </div>
                     <div class="prompt-meta">
-                      <span id="promptMode">Mode: -</span>
-                      <span id="promptCategory">Category: -</span>
-                      <span id="promptRisk">Risk: waiting</span>
+                      <span id="promptMode">รูปแบบ: -</span>
+                      <span id="promptCategory">หมวด: -</span>
+                      <span id="promptRisk">จุดที่ต้องระวัง: รอข้อมูล</span>
                     </div>
-                    <button class="ghost-button compact" type="button" id="copyButton">คัดลอก Prompt</button>
+                    <button class="ghost-button compact" type="button" id="copyButton">คัดลอกคำสั่ง</button>
                   </details>
                 </section>
 
                 <section class="panel workflow-card" id="workflow">
                   <div class="workflow-heading">
                     <div>
-                      <p class="eyebrow">Support Set</p>
-                      <h3>Hero → Support Set</h3>
+                      <p class="eyebrow">ภาพเสริม</p>
+                      <h3>ภาพหลัก → ภาพเสริม</h3>
                     </div>
                     <span class="workflow-status" id="supportStatus">ล็อกอยู่</span>
                   </div>
 
                   <div class="support-controls">
                     <div>
-                      <strong>ช็อตรองที่ระบบแนะนำ</strong>
-                      <p>ระบบจะแนะนำตามหมวดสินค้า และเพิ่มช็อตพิเศษอัตโนมัติจากจุดเด่น เช่น ฮู้ด บุขน ซับใน เฟอร์</p>
+                      <strong>มุมภาพที่แนะนำ</strong>
+                      <p>เลือกมุมที่ต้องการเพิ่ม แล้วแอปจะเติมมุมพิเศษจากจุดเด่นสินค้า เช่น ฮู้ด บุขน ซับใน หรือเฟอร์</p>
                     </div>
-                    <button class="ghost-button compact" type="button" id="resetSupportButton">รีเซ็ตช็อต</button>
+                    <button class="ghost-button compact" type="button" id="resetSupportButton">เริ่มเลือกช็อตใหม่</button>
                   </div>
 
                   <div class="support-shot-list" id="supportShotList"></div>
 
                   <div class="custom-shot-row">
-                    <input id="customSupportShot" type="text" placeholder="เพิ่มช็อตเอง เช่น สวมฮู้ด, close-up ขอบฮู้ดเฟอร์" />
+                    <input id="customSupportShot" type="text" placeholder="เพิ่มช็อตเอง เช่น สวมฮู้ด, ซูมขอบฮู้ดเฟอร์" />
                     <button class="ghost-button" type="button" id="addCustomShotButton">เพิ่มช็อต</button>
                   </div>
 
                   <div class="actions support-actions">
-                    <button class="secondary-button" type="button" id="generateSupportButton">สร้างภาพ Support</button>
-                    <button class="primary-button" type="button" id="approveSupportButton">อนุมัติภาพ Support</button>
+                    <button class="secondary-button" type="button" id="generateSupportButton">สร้างภาพเสริม</button>
+                    <button class="primary-button" type="button" id="approveSupportButton">อนุมัติภาพเสริม</button>
                   </div>
 
                   <div class="support-gallery" id="supportGallery">
-                    <p class="empty-state">ยังไม่มีภาพ Support</p>
+                    <p class="empty-state">ยังไม่มีภาพเสริม</p>
                   </div>
                 </section>
               </main>
 
-              <aside class="create-inspector" aria-label="Inspector">
+              <aside class="create-inspector" aria-label="ตัวเลือกเพิ่มเติม">
                 <section class="panel inspector-panel">
                   <div class="panel-heading compact-heading">
                     <div>
-                      <p class="eyebrow">Inspector</p>
-                      <h3>Prompt controls</h3>
+                      <p class="eyebrow">ตัวเลือกเพิ่มเติม</p>
+                      <h3>ปรับรายละเอียดภาพ</h3>
                     </div>
                   </div>
 
@@ -288,8 +288,8 @@
                       <summary class="control-section-header">
                         <span>02</span>
                         <div>
-                          <strong>Product Direction</strong>
-                          <small>ระบบเติมจาก catalog แล้ว ปรับเฉพาะกรณีพิเศษ</small>
+                          <strong>รายละเอียดสินค้า</strong>
+                          <small>ข้อมูลเติมจากแคตตาล็อกแล้ว ปรับเฉพาะจุดที่ต้องการ</small>
                         </div>
                       </summary>
                       <div class="form-grid">
@@ -344,17 +344,17 @@
                       <summary class="control-section-header">
                         <span>03</span>
                         <div>
-                          <strong>Reference fallback</strong>
-                          <small>ใช้เมื่อ Drive staging ยังไม่พร้อมหรืออยากอัปโหลดเอง</small>
+                          <strong>รูปอ้างอิงสำรอง</strong>
+                          <small>ใช้เมื่อรูปจาก Drive ยังไม่พร้อม หรืออยากอัปโหลดเอง</small>
                         </div>
                       </summary>
                       <label class="full-width">
                         ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
-                        <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
+                        <input id="imageReference" type="text" placeholder="วางลิงก์ Google Drive หรือชื่อไฟล์ที่แนบไว้" />
                       </label>
 
                       <details class="manual-reference-fallback" id="fallbackReferenceSection">
-                        <summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้</summary>
+                        <summary>อัปโหลดรูปเองเมื่อใช้รูปจากแคตตาล็อกไม่ได้</summary>
                         <div class="manual-reference-fallback-body">
                           <div class="upload-grid">
                             <label>
@@ -380,7 +380,7 @@
                         <span>04</span>
                         <div>
                           <strong>หมายเหตุสำหรับงานนี้</strong>
-                          <small>ข้อห้ามหรือ detail ที่ catalog ยังไม่รู้</small>
+                          <small>ข้อห้ามหรือรายละเอียดที่แคตตาล็อกยังไม่มี</small>
                         </div>
                       </summary>
                       <label class="full-width">
@@ -393,8 +393,8 @@
                       <summary class="control-section-header">
                         <span>05</span>
                         <div>
-                          <strong>Diagnostics</strong>
-                          <small>เปิดดู blocker, warning, claim และ Drive staging เมื่อมีปัญหา</small>
+                          <strong>ตรวจปัญหา</strong>
+                          <small>ดูสาเหตุเมื่อรูป งานที่ล็อกไว้ หรือ Drive มีปัญหา</small>
                         </div>
                       </summary>
                       <div class="create-diagnostics-panel" id="createDiagnosticsPanel" aria-live="off"></div>
@@ -405,8 +405,8 @@
                 <section class="panel qc-gate-card" id="qc">
                   <div class="panel-heading compact-heading">
                     <div>
-                      <p class="eyebrow">QC Gate</p>
-                      <h3>QC Hero ก่อนทำช็อตรอง</h3>
+                      <p class="eyebrow">ตรวจภาพ</p>
+                      <h3>ตรวจภาพหลักก่อนทำภาพเสริม</h3>
                     </div>
                     <span class="score" id="qcScore">0/7</span>
                   </div>
@@ -421,14 +421,14 @@
           <section class="panel page-panel hero-review-page" id="heroReviewPage">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">ตรวจ Hero</p>
-                <h3 id="heroReviewTitle">ตรวจ Hero ก่อนสร้าง Support</h3>
+                <p class="eyebrow">ตรวจภาพหลัก</p>
+                <h3 id="heroReviewTitle">ตรวจภาพหลักก่อนสร้างภาพเสริม</h3>
               </div>
               <span class="workflow-status" id="heroReviewStatus">รอข้อมูล</span>
             </div>
             <div class="review-brief">
-              <div class="section-note" id="heroReviewMeta">เทียบภาพจริงกับภาพ Hero ที่ระบบสร้างก่อนเริ่มทำ Support</div>
-              <div class="review-brief-steps" aria-label="Hero review decision flow">
+              <div class="section-note" id="heroReviewMeta">เทียบรูปจริงกับภาพหลักที่สร้างไว้ ก่อนเริ่มทำภาพเสริม</div>
+              <div class="review-brief-steps" aria-label="ขั้นตอนตรวจภาพหลัก">
                 <span>1. เทียบ ref</span>
                 <span>2. ตรวจ logo / fit</span>
                 <span>3. ตัดสินใจบนหน้านี้</span>
@@ -440,8 +440,8 @@
                 <p>โหลดข้อมูลสินค้าเมื่อเปิดหน้า review</p>
               </section>
               <section class="review-summary-card" id="heroReviewReferenceSummary">
-                <strong>Reference source</strong>
-                <p>โหลดข้อมูล reference เมื่อเปิดหน้า review</p>
+                <strong>แหล่งรูปอ้างอิง</strong>
+                <p>โหลดรูปอ้างอิงเมื่อเปิดหน้าตรวจภาพ</p>
               </section>
             </div>
             <div class="hero-review-layout hero-review-comparison">
@@ -460,13 +460,13 @@
               <section class="hero-review-column">
                 <div class="review-column-header">
                   <div>
-                    <strong>ภาพ Hero ที่รอตรวจ</strong>
-                    <small>ภาพหลักที่จะใช้เป็นตัวตั้งต้นก่อนสร้าง Support</small>
+                    <strong>ภาพหลักที่รอตรวจ</strong>
+                    <small>ภาพที่จะใช้เป็นตัวตั้งต้นก่อนสร้างภาพเสริม</small>
                   </div>
                   <span id="heroReviewGenerationId">-</span>
                 </div>
                 <div class="review-hero-frame" id="heroReviewHero">
-                  <p class="empty-state">ยังไม่มีภาพ Hero</p>
+                  <p class="empty-state">ยังไม่มีภาพหลัก</p>
                 </div>
                 <div class="review-decision-dock hero-review-qc-panel" id="heroReviewDecisionDock">
                   <div class="review-checklist">
@@ -475,12 +475,12 @@
                     <label><input type="checkbox" data-hero-review-check="model" /> โมเดลและ fit ใช้ได้</label>
                   </div>
                   <label class="review-reason-field">
-                    เหตุผลเมื่อต้องสร้าง Hero ใหม่
-                    <textarea id="heroReviewRegenerateReason" rows="2" placeholder="เช่น สีเพี้ยนจาก reference / โลโก้ผิด / ทรงสินค้าไม่ตรง"></textarea>
+                    เหตุผลเมื่อต้องสร้างภาพหลักใหม่
+                    <textarea id="heroReviewRegenerateReason" rows="2" placeholder="เช่น สีเพี้ยนจากรูปอ้างอิง / โลโก้ผิด / ทรงสินค้าไม่ตรง"></textarea>
                   </label>
                   <div class="actions">
-                    <button class="primary-button" type="button" id="heroReviewApproveButton">อนุมัติ Hero</button>
-                    <button class="secondary-button" type="button" id="heroReviewRegenerateButton">สร้าง Hero ใหม่</button>
+                    <button class="primary-button" type="button" id="heroReviewApproveButton">อนุมัติภาพหลัก</button>
+                    <button class="secondary-button" type="button" id="heroReviewRegenerateButton">สร้างภาพหลักใหม่</button>
                   </div>
                 </div>
                 <div class="auth-gate-message" id="heroReviewMessage" role="status"></div>
@@ -489,21 +489,21 @@
             <section class="review-support-set" id="heroReviewSupportSet" hidden>
               <div class="review-column-header">
                 <div>
-                  <strong>Support gate หลัง Hero approved</strong>
-                  <small id="heroReviewApprovedAnchor">Support จะเปิดหลัง Hero approved เท่านั้น</small>
+                  <strong>ภาพเสริมหลังอนุมัติภาพหลัก</strong>
+                  <small id="heroReviewApprovedAnchor">เริ่มทำภาพเสริมได้หลังอนุมัติภาพหลักเท่านั้น</small>
                 </div>
                 <span id="heroReviewSupportCount">0 ภาพ</span>
               </div>
               <div class="support-review-context">
-                <span>เทียบกับ approved Hero anchor</span>
-                <span>เทียบกับ reference set ด้านบน</span>
+                <span>เทียบกับภาพหลักที่อนุมัติแล้ว</span>
+                <span>เทียบกับรูปอ้างอิงด้านบน</span>
                 <span>ตรวจราย shot role</span>
               </div>
               <div class="review-image-grid support-review-grid" id="heroReviewSupportAssets">
-                <p class="empty-state">ยังไม่มีภาพ Support</p>
+                <p class="empty-state">ยังไม่มีภาพเสริม</p>
               </div>
               <div class="support-decision-actions">
-                <button class="primary-button" type="button" id="supportReviewSaveButton">บันทึกผลตรวจ Support</button>
+                <button class="primary-button" type="button" id="supportReviewSaveButton">บันทึกผลตรวจภาพเสริม</button>
               </div>
             </section>
           </section>
@@ -536,7 +536,7 @@
             <div class="batch-blockers" id="batchReviewBlockers" hidden></div>
 
             <div class="batch-sku-grid" id="batchSkuGrid">
-              <p class="empty-state">ยังไม่มี SKU ในชุดงานนี้</p>
+              <p class="empty-state">ยังไม่มีสินค้าในชุดงานนี้</p>
             </div>
 
             <details class="batch-debug-drawer" id="batchDebugDrawer" hidden>
@@ -581,17 +581,17 @@
                 <small>รอคำสั่ง BATCH</small>
               </article>
               <article class="production-flow-card">
-                <strong>ตรวจ Hero</strong>
+                <strong>ตรวจภาพหลัก</strong>
                 <span>0</span>
-                <small>อนุมัติหรือสร้าง Hero ใหม่</small>
+                <small>อนุมัติหรือสั่งสร้างภาพหลักใหม่</small>
               </article>
               <article class="production-flow-card">
-                <strong>สร้าง Support</strong>
+                <strong>สร้างภาพเสริม</strong>
                 <span>0</span>
-                <small>สร้างภาพประกอบหลังอนุมัติ Hero</small>
+                <small>สร้างภาพประกอบหลังอนุมัติภาพหลัก</small>
               </article>
               <article class="production-flow-card">
-                <strong>ตรวจ Support</strong>
+                <strong>ตรวจภาพเสริม</strong>
                 <span>0</span>
                 <small>เลือกภาพที่พร้อมใช้ก่อนส่งออก</small>
               </article>
@@ -615,7 +615,7 @@
             <div class="filter-grid">
               <label>
                 ค้นหา
-                <input id="historySearch" type="search" placeholder="SKU / เลขงาน / ชื่อสินค้า / ผู้สร้าง" />
+                <input id="historySearch" type="search" placeholder="รหัสสินค้า / เลขงาน / ชื่อสินค้า / ผู้สร้าง" />
               </label>
               <label>
                 สถานะงาน
@@ -623,7 +623,7 @@
                   <option value="">ทั้งหมด</option>
                   <option value="queued">รอคิว</option>
                   <option value="generating">กำลังสร้างภาพ</option>
-                  <option value="hero_ready">Hero พร้อมตรวจ</option>
+                  <option value="hero_ready">ภาพหลักพร้อมตรวจ</option>
                   <option value="failed">ไม่สำเร็จ</option>
                   <option value="draft">ฉบับร่าง</option>
                 </select>
@@ -681,7 +681,7 @@
               </div>
               <span class="workflow-status" id="assetStatus">รอภาพ</span>
             </div>
-            <div class="section-note" id="assetLibraryHelper">คลังภาพสำหรับดูผลงานที่สร้างจากระบบ เช่น Hero, Support และภาพที่อนุมัติหรือส่งออกแล้ว</div>
+            <div class="section-note" id="assetLibraryHelper">คลังภาพสำหรับดูผลงานที่สร้างจากระบบ ทั้งภาพหลัก ภาพเสริม และภาพที่อนุมัติหรือส่งออกแล้ว</div>
             <div class="kpi-range-tabs" id="assetsRangeControls" aria-label="เลือกช่วงเวลา Assets">
               <button class="active" type="button" data-assets-range="today">วันนี้</button>
               <button type="button" data-assets-range="7d">7 วันล่าสุด</button>
@@ -690,8 +690,8 @@
             </div>
             <div class="kpi-range-tabs asset-type-tabs" id="assetTypeTabs" aria-label="เลือกประเภท Asset">
               <button class="active" type="button" data-asset-type="outputs">ภาพที่สร้างแล้ว</button>
-              <button type="button" data-asset-type="hero">Hero</button>
-              <button type="button" data-asset-type="support">Support</button>
+              <button type="button" data-asset-type="hero">ภาพหลัก</button>
+              <button type="button" data-asset-type="support">ภาพเสริม</button>
               <button type="button" data-asset-type="approved">อนุมัติ / ส่งออกแล้ว</button>
               <button type="button" data-asset-type="references">ภาพอ้างอิง</button>
               <button type="button" data-asset-type="all">ทั้งหมด</button>
@@ -699,7 +699,7 @@
             <div class="filter-grid asset-filter-grid">
               <label>
                 ค้นหา
-                <input id="assetSearch" type="search" placeholder="SKU / เลขงาน / เลขภาพ" />
+                <input id="assetSearch" type="search" placeholder="รหัสสินค้า / เลขงาน / เลขภาพ" />
               </label>
               <label>
                 เลขงาน
@@ -904,7 +904,7 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Job / SKU</p>
+                    <p class="eyebrow">งาน / สินค้า</p>
                     <h4>Highest cost jobs</h4>
                   </div>
                 </div>
@@ -1042,8 +1042,8 @@
                 <div id="brandSettingsPreview"></div>
               </section>
               <section class="settings-card">
-                <h4>โครงสร้าง Prompt</h4>
-                <p>Prompt rules ถูกล็อกไว้ในโค้ดเพื่อความนิ่งของ production และสามารถวางแผนย้าย category, subtype, model profile, support shots ไป database ในเฟสถัดไปได้</p>
+                <h4>โครงสร้างคำสั่งสร้างภาพ</h4>
+                <p>กติกาหลักของคำสั่งสร้างภาพถูกล็อกไว้เพื่อให้งานออกมานิ่ง ส่วนรายละเอียดอย่างหมวดสินค้า มุมภาพ และโปรไฟล์โมเดลสามารถย้ายไปจัดการในฐานข้อมูลได้ภายหลัง</p>
                 <div id="promptSettingsPreview"></div>
               </section>
               <section class="settings-card" id="googleDriveIntegrationSection" hidden>

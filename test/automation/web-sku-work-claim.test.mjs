@@ -40,8 +40,8 @@ test("create UI claims selected SKU and blocks Hero generation on another user's
   assert.match(appJs, /function claimSelectedSkuWork/);
   assert.match(appJs, /claimSelectedSkuWork\(\);/);
   assert.match(appJs, /skuWorkClaimState\.status === "claimed_by_other"/);
-  assert.match(appJs, /SKU นี้ถูก claim โดย/);
-  assert.match(appJs, /ไม่ให้กดสร้าง Hero ซ้ำ/);
+  assert.match(appJs, /งานนี้มีคนทำอยู่/);
+  assert.match(appJs, /ยังสร้างภาพซ้ำไม่ได้/);
 });
 
 test("create UI separates claim checking, unclaimed, owned, conflict, and failed states", () => {
@@ -53,8 +53,8 @@ test("create UI separates claim checking, unclaimed, owned, conflict, and failed
   assert.match(appJs, /"claim_failed"/);
   assert.doesNotMatch(appJs, /status: "error"/);
   assert.doesNotMatch(appJs, /blocked_by_other_claim/);
-  assert.match(appJs, /โหลดสถานะ claim ไม่สำเร็จ/);
-  assert.match(appJs, /staged reference พร้อมแล้ว แต่ claim SKU ไม่สำเร็จ/);
+  assert.match(appJs, /ตรวจสถานะงานไม่สำเร็จ/);
+  assert.match(appJs, /รูปพร้อมแล้ว แต่ยังล็อกงานนี้ไม่ได้/);
 });
 
 test("server writes safe diagnostics for claim status and claim endpoints", () => {
@@ -74,7 +74,7 @@ test("claim status failures expose staff-safe store readiness codes instead of g
   assert.match(serverJs, /ระบบ claim ยังไม่พร้อม/);
   assert.match(serverJs, /res\.status\(claimError\.status\)\.json\(\{\s*ok: false,\s*code: claimError\.code,\s*error: claimError\.publicMessage/);
   assert.match(appJs, /formatSkuWorkClaimFailureMessage/);
-  assert.match(appJs, /ระบบ claim ยังไม่พร้อม/);
+  assert.match(appJs, /ยังล็อกงานไม่ได้ เพราะฐานข้อมูลสถานะงานยังไม่พร้อมหรืออ่านไม่ได้/);
 });
 
 test("jobs and next action surfaces expose claim status without direct frontend service role access", () => {

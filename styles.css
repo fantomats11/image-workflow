@@ -4811,6 +4811,247 @@ tbody tr:hover {
   }
 }
 
+/* UX repair pass: remove overlapping sticky zones and simplify Create into stable work areas */
+.topbar,
+.create-command-bar {
+  position: static;
+  top: auto;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.create-command-bar {
+  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.25fr) minmax(280px, 0.75fr) minmax(170px, 0.45fr);
+  align-items: start;
+  overflow: visible;
+}
+
+.create-command-title {
+  min-inline-size: 0;
+}
+
+.create-command-fields {
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 0.65fr) minmax(340px, 1.2fr);
+}
+
+.command-sku-panel {
+  grid-column: auto;
+}
+
+.create-command-actions {
+  min-inline-size: 0;
+}
+
+.create-command-actions .actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.create-workbench {
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 380px);
+  grid-template-areas:
+    "flow flow"
+    "stage inspector";
+}
+
+.create-flow-rail {
+  grid-area: flow;
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(240px, 0.75fr) minmax(360px, 1.2fr);
+  align-items: stretch;
+  max-block-size: none;
+  overflow: visible;
+}
+
+.create-stage {
+  grid-area: stage;
+}
+
+.create-inspector {
+  grid-area: inspector;
+  position: sticky;
+  top: 16px;
+  max-block-size: calc(100dvb - 32px);
+  overflow: auto;
+}
+
+.create-flow-rail > .selected-product-summary,
+.create-flow-rail > .sku-work-claim-card,
+.flow-rail-card {
+  min-block-size: 100%;
+}
+
+.selected-product-summary dl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.selected-product-summary dt {
+  font-size: 10px;
+}
+
+.selected-product-summary dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  overflow: clip;
+}
+
+.create-flow-list {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.create-flow-list li {
+  align-items: center;
+}
+
+.catalog-reference-panel,
+.studio-panel,
+.workflow-card,
+.inspector-panel,
+.create-inspector .qc-gate-card {
+  border-radius: 14px;
+}
+
+.reference-filmstrip .catalog-reference-grid {
+  grid-auto-columns: minmax(180px, 220px);
+}
+
+.reference-filmstrip .catalog-reference-card {
+  padding: 8px;
+}
+
+.reference-filmstrip .catalog-reference-preview {
+  aspect-ratio: 4 / 4.7;
+}
+
+.studio-canvas {
+  min-block-size: clamp(420px, 56dvh, 680px);
+}
+
+.support-shot-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.create-inspector .qc-gate-card label {
+  align-items: flex-start;
+  min-block-size: 74px;
+}
+
+@media (max-width: 1280px) {
+  .create-command-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.95fr);
+    grid-template-areas:
+      "title fields"
+      "readiness actions";
+  }
+
+  .create-command-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .command-sku-panel {
+    grid-column: 1 / -1;
+  }
+
+  .create-flow-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .create-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "flow"
+      "stage"
+      "inspector";
+  }
+
+  .create-inspector {
+    position: static;
+    max-block-size: none;
+    overflow: visible;
+  }
+
+  .create-flow-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .selected-product-summary dl,
+  .create-flow-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .topbar,
+  .create-command-bar,
+  .create-workbench,
+  .create-flow-rail,
+  .create-command-fields,
+  .create-command-actions .actions,
+  .selected-product-summary dl,
+  .create-flow-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topbar {
+    gap: 12px;
+  }
+
+  .topbar-actions {
+    display: grid;
+  }
+
+  .create-command-bar {
+    grid-template-areas:
+      "title"
+      "fields"
+      "readiness"
+      "actions";
+    padding: 12px;
+  }
+
+  .create-command-title h3 {
+    font-size: 22px;
+  }
+
+  .create-brief-steps {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-block-end: 4px;
+  }
+
+  .create-brief-steps span {
+    flex: 0 0 auto;
+  }
+
+  .reference-filmstrip .catalog-reference-grid {
+    grid-auto-columns: minmax(158px, 64vw);
+    gap: 10px;
+  }
+
+  .reference-filmstrip .catalog-reference-preview {
+    aspect-ratio: 4 / 5;
+  }
+
+  .studio-canvas,
+  .create-stage .studio-canvas,
+  .create-stage .studio-canvas .empty-hero {
+    min-block-size: min(430px, 72dvh);
+  }
+
+  .support-shot-list,
+  .create-inspector .qc-gate-card .qc-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Final modern shell cascade */
 body {
   background:
@@ -6649,6 +6890,56 @@ body .app-shell {
   }
 }
 
+/* Final command density override: avoid empty desktop readiness columns and cramped fields */
+@media (min-width: 768px) {
+  .create-command-bar {
+    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.45fr) minmax(160px, 0.42fr) !important;
+    grid-template-areas:
+      "title fields actions"
+      "readiness readiness readiness" !important;
+    align-items: start !important;
+  }
+
+  .create-command-fields {
+    grid-template-columns: repeat(2, minmax(150px, 1fr)) !important;
+    align-items: start !important;
+  }
+
+  .command-sku-panel {
+    grid-column: 1 / -1 !important;
+  }
+
+  .command-readiness-stack {
+    min-block-size: 0 !important;
+  }
+
+  .command-readiness-stack:has(> .reference-readiness-card[hidden]) {
+    display: none !important;
+  }
+
+  .command-readiness-stack::before {
+    content: none !important;
+  }
+
+  .command-readiness-stack > .reference-readiness-card {
+    min-block-size: 0 !important;
+  }
+
+  .create-command-actions {
+    align-content: start !important;
+  }
+
+  .create-command-actions .actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-content: stretch !important;
+  }
+
+  .create-command-actions .actions > button {
+    inline-size: 100% !important;
+  }
+}
+
 @supports not (backdrop-filter: blur(1px)) {
   .topbar,
   .create-command-bar,
@@ -8110,5 +8401,335 @@ textarea:focus {
   .settings-grid,
   .batch-sku-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Final create layout override: keep production UI stable after legacy layers above */
+.topbar,
+.create-command-bar {
+  position: static !important;
+  top: auto !important;
+}
+
+.workspace {
+  gap: 16px;
+}
+
+.create-command-bar {
+  grid-template-columns: minmax(240px, 0.8fr) minmax(380px, 1.2fr) minmax(280px, 0.78fr) minmax(170px, 0.48fr) !important;
+  align-items: start;
+  overflow: visible;
+}
+
+.create-command-fields {
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 0.65fr) minmax(340px, 1.25fr) !important;
+}
+
+.command-sku-panel {
+  grid-column: auto !important;
+}
+
+.create-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 380px) !important;
+  grid-template-areas:
+    "flow flow"
+    "stage inspector" !important;
+  align-items: start;
+}
+
+.create-flow-rail {
+  grid-area: flow;
+  position: static !important;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(240px, 0.75fr) minmax(360px, 1.2fr) !important;
+  max-block-size: none !important;
+  overflow: visible !important;
+}
+
+.create-stage {
+  grid-area: stage;
+  min-inline-size: 0;
+}
+
+.create-inspector {
+  grid-area: inspector;
+  position: sticky;
+  top: 16px;
+  max-block-size: calc(100dvb - 32px);
+  overflow: auto;
+  min-inline-size: 0;
+}
+
+.selected-product-summary dl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.create-flow-list {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.selected-product-summary dd,
+.reference-filmstrip .catalog-reference-meta p,
+.reference-filmstrip .catalog-reference-meta small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: clip;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+}
+
+.reference-filmstrip .catalog-reference-grid {
+  grid-auto-columns: minmax(180px, 220px) !important;
+}
+
+.studio-canvas {
+  min-block-size: clamp(420px, 56dvh, 680px) !important;
+}
+
+@media (max-width: 1280px) {
+  .create-command-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.95fr) !important;
+    grid-template-areas:
+      "title fields"
+      "readiness actions" !important;
+  }
+
+  .create-command-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .command-sku-panel {
+    grid-column: 1 / -1 !important;
+  }
+
+  .create-flow-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .create-workbench {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "flow"
+      "stage"
+      "inspector" !important;
+  }
+
+  .create-flow-rail,
+  .create-command-fields,
+  .selected-product-summary dl,
+  .create-flow-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .create-inspector {
+    position: static;
+    max-block-size: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace {
+    padding: 12px;
+  }
+
+  .create-command-bar {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "title"
+      "fields"
+      "readiness"
+      "actions" !important;
+  }
+
+  .topbar,
+  .topbar-actions,
+  .create-command-actions .actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .create-brief-steps {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .reference-filmstrip .catalog-reference-grid {
+    grid-auto-columns: minmax(158px, 64vw) !important;
+  }
+
+  .studio-canvas,
+  .create-stage .studio-canvas,
+  .create-stage .studio-canvas .empty-hero {
+    min-block-size: min(430px, 72dvh) !important;
+  }
+}
+
+/* Final mobile shell override: make navigation a top work tab bar, not a fixed left rail */
+@media (max-width: 767px) {
+  body .app-shell {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    inline-size: 100% !important;
+    min-inline-size: 0 !important;
+    background: var(--bg) !important;
+  }
+
+  .sidebar {
+    position: sticky !important;
+    inset-block-start: 0 !important;
+    z-index: 20 !important;
+    inline-size: 100% !important;
+    min-inline-size: 0 !important;
+    min-block-size: 0 !important;
+    block-size: auto !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+    border-inline-end: 0 !important;
+    border-block-end: 1px solid rgba(174, 191, 181, 0.75) !important;
+    padding: 10px 12px 12px !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 247, 0.92)) !important;
+    box-shadow: 0 10px 24px rgba(17, 24, 21, 0.08) !important;
+  }
+
+  .brand-block {
+    display: grid !important;
+    grid-template-columns: 36px minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 10px !important;
+  }
+
+  .brand-block .eyebrow {
+    color: var(--muted) !important;
+    font-size: 9px !important;
+  }
+
+  .brand-block h1 {
+    color: var(--ink) !important;
+    font-size: 16px !important;
+  }
+
+  .brand-mark {
+    inline-size: 36px !important;
+    block-size: 36px !important;
+    border-radius: 10px !important;
+  }
+
+  .nav-list {
+    display: flex !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain !important;
+    scroll-padding-inline: 12px !important;
+    padding: 0 0 2px !important;
+    margin: 0 !important;
+    scrollbar-width: none !important;
+  }
+
+  .nav-list::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .nav-list a {
+    flex: 0 0 auto !important;
+    min-block-size: 40px !important;
+    border: 1px solid rgba(174, 191, 181, 0.85) !important;
+    border-radius: 999px !important;
+    padding: 9px 12px !important;
+    background: rgba(255, 255, 255, 0.72) !important;
+    color: var(--ink-soft) !important;
+    font-size: 12px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    box-shadow: none !important;
+  }
+
+  .nav-list a::before,
+  .nav-list a::after {
+    display: none !important;
+    content: none !important;
+  }
+
+  .nav-list a.active {
+    border-color: rgba(216, 51, 74, 0.42) !important;
+    background: var(--accent-soft) !important;
+    color: var(--ink) !important;
+    box-shadow: inset 0 -2px 0 var(--brand-teal) !important;
+  }
+
+  .sidebar-note {
+    display: none !important;
+  }
+
+  .workspace {
+    inline-size: 100% !important;
+    max-inline-size: none !important;
+    margin: 0 !important;
+    padding: 12px !important;
+  }
+
+  .page-view {
+    inline-size: 100% !important;
+    min-inline-size: 0 !important;
+  }
+
+  .topbar,
+  .create-command-bar,
+  .create-workbench,
+  .create-flow-rail,
+  .create-stage,
+  .create-inspector {
+    inline-size: 100% !important;
+    max-inline-size: 100% !important;
+    min-inline-size: 0 !important;
+    margin-inline: 0 !important;
+  }
+}
+
+/* Absolute final overrides: keep create command readable after all legacy theme layers */
+@media (min-width: 768px) {
+  .create-command-bar {
+    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.45fr) minmax(160px, 0.42fr) !important;
+    grid-template-areas:
+      "title fields actions"
+      "readiness readiness readiness" !important;
+    align-items: start !important;
+  }
+
+  .create-command-fields {
+    grid-template-columns: repeat(2, minmax(150px, 1fr)) !important;
+    align-items: start !important;
+  }
+
+  .command-sku-panel {
+    grid-column: 1 / -1 !important;
+  }
+
+  .command-readiness-stack:has(> .reference-readiness-card[hidden]) {
+    display: none !important;
+  }
+
+  .command-readiness-stack::before {
+    content: none !important;
+  }
+
+  .create-command-actions {
+    align-content: start !important;
+  }
+
+  .create-command-actions .actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-content: stretch !important;
+  }
+
+  .create-command-actions .actions > button {
+    inline-size: 100% !important;
   }
 }

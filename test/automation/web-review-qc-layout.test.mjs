@@ -41,5 +41,5 @@ test("Support review requires an approved Hero anchor before approving support c
   assert.match(serverJs, /const approvedHeroAnchor = await readApprovedHeroAnchorForSupportReview/);
   assert.match(supportDecisionStateJs, /support_review_requires_approved_hero_anchor/);
   assert.match(appJs, /approvedHeroAnchor/);
-  assert.match(appJs, /Support จะเปิดหลัง Hero approved เท่านั้น/);
+  assert.match(appJs, /ภาพเสริมจะเปิดหลังภาพหลักผ่านแล้ว/);
 });
