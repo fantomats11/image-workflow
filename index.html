@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>Workflow by Leeee ©</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -101,291 +102,319 @@
         </header>
 
         <section class="page-view create-page" id="page-create" data-page="create">
-        <section class="dashboard-grid create-workbench">
-          <form class="panel request-panel intake-panel" id="requestForm">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Create</p>
+          <form class="create-shell" id="requestForm">
+            <section class="create-command-bar" aria-label="Create command center">
+              <div class="create-command-title">
+                <p class="eyebrow">Create Studio</p>
                 <h3 id="request">เลือก SKU และ Reference</h3>
-              </div>
-              <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
-            </div>
-
-            <div class="create-brief">
-              <div class="section-note">
-                เริ่มจาก SKU เดียว ระบบจะเติมข้อมูลสินค้าและเตรียม reference จาก Drive ให้ก่อนสร้าง Hero
-              </div>
-              <div class="create-brief-steps" aria-label="Create workflow">
-                <span>SKU</span>
-                <span>Reference</span>
-                <span>Hero</span>
-                <span>QC</span>
-              </div>
-            </div>
-
-            <div class="control-stack">
-              <section class="control-section">
-                <div class="control-section-header">
-                  <span>01</span>
-                  <div>
-                    <strong>SKU & Reference</strong>
-                    <small>เลือก SKU เพื่อเติมข้อมูลสินค้าและโหลดภาพอ้างอิง</small>
-                  </div>
+                <div class="create-brief-steps" aria-label="Create workflow">
+                  <span>SKU</span>
+                  <span>Reference</span>
+                  <span>Hero</span>
+                  <span>QC</span>
+                  <span>Support</span>
                 </div>
-                <div class="form-grid">
-                  <label>
-                    ผู้ใช้งาน
-                    <input id="operatorName" type="text" placeholder="เช่น แพรว / ทีมกราฟิก" />
-                  </label>
+              </div>
 
-                  <label>
-                    SKU / รหัสอ้างอิง
-                    <input id="productSku" type="text" placeholder="ไม่บังคับ ใช้ตั้งชื่อไฟล์เท่านั้น" />
-                  </label>
-
-                  <div class="sku-picker-panel form-grid-full">
-                    <label for="skuPickerSearch">เลือก SKU จาก catalog</label>
-                    <div class="sku-picker-combobox">
-                      <div class="sku-picker-search">
-                        <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
-                        <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
-                      </div>
-                      <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden></div>
-                    </div>
-                    <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
-                    <section class="selected-product-summary" id="selectedProductSummary" aria-live="polite" hidden></section>
-                    <section class="sku-work-claim-card" id="skuWorkClaimCard" aria-live="polite" hidden></section>
-                    <section class="reference-readiness-card" id="referenceReadinessCard" aria-live="polite" hidden></section>
-                    <div class="catalog-reference-panel" id="catalogReferencePanel" hidden>
-                      <div class="catalog-reference-header">
-                        <strong>Reference จาก catalog/Drive</strong>
-                        <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้ reference ชุดนี้กับ Hero</button>
-                      </div>
-                      <div class="catalog-reference-status" id="catalogReferenceStatus">เลือก SKU เพื่อโหลด reference</div>
-                      <div class="catalog-reference-grid" id="catalogReferenceCards"></div>
-                    </div>
-                  </div>
-
-                  <label>
-                    แบรนด์ปลายทาง / CI ภาพ
-                    <select id="brandProfile"></select>
-                  </label>
-
-                  <label>
-                    แบรนด์สินค้าบนตัวสินค้า
-                    <input id="brandName" type="text" placeholder="เช่น The North Face / Moncler ถ้าไม่มีให้เว้นว่าง" />
-                  </label>
-                </div>
-              </section>
-
-              <details class="control-section catalog-secondary-section" id="productDirectionSection" open>
-                <summary class="control-section-header">
-                  <span>02</span>
-                  <div>
-                    <strong>Product Direction</strong>
-                    <small>ระบบเติมจาก catalog แล้ว ปรับเฉพาะกรณีพิเศษ</small>
-                  </div>
-                </summary>
-                <div class="form-grid">
-                  <label>
-                    หมวดสินค้า
-                    <select id="category"></select>
-                  </label>
-
-                  <label>
-                    ประเภทสินค้าย่อย
-                    <select id="productSubtype"></select>
-                  </label>
-
-                  <label>
-                    รูปแบบภาพ
-                    <select id="imageType"></select>
-                  </label>
-
-                  <label>
-                    สีสินค้า
-                    <input id="color" type="text" placeholder="เช่น black / cream / navy" />
-                  </label>
-
-                  <label>
-                    จุดเด่นสินค้า
-                    <input id="keyFeature" type="text" placeholder="เช่น บุขนด้านใน, waterproof upper" />
-                  </label>
-
-                  <label>
-                    กลุ่มโมเดล
-                    <select id="modelProfile"></select>
-                  </label>
-
-                  <label>
-                    มุม/ช็อตที่ต้องการ
-                    <select id="shotType"></select>
-                  </label>
-
-                  <label>
-                    ขนาดภาพ
-                    <select id="imageSize"></select>
-                  </label>
-
-                  <label>
-                    คุณภาพภาพ
-                    <select id="quality"></select>
-                  </label>
-                </div>
-              </details>
-
-              <details class="control-section reference-dock catalog-secondary-section" id="referenceInputSection" open>
-                <summary class="control-section-header">
-                  <span>03</span>
-                  <div>
-                    <strong>Reference fallback</strong>
-                    <small>ใช้เมื่อ Drive staging ยังไม่พร้อมหรืออยากอัปโหลดเอง</small>
-                  </div>
-                </summary>
-                <label class="full-width">
-                  ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
-                  <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
+              <div class="create-command-fields">
+                <label>
+                  ผู้ใช้งาน
+                  <input id="operatorName" type="text" placeholder="เช่น แพรว / ทีมกราฟิก" />
                 </label>
 
-                <details class="manual-reference-fallback" id="fallbackReferenceSection">
-                  <summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้</summary>
-                  <div class="manual-reference-fallback-body">
-                    <div class="upload-grid">
-                      <label>
-                        ภาพสินค้าอ้างอิง
-                        <input id="productImages" type="file" accept="image/*" multiple />
-                        <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
-                        <div class="thumb-grid" id="productPreview"></div>
-                      </label>
+                <label>
+                  SKU / รหัสอ้างอิง
+                  <input id="productSku" type="text" placeholder="ใช้ตั้งชื่อไฟล์เมื่อไม่มี catalog" />
+                </label>
 
-                      <label>
-                        ภาพโมเดลอ้างอิง
-                        <input id="modelImages" type="file" accept="image/*" multiple />
-                        <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
-                        <div class="thumb-grid" id="modelPreview"></div>
-                      </label>
+                <div class="sku-picker-panel command-sku-panel">
+                  <label for="skuPickerSearch">เลือก SKU จาก catalog</label>
+                  <div class="sku-picker-combobox">
+                    <div class="sku-picker-search">
+                      <input id="skuPickerSearch" type="search" placeholder="ค้นหา SKU / ชื่อสินค้า / branch" autocomplete="off" />
+                      <button class="secondary-button compact" type="button" id="skuPickerClearButton">ล้าง</button>
+                    </div>
+                    <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหา SKU" hidden></div>
+                  </div>
+                  <div class="sku-picker-status" id="skuPickerStatus">เลือก SKU เดียวจาก catalog เพื่อเติมข้อมูลสินค้าอัตโนมัติ</div>
+                </div>
+              </div>
+
+              <div class="command-readiness-stack" aria-label="สถานะความพร้อม">
+                <section class="reference-readiness-card" id="referenceReadinessCard" aria-live="polite" hidden></section>
+              </div>
+
+              <div class="create-command-actions">
+                <div class="generate-button-reason" id="generateButtonReason" role="status" aria-live="polite"></div>
+                <div class="actions">
+                  <button class="ghost-button" type="button" id="resetButton">ล้างฟอร์ม</button>
+                  <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้าง Hero</button>
+                  <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="create-workbench">
+              <aside class="create-flow-rail" aria-label="สถานะงานสร้างภาพ">
+                <section class="selected-product-summary" id="selectedProductSummary" aria-live="polite" hidden></section>
+                <section class="sku-work-claim-card" id="skuWorkClaimCard" aria-live="polite" hidden></section>
+
+                <div class="flow-rail-card">
+                  <p class="eyebrow">Path</p>
+                  <ol class="create-flow-list">
+                    <li><span>01</span><strong>Claim SKU</strong></li>
+                    <li><span>02</span><strong>Stage refs</strong></li>
+                    <li><span>03</span><strong>Generate Hero</strong></li>
+                    <li><span>04</span><strong>QC → Support</strong></li>
+                  </ol>
+                </div>
+              </aside>
+
+              <main class="create-stage">
+                <section class="catalog-reference-panel reference-filmstrip" id="catalogReferencePanel" hidden>
+                  <div class="catalog-reference-header">
+                    <strong>Reference จาก catalog/Drive</strong>
+                    <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้ reference ชุดนี้กับ Hero</button>
+                  </div>
+                  <div class="catalog-reference-status" id="catalogReferenceStatus">เลือก SKU เพื่อโหลด reference</div>
+                  <div class="catalog-reference-grid" id="catalogReferenceCards" role="list"></div>
+                </section>
+
+                <section class="panel preview-panel studio-panel" id="hero">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="eyebrow">Workbench</p>
+                      <h3>ภาพ Hero และด่านตรวจ</h3>
+                    </div>
+                    <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
+                  </div>
+
+                  <div class="studio-canvas">
+                    <div class="result-card" id="resultCard" hidden>
+                      <div class="result-toolbar">
+                        <strong>ภาพ Hero</strong>
+                        <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">อนุมัติและบันทึก</button>
+                      </div>
+                      <div class="generation-state" id="generationState" hidden>
+                        <div class="loader-ring" aria-hidden="true"></div>
+                        <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
+                        <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
+                        <div class="progress-track"><div class="progress-bar"></div></div>
+                      </div>
+                      <img id="resultImage" alt="ภาพสินค้าที่ระบบสร้าง" />
+                      <p id="resultStatus"></p>
+                    </div>
+
+                    <div class="empty-hero" id="emptyHero">
+                      <strong>ยังไม่มีภาพ Hero</strong>
+                      <span>เลือก SKU แล้วกดสร้าง Hero เพื่อเริ่มงาน</span>
                     </div>
                   </div>
-                </details>
-              </details>
 
-              <details class="control-section catalog-secondary-section" id="jobNotesSection" open>
-                <summary class="control-section-header">
-                  <span>04</span>
-                  <div>
-                    <strong>หมายเหตุสำหรับงานนี้</strong>
-                    <small>ข้อห้ามหรือ detail ที่ catalog ยังไม่รู้</small>
+                  <details class="prompt-details" id="prompt">
+                    <summary>ขั้นสูง: ดู Prompt ก่อนส่ง</summary>
+                    <div class="prompt-card">
+                      <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกดสร้าง Hero</p>
+                    </div>
+                    <div class="prompt-meta">
+                      <span id="promptMode">Mode: -</span>
+                      <span id="promptCategory">Category: -</span>
+                      <span id="promptRisk">Risk: waiting</span>
+                    </div>
+                    <button class="ghost-button compact" type="button" id="copyButton">คัดลอก Prompt</button>
+                  </details>
+                </section>
+
+                <section class="panel workflow-card" id="workflow">
+                  <div class="workflow-heading">
+                    <div>
+                      <p class="eyebrow">Support Set</p>
+                      <h3>Hero → Support Set</h3>
+                    </div>
+                    <span class="workflow-status" id="supportStatus">ล็อกอยู่</span>
                   </div>
-                </summary>
-                <label class="full-width">
-                  หมายเหตุเพิ่มเติม
-                  <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
-                </label>
-              </details>
-            </div>
 
-            <div class="actions action-bar">
-              <span>
-                สร้างเฉพาะ Hero ก่อน แล้วค่อยส่งเข้าตรวจ
-                <small class="generate-button-reason" id="generateButtonReason" role="status" aria-live="polite"></small>
-              </span>
-              <button class="primary-button" type="button" id="generateButton" data-action="generate-hero">สร้าง Hero</button>
-              <button class="ghost-button" type="button" id="addQueueButton">เพิ่มเข้าคิว</button>
-            </div>
+                  <div class="support-controls">
+                    <div>
+                      <strong>ช็อตรองที่ระบบแนะนำ</strong>
+                      <p>ระบบจะแนะนำตามหมวดสินค้า และเพิ่มช็อตพิเศษอัตโนมัติจากจุดเด่น เช่น ฮู้ด บุขน ซับใน เฟอร์</p>
+                    </div>
+                    <button class="ghost-button compact" type="button" id="resetSupportButton">รีเซ็ตช็อต</button>
+                  </div>
+
+                  <div class="support-shot-list" id="supportShotList"></div>
+
+                  <div class="custom-shot-row">
+                    <input id="customSupportShot" type="text" placeholder="เพิ่มช็อตเอง เช่น สวมฮู้ด, close-up ขอบฮู้ดเฟอร์" />
+                    <button class="ghost-button" type="button" id="addCustomShotButton">เพิ่มช็อต</button>
+                  </div>
+
+                  <div class="actions support-actions">
+                    <button class="secondary-button" type="button" id="generateSupportButton">สร้างภาพ Support</button>
+                    <button class="primary-button" type="button" id="approveSupportButton">อนุมัติภาพ Support</button>
+                  </div>
+
+                  <div class="support-gallery" id="supportGallery">
+                    <p class="empty-state">ยังไม่มีภาพ Support</p>
+                  </div>
+                </section>
+              </main>
+
+              <aside class="create-inspector" aria-label="Inspector">
+                <section class="panel inspector-panel">
+                  <div class="panel-heading compact-heading">
+                    <div>
+                      <p class="eyebrow">Inspector</p>
+                      <h3>Prompt controls</h3>
+                    </div>
+                  </div>
+
+                  <div class="inspector-stack">
+                    <section class="control-section">
+                      <div class="form-grid">
+                        <label>
+                          แบรนด์ปลายทาง / CI ภาพ
+                          <select id="brandProfile"></select>
+                        </label>
+
+                        <label>
+                          แบรนด์สินค้าบนตัวสินค้า
+                          <input id="brandName" type="text" placeholder="เช่น The North Face / Moncler ถ้าไม่มีให้เว้นว่าง" />
+                        </label>
+                      </div>
+                    </section>
+
+                    <details class="control-section catalog-secondary-section" id="productDirectionSection" open>
+                      <summary class="control-section-header">
+                        <span>02</span>
+                        <div>
+                          <strong>Product Direction</strong>
+                          <small>ระบบเติมจาก catalog แล้ว ปรับเฉพาะกรณีพิเศษ</small>
+                        </div>
+                      </summary>
+                      <div class="form-grid">
+                        <label>
+                          หมวดสินค้า
+                          <select id="category"></select>
+                        </label>
+
+                        <label>
+                          ประเภทสินค้าย่อย
+                          <select id="productSubtype"></select>
+                        </label>
+
+                        <label>
+                          รูปแบบภาพ
+                          <select id="imageType"></select>
+                        </label>
+
+                        <label>
+                          สีสินค้า
+                          <input id="color" type="text" placeholder="เช่น black / cream / navy" />
+                        </label>
+
+                        <label>
+                          จุดเด่นสินค้า
+                          <input id="keyFeature" type="text" placeholder="เช่น บุขนด้านใน, waterproof upper" />
+                        </label>
+
+                        <label>
+                          กลุ่มโมเดล
+                          <select id="modelProfile"></select>
+                        </label>
+
+                        <label>
+                          มุม/ช็อตที่ต้องการ
+                          <select id="shotType"></select>
+                        </label>
+
+                        <label>
+                          ขนาดภาพ
+                          <select id="imageSize"></select>
+                        </label>
+
+                        <label>
+                          คุณภาพภาพ
+                          <select id="quality"></select>
+                        </label>
+                      </div>
+                    </details>
+
+                    <details class="control-section reference-dock catalog-secondary-section" id="referenceInputSection" open>
+                      <summary class="control-section-header">
+                        <span>03</span>
+                        <div>
+                          <strong>Reference fallback</strong>
+                          <small>ใช้เมื่อ Drive staging ยังไม่พร้อมหรืออยากอัปโหลดเอง</small>
+                        </div>
+                      </summary>
+                      <label class="full-width">
+                        ลิงก์ภาพสินค้า / ชื่อไฟล์ภาพ
+                        <input id="imageReference" type="text" placeholder="วาง Google Drive URL หรือชื่อไฟล์ที่แนบในระบบ" />
+                      </label>
+
+                      <details class="manual-reference-fallback" id="fallbackReferenceSection">
+                        <summary>อัปโหลด reference เองเมื่อ catalog ใช้ไม่ได้</summary>
+                        <div class="manual-reference-fallback-body">
+                          <div class="upload-grid">
+                            <label>
+                              ภาพสินค้าอ้างอิง
+                              <input id="productImages" type="file" accept="image/*" multiple />
+                              <span class="field-hint">สูงสุด 10 ภาพ เช่น หน้า/หลัง/ด้านข้าง/close-up/โลโก้</span>
+                              <div class="thumb-grid" id="productPreview"></div>
+                            </label>
+
+                            <label>
+                              ภาพโมเดลอ้างอิง
+                              <input id="modelImages" type="file" accept="image/*" multiple />
+                              <span class="field-hint">สูงสุด 5 ภาพ ใช้เมื่ออยากคุมหน้าตา/ลุคนางแบบ</span>
+                              <div class="thumb-grid" id="modelPreview"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </details>
+                    </details>
+
+                    <details class="control-section catalog-secondary-section" id="jobNotesSection" open>
+                      <summary class="control-section-header">
+                        <span>04</span>
+                        <div>
+                          <strong>หมายเหตุสำหรับงานนี้</strong>
+                          <small>ข้อห้ามหรือ detail ที่ catalog ยังไม่รู้</small>
+                        </div>
+                      </summary>
+                      <label class="full-width">
+                        หมายเหตุเพิ่มเติม
+                        <textarea id="notes" rows="3" placeholder="เช่น อยากเห็นโลโก้ชัด / ห้ามเปลี่ยนสี / มีรอยบุขนด้านใน"></textarea>
+                      </label>
+                    </details>
+
+                    <details class="control-section diagnostics-section catalog-secondary-section" id="diagnosticsSection">
+                      <summary class="control-section-header">
+                        <span>05</span>
+                        <div>
+                          <strong>Diagnostics</strong>
+                          <small>เปิดดู blocker, warning, claim และ Drive staging เมื่อมีปัญหา</small>
+                        </div>
+                      </summary>
+                      <div class="create-diagnostics-panel" id="createDiagnosticsPanel" aria-live="off"></div>
+                    </details>
+                  </div>
+                </section>
+
+                <section class="panel qc-gate-card" id="qc">
+                  <div class="panel-heading compact-heading">
+                    <div>
+                      <p class="eyebrow">QC Gate</p>
+                      <h3>QC Hero ก่อนทำช็อตรอง</h3>
+                    </div>
+                    <span class="score" id="qcScore">0/7</span>
+                  </div>
+                  <div class="checklist" id="qcList"></div>
+                </section>
+              </aside>
+            </section>
           </form>
-
-          <section class="panel preview-panel studio-panel" id="hero">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Step 2</p>
-                <h3>ภาพ Hero และด่านตรวจ</h3>
-              </div>
-              <span class="workflow-status" id="heroStatus">ยังไม่มี Hero</span>
-            </div>
-
-            <div class="studio-canvas">
-              <div class="result-card" id="resultCard" hidden>
-                <div class="result-toolbar">
-                  <strong>ภาพ Hero</strong>
-                  <button class="primary-button compact" type="button" id="approveButton" data-action="approve-save">อนุมัติและบันทึก</button>
-                </div>
-                <div class="generation-state" id="generationState" hidden>
-                  <div class="loader-ring" aria-hidden="true"></div>
-                  <strong id="generationTitle">กำลังสร้างภาพ Hero</strong>
-                  <span id="generationHint">ระบบกำลังอัปโหลด reference และส่งงานเข้า AI queue</span>
-                  <div class="progress-track"><div class="progress-bar"></div></div>
-                </div>
-                <img id="resultImage" alt="ภาพสินค้าที่ระบบสร้าง" />
-                <p id="resultStatus"></p>
-              </div>
-
-              <div class="empty-hero" id="emptyHero">
-                <strong>ยังไม่มีภาพ Hero</strong>
-                <span>อัปโหลดภาพสินค้า แล้วกดสร้าง Hero เพื่อเริ่มงาน</span>
-              </div>
-            </div>
-
-            <details class="prompt-details" id="prompt">
-              <summary>ขั้นสูง: ดู Prompt ก่อนส่ง</summary>
-              <div class="prompt-card">
-                <p id="promptOutput">ระบบจะสร้าง prompt อัตโนมัติเมื่อกดสร้าง Hero</p>
-              </div>
-              <div class="prompt-meta">
-                <span id="promptMode">Mode: -</span>
-                <span id="promptCategory">Category: -</span>
-                <span id="promptRisk">Risk: waiting</span>
-              </div>
-              <button class="ghost-button compact" type="button" id="copyButton">คัดลอก Prompt</button>
-            </details>
-          </section>
-        </section>
-
-        <section class="workflow-grid">
-          <section class="panel qc-gate-card" id="qc">
-            <div class="panel-heading compact-heading">
-              <div>
-                <p class="eyebrow">Step 3</p>
-                <h3>QC Hero ก่อนทำช็อตรอง</h3>
-              </div>
-              <span class="score" id="qcScore">0/7</span>
-            </div>
-            <div class="checklist" id="qcList"></div>
-          </section>
-
-          <section class="panel workflow-card" id="workflow">
-            <div class="workflow-heading">
-              <div>
-                <p class="eyebrow">Step 4</p>
-                <h3>Hero → Support Set</h3>
-              </div>
-              <span class="workflow-status" id="supportStatus">ล็อกอยู่</span>
-            </div>
-
-            <div class="support-controls">
-              <div>
-                <strong>ช็อตรองที่ระบบแนะนำ</strong>
-                <p>ระบบจะแนะนำตามหมวดสินค้า และเพิ่มช็อตพิเศษอัตโนมัติจากจุดเด่น เช่น ฮู้ด บุขน ซับใน เฟอร์</p>
-              </div>
-              <button class="ghost-button compact" type="button" id="resetSupportButton">รีเซ็ตช็อต</button>
-            </div>
-
-            <div class="support-shot-list" id="supportShotList"></div>
-
-            <div class="custom-shot-row">
-              <input id="customSupportShot" type="text" placeholder="เพิ่มช็อตเอง เช่น สวมฮู้ด, close-up ขอบฮู้ดเฟอร์" />
-              <button class="ghost-button" type="button" id="addCustomShotButton">เพิ่มช็อต</button>
-            </div>
-
-            <div class="actions support-actions">
-              <button class="secondary-button" type="button" id="generateSupportButton">สร้างภาพ Support</button>
-              <button class="primary-button" type="button" id="approveSupportButton">อนุมัติภาพ Support</button>
-            </div>
-
-            <div class="support-gallery" id="supportGallery">
-              <p class="empty-state">ยังไม่มีภาพ Support</p>
-            </div>
-          </section>
-        </section>
         </section>
 
         <section class="page-view" id="page-review" data-page="review">

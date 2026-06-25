@@ -298,6 +298,7 @@ const els = {
   selectedProductSummary: document.getElementById("selectedProductSummary"),
   skuWorkClaimCard: document.getElementById("skuWorkClaimCard"),
   referenceReadinessCard: document.getElementById("referenceReadinessCard"),
+  createDiagnosticsPanel: document.getElementById("createDiagnosticsPanel"),
   catalogReferencePanel: document.getElementById("catalogReferencePanel"),
   catalogReferenceStatus: document.getElementById("catalogReferenceStatus"),
   catalogReferenceCards: document.getElementById("catalogReferenceCards"),
@@ -1466,11 +1467,103 @@ function renderSelectedProductSummary() {
   `;
 }
 
+function buildCreateDiagnosticsModel(message = "") {
+  const readinessView = getReferenceReadinessViewModel(message);
+  const claim = skuWorkClaimState || {};
+  const sourceFields = selectedCatalogSku?.reference_source_fields || {};
+  const rows = [
+    ["SKU", selectedCatalogSku?.sku || "-"],
+    ["reference_state", readinessView.state || "-"],
+    ["claim_status", claim.status || "-"],
+    ["claim_version", String(claim.version || 0)],
+    ["claim_status_endpoint", claim.claim_status_endpoint || "-"],
+    ["http_status", claim.http_status ? String(claim.http_status) : "-"],
+    ["error_code", claim.error_code || "-"],
+    ["drive_folder", readinessView.driveUrl || "-"],
+    ["source_row", sourceFields.source_row ? String(sourceFields.source_row) : "-"],
+    ["resolved_folder_id", sourceFields.resolved_reference_folder_id || sourceFields.reference_folder_id || "-"]
+  ];
+  const referenceIssues = [];
+  for (const reference of selectedCatalogReferences) {
+    const warnings = (reference.warnings || []).map((item) => item.message_th || item.code).filter(Boolean);
+    const blockers = (reference.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
+    const details = [
+      reference.blocker_message || reference.blocker_code || "",
+      ...blockers,
+      ...warnings
+    ].filter(Boolean);
+    if (details.length) {
+      referenceIssues.push({
+        label: reference.label_th || reference.file_name || reference.reference_key || "reference",
+        tone: blockers.length || reference.blocker_code || reference.blocker_message ? "danger" : "warning",
+        details
+      });
+    }
+  }
+  return {
+    rows,
+    blockers: readinessView.blockers || [],
+    warnings: readinessView.warnings || [],
+    referenceIssues,
+    claimMessage: claim.message || "",
+    empty: !selectedCatalogSku?.sku
+  };
+}
+
+function renderCreateDiagnosticsPanel(message = "") {
+  if (!els.createDiagnosticsPanel) return;
+  const diagnostics = buildCreateDiagnosticsModel(message);
+  if (diagnostics.empty) {
+    els.createDiagnosticsPanel.innerHTML = `<p class="diagnostics-empty">เลือก SKU เพื่อดู diagnostics ของ reference, claim และ Drive staging</p>`;
+    return;
+  }
+  const statusRows = diagnostics.rows
+    .filter(([, value]) => value && value !== "-")
+    .map(([label, value]) => `
+      <div>
+        <dt>${escapeHtml(label)}</dt>
+        <dd>${escapeHtml(value)}</dd>
+      </div>
+    `).join("");
+  const readinessIssues = [
+    ...diagnostics.blockers.map((item) => ({ tone: "danger", text: item })),
+    ...diagnostics.warnings.map((item) => ({ tone: "warning", text: item }))
+  ];
+  els.createDiagnosticsPanel.innerHTML = `
+    <dl class="diagnostics-kv">${statusRows}</dl>
+    ${diagnostics.claimMessage ? `<div class="diagnostics-callout danger">${escapeHtml(diagnostics.claimMessage)}</div>` : ""}
+    ${readinessIssues.length ? `
+      <div class="diagnostics-group">
+        <strong>Readiness issues</strong>
+        ${readinessIssues.map((issue) => `<span class="${escapeHtml(issue.tone)}">${escapeHtml(issue.text)}</span>`).join("")}
+      </div>
+    ` : ""}
+    ${diagnostics.referenceIssues.length ? `
+      <div class="diagnostics-group">
+        <strong>Reference files</strong>
+        ${diagnostics.referenceIssues.map((issue) => `
+          <details class="diagnostics-file">
+            <summary>
+              <span class="${escapeHtml(issue.tone)}">${escapeHtml(issue.tone === "danger" ? "blocked" : "warning")}</span>
+              ${escapeHtml(issue.label)}
+            </summary>
+            ${issue.details.map((detail) => `<small>${escapeHtml(detail)}</small>`).join("")}
+          </details>
+        `).join("")}
+      </div>
+    ` : ""}
+    ${!diagnostics.claimMessage && !readinessIssues.length && !diagnostics.referenceIssues.length
+      ? `<p class="diagnostics-empty">ยังไม่มี diagnostics ที่ต้องตรวจเป็นพิเศษ</p>`
+      : ""}
+  `;
+}
+
 function renderReferenceReadinessCard(message = "") {
   if (!els.referenceReadinessCard) return;
   if (!selectedCatalogSku?.sku) {
     els.referenceReadinessCard.hidden = true;
     els.referenceReadinessCard.innerHTML = "";
+    renderCreateDiagnosticsPanel(message);
     return;
   }
   const view = getReferenceReadinessViewModel(message);
@@ -1491,14 +1584,8 @@ function renderReferenceReadinessCard(message = "") {
       ${countLabels.map(([label, value]) => `<span><strong>${Number(value || 0)}</strong>${escapeHtml(label)}</span>`).join("")}
     </div>
     ${view.driveUrl ? `<a class="reference-drive-link" href="${escapeHtml(view.driveUrl)}" target="_blank" rel="noopener">เปิด Google Drive folder</a>` : ""}
-    ${view.blockers.length || view.warnings.length ? `
-      <details class="reference-diagnostics">
-        <summary>รายละเอียดที่ต้องตรวจ</summary>
-        ${view.blockers.length ? `<small class="danger-text">${escapeHtml(view.blockers.join(" · "))}</small>` : ""}
-        ${view.warnings.length ? `<small>${escapeHtml(view.warnings.join(" · "))}</small>` : ""}
-      </details>
-    ` : ""}
   `;
+  renderCreateDiagnosticsPanel(message);
 }
 
 function resetSkuWorkClaimState() {
@@ -1557,6 +1644,7 @@ function renderSkuWorkClaimCard(message = "") {
   if (!selectedCatalogSku?.sku) {
     els.skuWorkClaimCard.hidden = true;
     els.skuWorkClaimCard.innerHTML = "";
+    renderCreateDiagnosticsPanel(message);
     return;
   }
   const state = skuWorkClaimState || {};
@@ -1580,6 +1668,7 @@ function renderSkuWorkClaimCard(message = "") {
     <p>${escapeHtml(view.description)}</p>
     ${state.expires_at ? `<small>claim หมดอายุ ${escapeHtml(formatJobTime(state.expires_at))}</small>` : ""}
   `;
+  renderCreateDiagnosticsPanel(message);
 }
 
 function getSkuWorkClaimReadiness() {
@@ -1829,7 +1918,7 @@ function renderCatalogReferencePanel(message = "") {
     const blockers = (reference.blockers || []).map((item) => item.message_th || item.code).filter(Boolean);
     const blockerDetail = reference.blocker_message || reference.blocker_code || "";
     return `
-      <article class="catalog-reference-card ${isStaged ? "is-staged" : ""}">
+      <article class="catalog-reference-card ${isStaged ? "is-staged" : ""}" role="listitem">
         <div class="catalog-reference-preview">
           ${reference.preview_url ? `<img src="${escapeHtml(reference.preview_url)}" alt="${escapeHtml(reference.label_th || "reference image")}" loading="lazy" />` : `<span>ไม่มี preview</span>`}
         </div>

@@ -187,7 +187,9 @@ test("SKU picker results listbox stays hidden when empty to avoid layout jumps",
   assert.match(appJs, /els\.skuPickerResults\.hidden = !items\.length;/);
   assert.match(appJs, /els\.skuPickerResults\.setAttribute\("aria-hidden", String\(!items\.length\)\);/);
   assert.match(indexHtml, /<div class="sku-picker-combobox">/);
-  assert.match(indexHtml, /<\/div>\s*<div class="sku-picker-status"/);
+  assert.match(indexHtml, /<div class="sku-picker-panel command-sku-panel">[\s\S]*<div class="sku-picker-combobox">/);
+  assert.match(indexHtml, /<div class="sku-picker-panel command-sku-panel">[\s\S]*<div class="sku-picker-status" id="skuPickerStatus"/);
+  assert.match(indexHtml, /<div class="command-readiness-stack"[\s\S]*id="referenceReadinessCard"/);
 });
 
 test("manual create shows product summary before async Drive reference load finishes", () => {
@@ -235,6 +237,18 @@ test("reference readiness card separates loading ready blocked warning and fallb
   assert.match(appJs, /found files/);
   assert.match(appJs, /stageable images/);
   assert.match(appJs, /blocked files/);
+});
+
+test("create diagnostics live in an inspector disclosure instead of the command readiness card", () => {
+  assert.match(indexHtml, /<details class="control-section diagnostics-section catalog-secondary-section" id="diagnosticsSection">/);
+  assert.match(indexHtml, /<strong>Diagnostics<\/strong>/);
+  assert.match(indexHtml, /id="createDiagnosticsPanel" aria-live="off"/);
+  assert.match(appJs, /function buildCreateDiagnosticsModel\(/);
+  assert.match(appJs, /function renderCreateDiagnosticsPanel\(/);
+  assert.match(appJs, /claim_status_endpoint/);
+  assert.match(appJs, /http_status/);
+  assert.match(appJs, /referenceIssues/);
+  assert.doesNotMatch(appJs, /<details class="reference-diagnostics">/);
 });
 
 test("create Hero button exposes a specific disabled reason", () => {
