@@ -7008,3 +7008,1107 @@ body .app-shell {
     border-radius: 12px;
   }
 }
+
+/* Full visual system pass: light workbench, media-first surfaces, resilient layouts */
+:root {
+  color-scheme: light;
+  --bg: #f4f7f4;
+  --bg-soft: #fbfcf8;
+  --surface: #ffffff;
+  --surface-elevated: rgba(255, 255, 255, 0.92);
+  --surface-subtle: #f6f8f4;
+  --surface-muted: #eef4ef;
+  --surface-strong: #e6eee8;
+  --ink: #17211d;
+  --ink-soft: #35443d;
+  --muted: #69756e;
+  --muted-strong: #4f5d55;
+  --line: rgba(26, 45, 36, 0.12);
+  --line-strong: rgba(26, 45, 36, 0.2);
+  --accent: #cf3f52;
+  --accent-hover: #a62a3a;
+  --accent-soft: #ffe9ec;
+  --success: #18714f;
+  --success-soft: #e6f6ed;
+  --warning: #96661a;
+  --warning-soft: #fff3d6;
+  --danger: #b3263c;
+  --danger-soft: #ffe6ea;
+  --info: #126f7a;
+  --info-soft: #e3f6f8;
+  --nav: #f8faf7;
+  --nav-soft: #ffffff;
+  --nav-muted: #6b766f;
+  --brand-coral: #cf3f52;
+  --brand-teal: #126f7a;
+  --brand-violet: #6652d9;
+  --focus: rgba(18, 111, 122, 0.22);
+  --shadow-xs: 0 1px 2px rgba(18, 35, 28, 0.05);
+  --shadow-sm: 0 10px 26px rgba(18, 35, 28, 0.07);
+  --shadow-md: 0 22px 60px rgba(18, 35, 28, 0.11);
+  --shadow-canvas: 0 28px 70px rgba(20, 44, 36, 0.14);
+  --radius: 10px;
+  --radius-sm: 8px;
+  --radius-lg: 14px;
+  --sidebar-width: 252px;
+  --panel-max: 1840px;
+}
+
+html {
+  background: #eaf1ed;
+  scrollbar-gutter: stable;
+}
+
+body {
+  min-block-size: 100dvb;
+  background:
+    linear-gradient(90deg, rgba(20, 44, 36, 0.045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(20, 44, 36, 0.035) 1px, transparent 1px),
+    linear-gradient(135deg, #fbfcf8 0%, #f3f7f1 48%, #edf5f2 100%);
+  background-size: 44px 44px, 44px 44px, auto;
+  color: var(--ink);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, rgba(207, 63, 82, 0.1), transparent 28rem),
+    linear-gradient(245deg, rgba(18, 111, 122, 0.12), transparent 30rem);
+  mask-image: linear-gradient(180deg, #000, transparent 78%);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:is(a, button, input, textarea, select, summary):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+button,
+.primary-button,
+.secondary-button,
+.ghost-button,
+.next-action-button,
+.job-next-action {
+  min-block-size: 42px;
+  border-radius: 10px;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+button:hover:not(:disabled),
+.primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
+.ghost-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.primary-button {
+  border: 1px solid color-mix(in oklab, var(--accent), black 10%);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--accent), white 8%), var(--accent));
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(207, 63, 82, 0.22);
+}
+
+.primary-button:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--accent-hover), white 8%), var(--accent-hover));
+  box-shadow: 0 16px 34px rgba(207, 63, 82, 0.28);
+}
+
+.secondary-button,
+.ghost-button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--ink-soft);
+  box-shadow: var(--shadow-xs);
+}
+
+.secondary-button:hover:not(:disabled),
+.ghost-button:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--info), white 54%);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+input,
+select,
+textarea {
+  min-inline-size: 0;
+  border-radius: 10px;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in oklab, var(--muted), white 18%);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: color-mix(in oklab, var(--info), white 22%);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+.app-shell {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-block-size: 100dvb;
+  isolation: isolate;
+}
+
+.sidebar {
+  gap: 20px;
+  padding: 18px 14px;
+  border-inline-end: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 250, 245, 0.86));
+  color: var(--ink);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.brand-block {
+  gap: 12px;
+  padding: 8px 8px 16px;
+  border-bottom-color: var(--line);
+}
+
+.brand-mark {
+  inline-size: 42px;
+  block-size: 42px;
+  border-radius: 13px;
+  background:
+    linear-gradient(135deg, var(--accent), var(--brand-violet) 58%, var(--info));
+  box-shadow: 0 15px 32px rgba(31, 48, 42, 0.18);
+}
+
+.brand-block h1,
+.sidebar .eyebrow {
+  color: var(--ink);
+}
+
+.sidebar .eyebrow {
+  color: var(--muted);
+}
+
+.nav-list {
+  gap: 7px;
+}
+
+.nav-list a {
+  position: relative;
+  min-block-size: 44px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--muted-strong);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 850;
+  overflow: hidden;
+}
+
+.nav-list a::after {
+  content: none;
+}
+
+.nav-list a:hover {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  transform: translateX(2px);
+}
+
+.nav-list a.active {
+  border-color: color-mix(in oklab, var(--accent), white 54%);
+  background:
+    linear-gradient(90deg, rgba(207, 63, 82, 0.14), transparent 38%),
+    rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-list a.active::before {
+  content: "";
+  display: block;
+  inline-size: 5px;
+  align-self: stretch;
+  margin-block: 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--info));
+}
+
+.sidebar-note {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--muted-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+.workspace {
+  inline-size: min(100%, var(--panel-max));
+  margin-inline: auto;
+  gap: 18px;
+  padding: 22px;
+}
+
+.topbar {
+  position: sticky;
+  top: 14px;
+  z-index: 12;
+  min-block-size: 74px;
+  padding: 14px 16px;
+  border: 1px solid rgba(26, 45, 36, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.topbar h2 {
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 2rem);
+  text-wrap: balance;
+}
+
+.topbar-actions {
+  flex-wrap: wrap;
+}
+
+.auth-card {
+  min-inline-size: min(420px, 100%);
+  border-color: var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: none;
+}
+
+.auth-card.is-logged-in {
+  border-color: color-mix(in oklab, var(--success), white 70%);
+  background: linear-gradient(180deg, #fff, #f3fbf6);
+}
+
+.status-pill,
+.score,
+.workflow-status {
+  border-color: color-mix(in oklab, var(--success), white 66%);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.page-view.active {
+  display: grid;
+  gap: 18px;
+  view-transition-name: workflow-page;
+}
+
+.panel,
+.page-panel,
+.kpi-section-card,
+.settings-card,
+.asset-card,
+.next-action-card,
+.production-asset-card,
+.batch-sku-card,
+.cost-job-card,
+.monitoring-card,
+.executive-summary-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 252, 249, 0.92));
+  box-shadow: var(--shadow-sm);
+}
+
+.panel,
+.page-panel {
+  padding: clamp(16px, 1.4vw, 24px);
+}
+
+.page-panel {
+  min-block-size: auto;
+}
+
+.page-panel > .panel-heading,
+.panel-heading,
+.next-actions-panel > .panel-heading,
+.jobs-panel > .panel-heading {
+  align-items: center;
+  margin-block-end: 16px;
+  padding-block-end: 14px;
+  border-bottom-color: var(--line);
+}
+
+.panel-heading h3,
+.workflow-heading h3,
+.settings-card-header h4 {
+  text-wrap: balance;
+}
+
+.section-note,
+.kpi-state,
+.jobs-status,
+.batch-status,
+.cost-summary-card,
+.monitoring-health-card,
+.next-actions-admin-summary {
+  border: 1px solid color-mix(in oklab, var(--info), white 76%);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(227, 246, 248, 0.72), rgba(255, 255, 255, 0.74));
+  color: color-mix(in oklab, var(--info), black 8%);
+}
+
+.kpi-state.danger,
+.claim-state-blocked,
+.reference-state-blocked {
+  border-color: color-mix(in oklab, var(--danger), white 64%);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.claim-state-ready,
+.reference-state-ready,
+.next-action-card.ok {
+  border-color: color-mix(in oklab, var(--success), white 64%);
+  background:
+    linear-gradient(180deg, rgba(230, 246, 237, 0.9), rgba(255, 255, 255, 0.78));
+}
+
+.claim-state-warning,
+.reference-state-warning,
+.next-action-card.warning {
+  border-color: color-mix(in oklab, var(--warning), white 64%);
+  background:
+    linear-gradient(180deg, rgba(255, 243, 214, 0.9), rgba(255, 255, 255, 0.78));
+}
+
+.create-shell {
+  container: create-shell / inline-size;
+}
+
+.create-command-bar {
+  position: sticky;
+  top: 106px;
+  z-index: 10;
+  grid-template-columns: minmax(210px, 0.68fr) minmax(360px, 1.3fr) minmax(240px, 0.74fr) minmax(210px, 0.52fr);
+  gap: 14px;
+  align-items: stretch;
+  border: 1px solid rgba(26, 45, 36, 0.11);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(249, 252, 247, 0.88)),
+    linear-gradient(90deg, rgba(207, 63, 82, 0.12), rgba(18, 111, 122, 0.1));
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px) saturate(1.14);
+}
+
+.create-command-title {
+  align-content: start;
+  border-inline-start: 5px solid var(--accent);
+  border-radius: 12px;
+  padding: 8px 0 8px 14px;
+}
+
+.create-command-title h3 {
+  font-size: clamp(1.25rem, 1rem + 0.9cqi, 1.85rem);
+}
+
+.create-brief-steps {
+  gap: 6px;
+}
+
+.create-brief-steps span,
+.kpi-range-tabs button,
+.asset-type-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--shadow-xs);
+}
+
+.create-command-fields {
+  align-content: start;
+  gap: 10px;
+}
+
+.create-command-fields label,
+.create-inspector label,
+.settings-card label,
+.filter-grid label {
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.command-sku-panel,
+.sku-picker-panel,
+.selected-product-summary,
+.sku-work-claim-card,
+.reference-readiness-card {
+  border-radius: 14px;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.sku-picker-results {
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
+  scrollbar-gutter: stable;
+}
+
+.sku-picker-option {
+  border-radius: 12px;
+}
+
+.command-readiness-stack {
+  min-inline-size: 0;
+}
+
+.create-command-actions {
+  align-content: stretch;
+}
+
+.generate-button-reason {
+  min-block-size: 42px;
+  display: grid;
+  align-items: center;
+  border-radius: 12px;
+}
+
+.create-command-actions .actions {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.create-workbench {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.38fr) minmax(500px, 1.46fr) minmax(320px, 0.82fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.create-flow-rail,
+.create-inspector {
+  top: 204px;
+  max-block-size: calc(100dvb - 224px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.flow-rail-card,
+.create-flow-rail > .selected-product-summary,
+.create-flow-rail > .sku-work-claim-card,
+.catalog-reference-panel,
+.studio-panel,
+.workflow-card,
+.inspector-panel,
+.create-inspector .qc-gate-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-sm);
+}
+
+.create-flow-list {
+  gap: 8px;
+}
+
+.create-flow-list li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(246, 248, 244, 0.9);
+}
+
+.create-flow-list span {
+  background: linear-gradient(135deg, var(--ink), color-mix(in oklab, var(--ink), white 22%));
+  color: #fff;
+}
+
+.catalog-reference-panel {
+  padding: 12px;
+}
+
+.reference-filmstrip .catalog-reference-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(210px, 260px);
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-gutter: stable;
+  padding: 4px 4px 10px;
+}
+
+.reference-filmstrip .catalog-reference-card {
+  grid-template-columns: 1fr;
+  scroll-snap-align: start;
+  border-radius: 16px;
+  padding: 10px;
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.reference-filmstrip .catalog-reference-preview {
+  inline-size: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  background:
+    linear-gradient(45deg, rgba(18, 111, 122, 0.08), transparent),
+    var(--surface-subtle);
+  overflow: clip;
+}
+
+.reference-filmstrip .catalog-reference-preview img,
+.support-card img,
+.asset-card img,
+.production-asset-card img,
+.result-card img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.reference-filmstrip .catalog-reference-meta {
+  min-inline-size: 0;
+}
+
+.reference-filmstrip .catalog-reference-meta p,
+.reference-filmstrip .catalog-reference-meta small,
+.next-action-card p,
+.job-next-action span,
+.asset-card span,
+.production-asset-card small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: clip;
+  overflow-wrap: anywhere;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+}
+
+.studio-canvas {
+  min-block-size: clamp(460px, 62dvh, 760px);
+  border: 1px solid rgba(26, 45, 36, 0.1);
+  border-radius: 16px;
+  background:
+    linear-gradient(45deg, rgba(26, 45, 36, 0.055) 25%, transparent 25% 75%, rgba(26, 45, 36, 0.055) 75%) 0 0 / 22px 22px,
+    linear-gradient(45deg, rgba(26, 45, 36, 0.055) 25%, transparent 25% 75%, rgba(26, 45, 36, 0.055) 75%) 11px 11px / 22px 22px,
+    #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.result-card {
+  inline-size: min(100%, 760px);
+  margin-inline: auto;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.empty-hero {
+  border: 1px dashed color-mix(in oklab, var(--info), white 54%);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted-strong);
+}
+
+.workflow-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 620px;
+}
+
+.support-gallery,
+.assets-grid,
+.next-actions-grid,
+.kpi-grid,
+.settings-grid,
+.batch-sku-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+}
+
+.support-card,
+.asset-card,
+.production-asset-card,
+.next-action-card,
+.kpi-card,
+.settings-card,
+.batch-sku-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 260px;
+}
+
+.support-card {
+  border-radius: 16px;
+  overflow: clip;
+}
+
+.support-card img {
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+}
+
+.create-inspector {
+  display: grid;
+  gap: 14px;
+}
+
+.inspector-panel,
+.create-inspector .qc-gate-card {
+  padding: 16px;
+}
+
+.create-inspector details.control-section,
+.prompt-details,
+.diagnostics-file {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.create-inspector details.control-section > summary,
+.prompt-details > summary,
+.diagnostics-file > summary {
+  min-block-size: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.create-inspector details.control-section[open],
+.prompt-details[open],
+.diagnostics-file[open] {
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.create-inspector .qc-gate-card label {
+  border-radius: 12px;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.create-inspector .qc-gate-card label:has(input:checked) {
+  border-color: color-mix(in oklab, var(--success), white 62%);
+  background: var(--success-soft);
+}
+
+.kpi-range-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kpi-range-tabs button.active,
+.asset-type-tabs button.active {
+  border-color: color-mix(in oklab, var(--info), white 54%);
+  background:
+    linear-gradient(180deg, #fff, var(--info-soft));
+  color: var(--info);
+  box-shadow: var(--shadow-xs);
+}
+
+.table-wrap {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #fff;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.production-jobs-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.production-jobs-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f6f9f5;
+}
+
+.job-next-action {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+@container create-shell (max-width: 1260px) {
+  .create-command-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
+    grid-template-areas:
+      "title readiness"
+      "fields actions";
+  }
+
+  .create-workbench {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.55fr);
+  }
+
+  .create-flow-rail {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    position: static;
+    max-block-size: none;
+    overflow: visible;
+  }
+
+  .create-stage {
+    grid-column: 1;
+  }
+
+  .create-inspector {
+    grid-column: 2;
+  }
+}
+
+@container create-shell (max-width: 860px) {
+  .create-command-bar,
+  .create-workbench,
+  .create-command-fields,
+  .create-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .create-command-bar {
+    grid-template-areas:
+      "title"
+      "fields"
+      "readiness"
+      "actions";
+    position: static;
+  }
+
+  .create-stage,
+  .create-inspector,
+  .create-flow-rail {
+    grid-column: auto;
+  }
+
+  .create-inspector,
+  .create-flow-rail {
+    position: static;
+    max-block-size: none;
+    overflow: visible;
+  }
+}
+
+@supports (view-transition-name: root) {
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-group(root) {
+      animation-duration: 260ms;
+      animation-timing-function: cubic-bezier(0.2, 0, 0.2, 1);
+    }
+
+    html:active-view-transition-type(forward)::view-transition-old(root) {
+      animation-name: workflow-slide-out-left;
+    }
+
+    html:active-view-transition-type(forward)::view-transition-new(root) {
+      animation-name: workflow-slide-in-right;
+    }
+
+    html:active-view-transition-type(backward)::view-transition-old(root) {
+      animation-name: workflow-slide-out-right;
+    }
+
+    html:active-view-transition-type(backward)::view-transition-new(root) {
+      animation-name: workflow-slide-in-left;
+    }
+  }
+}
+
+@keyframes workflow-slide-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+
+@keyframes workflow-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+@keyframes workflow-slide-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+@keyframes workflow-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel,
+  .page-panel,
+  .create-command-bar,
+  .catalog-reference-card,
+  .support-card,
+  .next-action-card,
+  .kpi-card {
+    animation: surface-enter 220ms ease both;
+  }
+
+  @keyframes surface-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .panel,
+  .page-panel,
+  .create-command-bar,
+  .catalog-reference-card,
+  .support-card,
+  .next-action-card,
+  .kpi-card {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --line: CanvasText;
+    --line-strong: CanvasText;
+    --focus: Highlight;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .panel,
+  .page-panel,
+  .nav-list a,
+  .create-command-bar {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .app-shell {
+    display: block;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    block-size: auto;
+    min-block-size: 0;
+    padding: 12px;
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--line);
+  }
+
+  .brand-block {
+    padding: 0 2px 10px;
+  }
+
+  .sidebar-note {
+    display: none;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+    padding-block-end: 4px;
+  }
+
+  .nav-list a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-inline-size: max-content;
+    padding: 9px 12px;
+    border-radius: 999px;
+    transform: none;
+  }
+
+  .nav-list a.active::before {
+    inline-size: 6px;
+    block-size: 6px;
+    align-self: center;
+    margin: 0;
+  }
+
+  .workspace {
+    padding: 14px;
+  }
+
+  .topbar {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .topbar-actions,
+  .auth-card,
+  .auth-form {
+    inline-size: 100%;
+    min-inline-size: 0;
+  }
+
+  .auth-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-grid,
+  .workflow-grid,
+  .lower-grid,
+  .kpi-ops-grid,
+  .kpi-detail-grid,
+  .monitoring-layout,
+  .cost-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  body {
+    background:
+      linear-gradient(90deg, rgba(20, 44, 36, 0.045) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(20, 44, 36, 0.035) 1px, transparent 1px),
+      linear-gradient(180deg, #fbfcf8, #eef6f2);
+    background-size: 34px 34px, 34px 34px, auto;
+  }
+
+  .brand-block {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .brand-mark {
+    inline-size: 38px;
+    block-size: 38px;
+  }
+
+  .brand-block h1 {
+    font-size: 18px;
+  }
+
+  .nav-list a {
+    min-block-size: 40px;
+    font-size: 12px;
+  }
+
+  .workspace {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .topbar,
+  .create-command-bar,
+  .panel,
+  .page-panel,
+  .flow-rail-card,
+  .catalog-reference-panel,
+  .studio-panel,
+  .workflow-card,
+  .inspector-panel,
+  .create-inspector .qc-gate-card {
+    border-radius: 14px;
+  }
+
+  .topbar h2 {
+    font-size: 22px;
+  }
+
+  .panel-heading,
+  .result-toolbar,
+  .workflow-heading,
+  .support-controls,
+  .settings-card-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .create-command-bar {
+    padding: 12px;
+  }
+
+  .create-command-title {
+    padding-inline-start: 12px;
+  }
+
+  .create-command-fields,
+  .create-command-actions .actions,
+  .support-controls,
+  .custom-shot-row,
+  .settings-actions,
+  .monitoring-pagination-toolbar,
+  .monitoring-pagination-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reference-filmstrip .catalog-reference-grid {
+    grid-auto-columns: minmax(176px, 72vw);
+  }
+
+  .studio-canvas,
+  .create-stage .studio-canvas,
+  .create-stage .studio-canvas .empty-hero {
+    min-block-size: 430px;
+  }
+
+  .create-flow-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .selected-product-summary dl,
+  .reference-readiness-counts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .support-gallery,
+  .assets-grid,
+  .next-actions-grid,
+  .kpi-grid,
+  .settings-grid,
+  .batch-sku-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

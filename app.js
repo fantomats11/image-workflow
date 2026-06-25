@@ -2405,6 +2405,22 @@ function getHashParams() {
   return new URLSearchParams(query);
 }
 
+function runPageTransition(updateDom, direction = "forward") {
+  const canTransition =
+    typeof document.startViewTransition === "function" &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (!canTransition) {
+    updateDom();
+    return;
+  }
+
+  document.startViewTransition({
+    update: updateDom,
+    types: [direction]
+  });
+}
+
 function navigateToPage(page) {
   let targetPage = pageMeta[page] ? page : "create";
   if ((targetPage === "settings" || targetPage === "monitoring" || targetPage === "costs") && !isAdmin()) {
@@ -2494,8 +2510,16 @@ function bindEvents() {
     if (!link) return;
     event.preventDefault();
     const page = link.dataset.pageLink;
-    window.location.hash = page;
-    navigateToPage(page);
+    const currentPage = getPageFromHash();
+    const navLinks = Array.from(els.pageNav.querySelectorAll("[data-page-link]"));
+    const currentIndex = navLinks.findIndex((item) => item.dataset.pageLink === currentPage);
+    const nextIndex = navLinks.findIndex((item) => item.dataset.pageLink === page);
+    const direction = currentIndex >= 0 && nextIndex >= 0 && nextIndex < currentIndex ? "backward" : "forward";
+
+    runPageTransition(() => {
+      window.location.hash = page;
+      navigateToPage(page);
+    }, direction);
   });
 
   els.form.addEventListener("submit", (event) => {
