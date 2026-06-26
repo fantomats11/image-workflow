@@ -78,6 +78,44 @@ test("runWooCommerceReadOnlyChecksForItem returns not_configured without network
   assert.ok(checks.missing_config.includes("GOMALL_WP_SITE_URL"));
 });
 
+test("WooCommerce client can create taxonomy terms and product drafts", async () => {
+  const calls = [];
+  const client = createWooCommerceClient({
+    config: {
+      brand_id: "go_mall",
+      configured: true,
+      site_url: "https://shop.example.com",
+      consumer_key: "ck_test",
+      consumer_secret: "cs_test"
+    },
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes("/products/categories") && options.method === "GET") return jsonResponse([]);
+      if (String(url).includes("/products/categories") && options.method === "POST") return jsonResponse({ id: 20, name: "เสื้อกันหนาว & เสื้อโค้ท" });
+      if (String(url).includes("/products/tags") && options.method === "GET") return jsonResponse([]);
+      if (String(url).includes("/products/tags") && options.method === "POST") return jsonResponse({ id: 30, name: "เสื้อกันหนาว" });
+      return jsonResponse({ id: 100, sku: "SKU001", name: "Fashion coat", status: "draft", permalink: "https://shop.example.com/product/sku001" });
+    }
+  });
+
+  const category = await client.resolveOrCreateCategory("เสื้อกันหนาว & เสื้อโค้ท");
+  const tag = await client.resolveOrCreateTag("เสื้อกันหนาว");
+  const product = await client.createProductDraft({
+    name: "Fashion coat",
+    sku: "SKU001",
+    categories: [{ id: category.id }],
+    tags: [{ id: tag.id }]
+  });
+
+  assert.equal(category.id, 20);
+  assert.equal(tag.id, 30);
+  assert.equal(product.id, 100);
+  assert.equal(JSON.parse(calls.at(-1).options.body).status, "draft");
+  assert.equal(calls.some((call) => call.options.method === "POST" && call.url.includes("/products/categories")), true);
+  assert.equal(calls.some((call) => call.options.method === "POST" && call.url.includes("/products/tags")), true);
+  assert.equal(calls.some((call) => call.options.method === "POST" && call.url.includes("/products")), true);
+});
+
 function jsonResponse(body, ok = true, status = 200) {
   return {
     ok,

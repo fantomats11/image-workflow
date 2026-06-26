@@ -2,6 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { processAutomationTaskCore } from "../../lib/automation/automation-worker-core.mjs";
 
+function jsonResponse(body, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    async text() {
+      return JSON.stringify(body);
+    }
+  };
+}
+
 test("worker core completes generic dry-run tasks without live processing", async () => {
   const auditEvents = [];
   const completed = [];
@@ -152,6 +162,49 @@ test("worker core completes WordPress preflight with no live writes", async () =
   assert.equal(completed[0].result.preflight.requires_final_confirmation, true);
   assert.equal(callbacks[0].task.id, "task-2");
   assert.equal(callbacks[0].preflight.summary.item_count, 1);
+});
+
+test("worker core can execute WordPress draft publish when live payload is explicit", async () => {
+  const auditEvents = [];
+  const completed = [];
+  await processAutomationTaskCore({
+    task: {
+      id: "task-live-wp",
+      task_type: "wordpress_product_publish_preflight",
+      batch_id: "batch-1",
+      dedupe_key: "dedupe-live-wp",
+      payload: { dry_run: false, publish_now: true }
+    },
+    batchItems: [{
+      id: "item-1",
+      sku: "FSTR250240",
+      target_site: "gomall",
+      product_name: "Fashion coat",
+      status: "approved",
+      metadata: { brand_id: "go_mall", category: "เสื้อ", subcategory: "เสื้อกันหนาว", color: "ครีม" }
+    }],
+    env: {
+      GOMALL_WP_SITE_URL: "https://shop.example.com",
+      GOMALL_WOO_CONSUMER_KEY: "ck_test",
+      GOMALL_WOO_CONSUMER_SECRET: "cs_test"
+    },
+    fetchImpl: async (url, options) => {
+      if (String(url).includes("/products/categories") && options.method === "GET") return jsonResponse([]);
+      if (String(url).includes("/products/categories") && options.method === "POST") return jsonResponse({ id: 20, name: "เสื้อกันหนาว & เสื้อโค้ท" });
+      if (String(url).includes("/products/tags") && options.method === "GET") return jsonResponse([]);
+      if (String(url).includes("/products/tags") && options.method === "POST") return jsonResponse({ id: 30, name: "เสื้อกันหนาว" });
+      return jsonResponse({ id: 100, sku: "FSTR250240", status: "draft", permalink: "https://shop.example.com/product/fstr250240" });
+    },
+    workerId: "test-worker",
+    recordAuditEvent: async (event) => auditEvents.push(event),
+    completeTask: async (id, result) => completed.push({ id, result })
+  });
+
+  assert.equal(auditEvents[0].eventType, "wordpress_product_publish_live_draft_completed");
+  assert.equal(completed[0].result.dry_run, false);
+  assert.equal(completed[0].result.preflight.live_write_allowed, true);
+  assert.equal(completed[0].result.publish_results[0].status, "draft_created");
+  assert.equal(completed[0].result.publish_results[0].product_id, 100);
 });
 
 test("worker core completes WordPress media mapping preflight without media writes", async () => {
