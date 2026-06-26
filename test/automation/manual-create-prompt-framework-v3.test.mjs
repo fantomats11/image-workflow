@@ -16,6 +16,8 @@ test("manual create Hero prompt uses Prompt Framework v3 Thai contract", () => {
 test("manual create Support prompt uses approved Hero v3 contract", () => {
   assert.match(appJs, /อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว/);
   assert.match(appJs, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
+  assert.match(appJs, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
+  assert.match(appJs, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
   assert.match(appJs, /buildManualSupportTruthLine\(\)/);
 });
 

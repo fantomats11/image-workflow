@@ -36,6 +36,14 @@ test("manual create auto-uses catalog references for one-click Hero generation",
   assert.doesNotMatch(appJs, /กดใช้ reference จาก catalog\/Drive กับ Hero/);
 });
 
+test("manual support generation sends approved Hero plus staged product references", () => {
+  assert.match(appJs, /function getSupportGenerationImageUrls\(\)/);
+  assert.match(appJs, /approvedHeroImageUrl/);
+  assert.match(appJs, /selectedCatalogReferences[\s\S]*generation_url/);
+  assert.match(appJs, /buildGenerateFormData\(prompt, getSupportGenerationImageUrls\(\)/);
+  assert.doesNotMatch(appJs, /buildGenerateFormData\(prompt, \[approvedHeroImageUrl\]/);
+});
+
 test("server resolves catalog references automatically when requested by create flow", () => {
   assert.match(serverJs, /const autoUseCatalogReferences = req\.body\?\.catalogReferenceAutoUse === "true";/);
   assert.match(serverJs, /stageableReferences\.map\(\(reference\) => reference\.reference_key\)\.slice\(0, 6\)/);

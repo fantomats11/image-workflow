@@ -2056,6 +2056,21 @@ function autoStageCatalogReferencesForHero() {
   stagedCatalogReferenceKeys = [...new Set(stageable)].slice(0, 6);
 }
 
+function getSupportGenerationImageUrls() {
+  const urls = [];
+  const addUrl = (url) => {
+    const normalized = String(url || "").trim();
+    if (normalized && !urls.includes(normalized)) urls.push(normalized);
+  };
+
+  addUrl(approvedHeroImageUrl);
+  selectedCatalogReferences
+    .filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url))
+    .forEach((reference) => addUrl(reference.generation_url || reference.staged_url));
+
+  return urls.slice(0, 7);
+}
+
 function renderSkuPickerResults(items = []) {
   if (!els.skuPickerResults) return;
   latestSkuPickerResults = items;
@@ -3244,7 +3259,7 @@ async function generateSupportSet() {
 
     try {
       const prompt = buildSupportPrompt(shot, index + 1, selectedShots.length);
-      const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support", shot, jobId: currentJobId }), (job) => {
+      const data = await startGenerationJob(buildGenerateFormData(prompt, getSupportGenerationImageUrls(), { jobKind: "support", shot, jobId: currentJobId }), (job) => {
         supportResults[index].status = `${getJobTitle(job)}: ${job.message || ""}`;
         renderSupportGallery();
       });
@@ -3358,7 +3373,7 @@ async function rerunSupportImage(index) {
     const prompt = `${buildSupportPrompt(item.shot, index + 1, supportResults.length || 1)}
 Rerun correction: regenerate only this support shot from the approved hero anchor. Pay extra attention to preserving every visible product detail from the hero, including real logo patches or labels only when they are visible and physically correct for this shot, zipper pulls, stitching, fur/lining, material texture, color, shape, and proportions. If a logo or detail exists on the hero/reference product and naturally belongs in this support shot, keep it visible and consistent.`;
 
-    const data = await startGenerationJob(buildGenerateFormData(prompt, [approvedHeroImageUrl], { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
+    const data = await startGenerationJob(buildGenerateFormData(prompt, getSupportGenerationImageUrls(), { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
       supportResults[index] = {
         ...supportResults[index],
         status: `กำลังสร้างใหม่: ${getJobTitle(job)}${job.message ? ` · ${job.message}` : ""}`,
@@ -3687,6 +3702,8 @@ function buildPrompt() {
 function buildSupportPrompt(shot, shotIndex, totalShots) {
   return [
     "อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว",
+    "Reference Image 1 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกสินค้า โมเดล แสง โทน และความต่อเนื่องของเซ็ต",
+    "Reference Image 2 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง",
     buildManualSupportCreateLine(shot),
     buildManualSupportTruthLine(),
     buildManualSupportPresentationLine(shot)
@@ -3739,12 +3756,12 @@ function buildManualSupportTruthLine() {
 function buildManualSupportPresentationLine(shot) {
   const normalizedShot = String(shot || "").trim();
   if (normalizedShot === "ด้านหลัง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง";
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง";
   }
   if (normalizedShot === "ด้านข้าง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก";
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งโครงหน้า ทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก";
   }
-  return "ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง";
+  return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ถ้าภาพมีคนให้คงคนเดิมจากภาพหลัก ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง";
 }
 
 function describeManualSupportShotV3(shot) {

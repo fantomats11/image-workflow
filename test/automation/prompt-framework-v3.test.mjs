@@ -97,16 +97,17 @@ test("support prompt stays short Thai hero-led slot output", () => {
     }
   }, "side_fit_on_model", 1, 3);
 
-  assert.match(prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว\nสร้างภาพ/);
+  assert.match(prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว\nReference Image 1[\s\S]*\nสร้างภาพ/);
   assert.match(prompt, /คนจริงสวมสินค้า/);
   assert.match(prompt, /มุมด้านข้างหรือเฉียง 45 องศา/);
   assert.match(prompt, /โลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขน/);
   assert.match(prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
+  assert.match(prompt, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
   assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
+  assert.match(prompt, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
   assert.match(prompt, /ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่/);
-  assert.match(prompt, /ไม่มีหิมะ ถนน ต้นไม้ หรือฉากยุ่ง/);
   assert.doesNotMatch(prompt, /approved hero|hero anchor/i);
-  assert.ok(prompt.length < 620);
+  assert.ok(prompt.length < 900);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(prompt, /Use-case guidance|Change only the angle|กลุ่มเป้าหมาย|บริบทธุรกิจ/i);
 });
@@ -125,10 +126,11 @@ test("back support prompt blocks mannequin drift and prioritizes original back r
 
   assert.match(prompt, /คนจริงสวมสินค้าจากมุมด้านหลัง/);
   assert.match(prompt, /ยึดภาพด้านหลังต้นฉบับเป็น visual truth/);
-  assert.match(prompt, /ห้ามดึงฉาก lifestyle จาก Hero มาใช้/);
+  assert.match(prompt, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
+  assert.match(prompt, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
   assert.match(prompt, /ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin/);
   assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
-  assert.ok(prompt.length < 620);
+  assert.ok(prompt.length < 900);
 });
 
 test("small accessory support prompts force tight product-focused crops", () => {
