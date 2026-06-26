@@ -13,12 +13,23 @@ test("manual create Hero prompt uses Prompt Framework v3 Thai contract", () => {
   assert.match(appJs, /currentPrompt = buildManualHeroPromptV3\(\);/);
 });
 
-test("manual create Support prompt uses approved Hero v3 contract", () => {
-  assert.match(appJs, /อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว/);
+test("manual create Support prompt uses approved Hero and Studio Master v3 contract", () => {
+  assert.match(appJs, /อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว/);
   assert.match(appJs, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
   assert.match(appJs, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
+  assert.match(appJs, /Reference Image 2 คือ Studio Master/);
+  assert.match(appJs, /approvedStudioMasterImageUrl/);
   assert.match(appJs, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
-  assert.match(appJs, /buildManualSupportTruthLine\(\)/);
+  assert.match(appJs, /buildManualSupportTruthLine\(shot\)/);
+});
+
+test("manual create Studio Master prompt uses the approved Hero and product truth contract", () => {
+  assert.match(appJs, /function buildStudioMasterPrompt\(\)/);
+  assert.match(appJs, /อ้างอิงภาพหลักที่อนุมัติแล้วและภาพสินค้าจริง/);
+  assert.match(appJs, /สร้างภาพ Studio Master สำหรับหน้าสินค้า/);
+  assert.match(appJs, /สวยพอใช้ใน gallery เว็บไซต์/);
+  assert.match(appJs, /Reference Image 2 เป็นต้นไปคือภาพสินค้าจริง/);
+  assert.match(appJs, /ไม่ต้องทำ collage/);
 });
 
 test("manual create runtime no longer sends legacy background-locked prompt text", () => {

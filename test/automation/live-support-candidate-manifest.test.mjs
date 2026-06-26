@@ -18,6 +18,12 @@ test("buildLiveSupportCandidateManifest promotes approved hero and support revie
       file_name: "hero.png",
       type: "hero_generated"
     },
+    studioMasterAsset: {
+      id: "studio-master-asset-1",
+      public_url: "https://example.test/studio-master.png",
+      file_name: "studio-master.png",
+      type: "studio_master_generated"
+    },
     supportAssets: [
       {
         asset_id: "support-side",
@@ -52,12 +58,14 @@ test("buildLiveSupportCandidateManifest promotes approved hero and support revie
   assert.equal(manifest.live_write_allowed, false);
   assert.equal(manifest.publish_allowed, false);
   assert.equal(manifest.media_attach_allowed, false);
-  assert.equal(manifest.summary.candidate_count, 3);
+  assert.equal(manifest.summary.candidate_count, 4);
   assert.equal(manifest.summary.hero_candidates, 1);
+  assert.equal(manifest.summary.studio_master_candidates, 1);
   assert.equal(manifest.summary.support_candidates, 2);
-  assert.equal(manifest.items[0].candidate_count, 3);
+  assert.equal(manifest.items[0].candidate_count, 4);
   assert.equal(manifest.candidates[0].candidate_role, "approved_hero_anchor");
-  assert.equal(manifest.candidates[1].candidate_role, "approved_support_candidate");
+  assert.equal(manifest.candidates[1].candidate_role, "approved_studio_master_anchor");
+  assert.equal(manifest.candidates[2].candidate_role, "approved_support_candidate");
   assert.doesNotMatch(JSON.stringify(manifest), /publish_now|attach_media|wordpress_write/i);
 });
 
@@ -65,6 +73,7 @@ test("buildLiveSupportCandidateManifest blocks when support decisions are not fu
   const manifest = buildLiveSupportCandidateManifest({
     sku: "2DJ0493000",
     heroAsset: { public_url: "https://example.test/hero.png" },
+    studioMasterAsset: { public_url: "https://example.test/studio-master.png" },
     supportAssets: [{ asset_id: "support-back", public_url: "https://example.test/back.png", slot: "back_fit_on_model" }],
     decisionState: {
       review_status: "support_regeneration_requested",
@@ -74,6 +83,6 @@ test("buildLiveSupportCandidateManifest blocks when support decisions are not fu
   });
 
   assert.equal(manifest.manifest_status, "blocked_before_local_candidate_manifest");
-  assert.equal(manifest.summary.ready_candidates, 1);
+  assert.equal(manifest.summary.ready_candidates, 2);
   assert.deepEqual(manifest.manifest_blockers, ["support_review_not_fully_approved"]);
 });

@@ -337,6 +337,15 @@ const els = {
   resultStatus: document.getElementById("resultStatus"),
   emptyHero: document.getElementById("emptyHero"),
   heroStatus: document.getElementById("heroStatus"),
+  studioMaster: document.getElementById("studioMaster"),
+  studioMasterStatus: document.getElementById("studioMasterStatus"),
+  studioMasterCard: document.getElementById("studioMasterCard"),
+  studioMasterImage: document.getElementById("studioMasterImage"),
+  studioMasterMessage: document.getElementById("studioMasterMessage"),
+  studioMasterEmpty: document.getElementById("studioMasterEmpty"),
+  generateStudioMasterButton: document.getElementById("generateStudioMasterButton"),
+  rerunStudioMasterButton: document.getElementById("rerunStudioMasterButton"),
+  approveStudioMasterButton: document.getElementById("approveStudioMasterButton"),
   supportStatus: document.getElementById("supportStatus"),
   resetSupportButton: document.getElementById("resetSupportButton"),
   supportShotList: document.getElementById("supportShotList"),
@@ -512,6 +521,9 @@ const els = {
 let currentPrompt = "";
 let currentGeneratedImageUrl = "";
 let approvedHeroImageUrl = "";
+let currentStudioMasterImageUrl = "";
+let approvedStudioMasterImageUrl = "";
+let currentStudioMasterGenerationId = "";
 let supportResults = [];
 let customSupportShots = [];
 let currentJobId = "";
@@ -968,6 +980,9 @@ function clearFrontendAuthState() {
 function resetTransientWorkflowState() {
   currentGeneratedImageUrl = "";
   approvedHeroImageUrl = "";
+  currentStudioMasterImageUrl = "";
+  approvedStudioMasterImageUrl = "";
+  currentStudioMasterGenerationId = "";
   currentJobId = "";
   currentHeroGenerationId = "";
   lastSubmittedQcKey = "";
@@ -977,16 +992,23 @@ function resetTransientWorkflowState() {
   setHeroLoading(false);
   els.generateButton.disabled = true;
   els.approveButton.disabled = true;
+  els.generateStudioMasterButton.disabled = true;
+  els.rerunStudioMasterButton.disabled = true;
+  els.approveStudioMasterButton.disabled = true;
   els.generateSupportButton.disabled = true;
   els.approveSupportButton.disabled = true;
   els.generateButton.textContent = "สร้างภาพหลัก";
   els.approveButton.textContent = "อนุมัติและบันทึก";
+  els.generateStudioMasterButton.textContent = "สร้าง Studio Master";
+  els.rerunStudioMasterButton.textContent = "สร้างใหม่";
+  els.approveStudioMasterButton.textContent = "อนุมัติ Studio Master";
   els.generateSupportButton.textContent = "สร้างภาพเสริม";
   els.approveSupportButton.textContent = "อนุมัติภาพเสริม";
   els.resultImage.hidden = true;
   els.resultImage.removeAttribute("src");
   els.resultStatus.textContent = "";
   els.emptyHero.hidden = false;
+  renderStudioMasterPanel();
   resetQc();
   renderSupportShots();
   renderSupportGallery();
@@ -1033,6 +1055,9 @@ function updateActionAvailability() {
   }
   const ready = isAppReady();
   els.approveButton.disabled = !ready || appState.actions.approve || !currentGeneratedImageUrl;
+  els.generateStudioMasterButton.disabled = !ready || !canGenerateStudioMaster();
+  els.rerunStudioMasterButton.disabled = !ready || !canGenerateStudioMaster();
+  els.approveStudioMasterButton.disabled = !ready || !currentStudioMasterImageUrl || Boolean(approvedStudioMasterImageUrl);
   els.generateSupportButton.disabled = !ready || !canGenerateSupport();
   els.approveSupportButton.disabled = !ready || !supportResults.some((item) => item.imageUrl && item.status === "done");
   els.logoutButton.disabled = appState.actions.logout;
@@ -2057,6 +2082,10 @@ function autoStageCatalogReferencesForHero() {
 }
 
 function getSupportGenerationImageUrls() {
+  return getOrderedSupportGenerationImageUrls("");
+}
+
+function getStudioMasterGenerationImageUrls() {
   const urls = [];
   const addUrl = (url) => {
     const normalized = String(url || "").trim();
@@ -2069,6 +2098,30 @@ function getSupportGenerationImageUrls() {
     .forEach((reference) => addUrl(reference.generation_url || reference.staged_url));
 
   return urls.slice(0, 7);
+}
+
+function getOrderedSupportGenerationImageUrls(shot = "") {
+  const urls = [];
+  const addUrl = (url) => {
+    const normalized = String(url || "").trim();
+    if (normalized && !urls.includes(normalized)) urls.push(normalized);
+  };
+  const addProductReferences = () => {
+    selectedCatalogReferences
+      .filter((reference) => reference.stage_available && (reference.generation_url || reference.staged_url))
+      .forEach((reference) => addUrl(reference.generation_url || reference.staged_url));
+  };
+
+  if (isManualDetailSupportShot(shot)) {
+    addUrl(approvedStudioMasterImageUrl);
+    addUrl(approvedHeroImageUrl);
+  } else {
+    addUrl(approvedHeroImageUrl);
+    addUrl(approvedStudioMasterImageUrl);
+  }
+  addProductReferences();
+
+  return urls.slice(0, 8);
 }
 
 function renderSkuPickerResults(items = []) {
@@ -2313,7 +2366,8 @@ function updateAuthUi(session, message = "") {
   els.loginForm.hidden = isLoggedIn;
   els.logoutButton.hidden = !isLoggedIn;
   els.generateButton.disabled = !canUseApp;
-  els.generateSupportButton.disabled = !canUseApp || !isQcComplete() || !approvedHeroImageUrl;
+  els.generateStudioMasterButton.disabled = !canUseApp || !canGenerateStudioMaster();
+  els.generateSupportButton.disabled = !canUseApp || !canGenerateSupport();
 
   els.authState.innerHTML = isLoggedIn
     ? `<strong>${passwordSetupRequired ? "ต้องตั้งรหัสผ่าน" : "เข้าสู่ระบบแล้ว"}</strong><span>${escapeHtml(message || `${email}${roleLabel}`)}</span>`
@@ -2756,6 +2810,9 @@ function bindEvents() {
   });
   els.generateSupportButton.addEventListener("click", generateSupportSet);
   els.approveSupportButton.addEventListener("click", approveSupportSet);
+  els.generateStudioMasterButton.addEventListener("click", () => generateStudioMaster({ rerun: false }));
+  els.rerunStudioMasterButton.addEventListener("click", () => generateStudioMaster({ rerun: true }));
+  els.approveStudioMasterButton.addEventListener("click", approveStudioMaster);
   els.supportGallery.addEventListener("click", (event) => {
     const rerunButton = event.target.closest("[data-rerun-support]");
     if (!rerunButton) return;
@@ -2852,6 +2909,9 @@ function bindEvents() {
     currentPrompt = "";
     currentGeneratedImageUrl = "";
     approvedHeroImageUrl = "";
+    currentStudioMasterImageUrl = "";
+    approvedStudioMasterImageUrl = "";
+    currentStudioMasterGenerationId = "";
     currentJobId = "";
     currentHeroGenerationId = "";
     selectedCatalogSku = null;
@@ -2873,6 +2933,7 @@ function bindEvents() {
     setHeroLoading(false);
     els.resultImage.removeAttribute("src");
     els.resultStatus.textContent = "";
+    renderStudioMasterPanel();
     renderFilePreview(els.productImages, els.productPreview, 10);
     renderFilePreview(els.modelImages, els.modelPreview, 5);
     updateHeroStatus();
@@ -3100,6 +3161,9 @@ async function generateImage() {
     appState.currentGenerationId = currentHeroGenerationId || null;
     currentGeneratedImageUrl = data.images[0].url;
     approvedHeroImageUrl = "";
+    currentStudioMasterImageUrl = "";
+    approvedStudioMasterImageUrl = "";
+    currentStudioMasterGenerationId = "";
     lastSubmittedQcKey = "";
     lastRecordedApprovalGenerationId = "";
     supportResults = [];
@@ -3110,6 +3174,7 @@ async function generateImage() {
     els.resultImage.src = currentGeneratedImageUrl;
     els.resultStatus.textContent = `สร้างภาพสำเร็จ · Request ID: ${data.requestId || "-"}`;
     updateHeroStatus();
+    renderStudioMasterPanel();
     updateWorkflowGate();
     renderSupportGallery();
     renderAssets();
@@ -3217,6 +3282,102 @@ async function approveImage() {
   }
 }
 
+async function generateStudioMaster(options = {}) {
+  const { rerun = false } = options;
+  const validationMessage = validateInputFiles();
+  if (!canGenerateStudioMaster()) {
+    renderStudioMasterPanel("ต้องอนุมัติภาพหลักและตรวจครบ 7/7 ก่อนสร้าง Studio Master");
+    return;
+  }
+  if (validationMessage) {
+    renderStudioMasterPanel(validationMessage);
+    return;
+  }
+
+  currentStudioMasterImageUrl = rerun ? currentStudioMasterImageUrl : "";
+  approvedStudioMasterImageUrl = "";
+  currentStudioMasterGenerationId = "";
+  supportResults = [];
+  renderSupportGallery();
+  renderStudioMasterPanel("กำลังสร้าง Studio Master...");
+  els.generateStudioMasterButton.disabled = true;
+  els.rerunStudioMasterButton.disabled = true;
+  els.approveStudioMasterButton.disabled = true;
+  els.generateStudioMasterButton.textContent = rerun ? "กำลังสร้างใหม่..." : "กำลังสร้าง...";
+
+  try {
+    const prompt = buildStudioMasterPrompt();
+    const data = await startGenerationJob(
+      buildGenerateFormData(prompt, getStudioMasterGenerationImageUrls(), {
+        jobKind: "studio_master",
+        shot: "studio_master",
+        jobId: currentJobId
+      }),
+      (job) => {
+        renderStudioMasterPanel(`${getJobTitle(job)} · ${job.message || "กำลังสร้าง Studio Master"}`);
+      }
+    );
+    currentJobId = data.jobId || currentJobId;
+    currentStudioMasterGenerationId = data.generationId || "";
+    currentStudioMasterImageUrl = data.images[0].url;
+    renderStudioMasterPanel("รอตรวจ Studio Master");
+    addHistoryItem({
+      name: `${getJobBaseName("Studio Master")} · Studio Master`,
+      type: "Studio Master",
+      category: els.category.value,
+      status: "รอตรวจ"
+    });
+    refreshMetrics();
+  } catch (error) {
+    renderStudioMasterPanel(`สร้าง Studio Master ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || error.message}`);
+  } finally {
+    els.generateStudioMasterButton.textContent = "สร้าง Studio Master";
+    updateWorkflowGate();
+    updateActionAvailability();
+  }
+}
+
+async function approveStudioMaster() {
+  if (!currentStudioMasterImageUrl || !currentStudioMasterGenerationId) {
+    renderStudioMasterPanel("ยังไม่มี Studio Master ที่พร้อมอนุมัติ");
+    return;
+  }
+
+  els.approveStudioMasterButton.disabled = true;
+  els.approveStudioMasterButton.textContent = "กำลังบันทึก...";
+  try {
+    const response = await authFetchWithTimeout("/api/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageUrl: currentStudioMasterImageUrl,
+        jobName: `${getJobBaseName("studio-master")}-studio-master`,
+        generationId: currentStudioMasterGenerationId,
+        ...getRequestMetadata({ jobKind: "studio_master", shot: "studio_master", jobId: currentJobId })
+      })
+    }, 90000, "อนุมัติ Studio Master ใช้เวลานานผิดปกติ กรุณาลองใหม่อีกครั้ง");
+    const data = await readJsonResponse(response, "อนุมัติ Studio Master ไม่สำเร็จ: server ส่งข้อมูลกลับมาไม่ถูกต้อง");
+    if (!response.ok || !data.ok) throw new Error(getApiErrorMessage(response, data, "อนุมัติ Studio Master ไม่สำเร็จ"));
+
+    approvedStudioMasterImageUrl = currentStudioMasterImageUrl;
+    renderStudioMasterPanel(getApprovalMessage(data) || "อนุมัติ Studio Master แล้ว");
+    addHistoryItem({
+      name: `${getJobBaseName("Studio Master")} · อนุมัติแล้ว`,
+      type: "Studio Master",
+      category: els.category.value,
+      status: "พร้อมทำภาพเสริม"
+    });
+    updateWorkflowGate();
+    renderAssets();
+    refreshMetrics();
+  } catch (error) {
+    renderStudioMasterPanel(`อนุมัติ Studio Master ไม่สำเร็จ: ${getSafeAuthErrorMessage(error) || error.message}`);
+  } finally {
+    els.approveStudioMasterButton.textContent = "อนุมัติ Studio Master";
+    updateActionAvailability();
+  }
+}
+
 async function generateSupportSet() {
   const heroUrl = approvedHeroImageUrl || currentGeneratedImageUrl;
   const selectedShots = getSelectedSupportShots();
@@ -3229,6 +3390,11 @@ async function generateSupportSet() {
 
   if (!approvedHeroImageUrl) {
     renderSupportMessage("แนะนำให้อนุมัติภาพหลักก่อน เพื่อใช้ภาพที่ผ่านการตรวจแล้วเป็นภาพตั้งต้น");
+    return;
+  }
+
+  if (!approvedStudioMasterImageUrl) {
+    renderSupportMessage("ต้องสร้างและอนุมัติ Studio Master ก่อนสร้างภาพเสริม");
     return;
   }
 
@@ -3259,7 +3425,7 @@ async function generateSupportSet() {
 
     try {
       const prompt = buildSupportPrompt(shot, index + 1, selectedShots.length);
-      const data = await startGenerationJob(buildGenerateFormData(prompt, getSupportGenerationImageUrls(), { jobKind: "support", shot, jobId: currentJobId }), (job) => {
+      const data = await startGenerationJob(buildGenerateFormData(prompt, getOrderedSupportGenerationImageUrls(shot), { jobKind: "support", shot, jobId: currentJobId }), (job) => {
         supportResults[index].status = `${getJobTitle(job)}: ${job.message || ""}`;
         renderSupportGallery();
       });
@@ -3346,6 +3512,12 @@ async function rerunSupportImage(index) {
     return;
   }
 
+  if (!approvedStudioMasterImageUrl) {
+    supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องสร้างและอนุมัติ Studio Master ก่อน" };
+    renderSupportGallery();
+    return;
+  }
+
   if (!isQcComplete()) {
     supportResults[index] = { ...item, status: "ยังสร้างใหม่ไม่ได้: ต้องตรวจให้ครบ 7/7 ก่อน" };
     renderSupportGallery();
@@ -3373,7 +3545,7 @@ async function rerunSupportImage(index) {
     const prompt = `${buildSupportPrompt(item.shot, index + 1, supportResults.length || 1)}
 Rerun correction: regenerate only this support shot from the approved hero anchor. Pay extra attention to preserving every visible product detail from the hero, including real logo patches or labels only when they are visible and physically correct for this shot, zipper pulls, stitching, fur/lining, material texture, color, shape, and proportions. If a logo or detail exists on the hero/reference product and naturally belongs in this support shot, keep it visible and consistent.`;
 
-    const data = await startGenerationJob(buildGenerateFormData(prompt, getSupportGenerationImageUrls(), { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
+    const data = await startGenerationJob(buildGenerateFormData(prompt, getOrderedSupportGenerationImageUrls(item.shot), { jobKind: "support", shot: item.shot, jobId: currentJobId }), (job) => {
       supportResults[index] = {
         ...supportResults[index],
         status: `กำลังสร้างใหม่: ${getJobTitle(job)}${job.message ? ` · ${job.message}` : ""}`,
@@ -3700,13 +3872,38 @@ function buildPrompt() {
 }
 
 function buildSupportPrompt(shot, shotIndex, totalShots) {
+  const isDetailShot = isManualDetailSupportShot(shot);
+  const referenceLines = isDetailShot
+    ? [
+      "Reference Image 1 คือ Studio Master ที่อนุมัติแล้ว ใช้ล็อกฉาก studio แสง โทน สัดส่วนสินค้า และความต่อเนื่องของ gallery",
+      "Reference Image 2 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกความสมจริง โมเดล และภาพรวมของเซ็ต",
+      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
+    ]
+    : [
+      "Reference Image 1 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกคนเดิม ทรงการใส่ styling แสง โทน และความสมจริง",
+      "Reference Image 2 คือ Studio Master ที่อนุมัติแล้ว ใช้ล็อกฉาก studio สัดส่วนสินค้า และความต่อเนื่องของ gallery",
+      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
+    ];
   return [
-    "อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว",
-    "Reference Image 1 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกสินค้า โมเดล แสง โทน และความต่อเนื่องของเซ็ต",
-    "Reference Image 2 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง",
+    "อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว",
+    ...referenceLines,
     buildManualSupportCreateLine(shot),
-    buildManualSupportTruthLine(),
+    buildManualSupportTruthLine(shot),
     buildManualSupportPresentationLine(shot)
+  ].join("\n");
+}
+
+function buildStudioMasterPrompt() {
+  return [
+    "อ้างอิงภาพหลักที่อนุมัติแล้วและภาพสินค้าจริง",
+    "Reference Image 1 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกความสมจริง ทรงการใส่ โมเดล และโทนภาพ",
+    "Reference Image 2 เป็นต้นไปคือภาพสินค้าจริง ใช้ล็อกสี ทรง วัสดุ โลโก้ แพตช์ ซิป ซับใน เฟอร์ และรายละเอียดจริง",
+    "",
+    "สร้างภาพ Studio Master สำหรับหน้าสินค้า เป็นภาพ studio ขาวหรือเทาอ่อนสะอาด สวยพอใช้ใน gallery เว็บไซต์",
+    "สินค้าเป็นจุดเด่นหลัก เห็นรูปทรงโดยรวมชัดเจน เหมาะเป็นภาพอ้างอิงหลักสำหรับทำภาพมุมอื่นต่อ",
+    "ถ้าสินค้าเป็นเสื้อ/โค้ท/เฟอร์และภาพหลักมีคน ให้ใช้คนเดิมจากภาพหลัก คงโครงหน้า ทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่",
+    "สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่",
+    "ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องทำ collage"
   ].join("\n");
 }
 
@@ -3742,26 +3939,34 @@ function buildManualSupportCreateLine(shot) {
   return `สร้างภาพ ${shotDescription}`;
 }
 
-function buildManualSupportTruthLine() {
+function buildManualSupportTruthLine(shot = "") {
   const category = els.category.value || "";
+  const detailSuffix = isManualDetailSupportShot(shot) ? " ภาพต้องเป็นภาพเดียว ไม่ใช่ collage" : "";
   if (category.includes("เสื้อ")) {
-    return "สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+    return `สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่${detailSuffix}`;
   }
   if (category.includes("รองเท้า")) {
-    return "สี ทรง ความสูง วัสดุ เชือกหรือสายรัด ป้ายแบรนด์จริง พื้นรองเท้า และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+    return `สี ทรง ความสูง วัสดุ เชือกหรือสายรัด ป้ายแบรนด์จริง พื้นรองเท้า และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่${detailSuffix}`;
   }
-  return "สี ทรง วัสดุ โลโก้ ป้ายจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่";
+  return `สี ทรง วัสดุ โลโก้ ป้ายจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่${detailSuffix}`;
 }
 
 function buildManualSupportPresentationLine(shot) {
   const normalizedShot = String(shot || "").trim();
   if (normalizedShot === "ด้านหลัง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง";
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
   }
   if (normalizedShot === "ด้านข้าง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งโครงหน้า ทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก";
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งโครงหน้า ทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
   }
-  return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ถ้าภาพมีคนให้คงคนเดิมจากภาพหลัก ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง";
+  if (isManualDetailSupportShot(shot)) {
+    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ครอปเฉพาะรายละเอียดสินค้า ไม่ต้องมีโมเดล ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
+  }
+  return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ถ้าภาพมีคนให้คงคนเดิมจากภาพหลัก ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
+}
+
+function isManualDetailSupportShot(shot = "") {
+  return /โคลสอัพ|close-up|ซับใน|ด้านใน|พื้นรองเท้า|texture|วัสดุ|รายละเอียด|ขอบเฟอร์|บุขน|ซิป/i.test(String(shot || ""));
 }
 
 function describeManualSupportShotV3(shot) {
@@ -4138,14 +4343,51 @@ function updateHeroStatus() {
   els.heroStatus.classList.remove("ready");
 }
 
-function canGenerateSupport() {
+function canGenerateStudioMaster() {
   return Boolean(approvedHeroImageUrl) && isQcComplete();
+}
+
+function renderStudioMasterPanel(message = "") {
+  if (!els.studioMasterStatus) return;
+  const hasCandidate = Boolean(currentStudioMasterImageUrl);
+  const isApproved = Boolean(approvedStudioMasterImageUrl);
+  els.studioMasterCard.hidden = !hasCandidate;
+  els.studioMasterEmpty.hidden = hasCandidate;
+  if (hasCandidate) {
+    els.studioMasterImage.src = currentStudioMasterImageUrl;
+    els.studioMasterImage.hidden = false;
+  } else {
+    els.studioMasterImage.removeAttribute("src");
+  }
+  if (message) els.studioMasterMessage.textContent = message;
+  else if (isApproved) els.studioMasterMessage.textContent = "อนุมัติแล้ว ใช้เป็น anchor สำหรับภาพเสริม";
+  else if (hasCandidate) els.studioMasterMessage.textContent = "รอตรวจ Studio Master";
+  else els.studioMasterMessage.textContent = "อนุมัติภาพหลักและตรวจครบ 7/7 แล้วจึงสร้าง Studio Master";
+
+  if (isApproved) {
+    els.studioMasterStatus.textContent = "อนุมัติแล้ว";
+  } else if (hasCandidate) {
+    els.studioMasterStatus.textContent = "รอตรวจ";
+  } else if (canGenerateStudioMaster()) {
+    els.studioMasterStatus.textContent = "พร้อมสร้าง";
+  } else {
+    els.studioMasterStatus.textContent = "ยังไม่ได้สร้าง";
+  }
+  els.studioMasterStatus.classList.toggle("ready", isApproved);
+}
+
+function canGenerateSupport() {
+  return Boolean(approvedHeroImageUrl) && Boolean(approvedStudioMasterImageUrl) && isQcComplete();
 }
 
 function updateWorkflowGate() {
   const ready = canGenerateSupport();
   const hasSession = Boolean(currentSession?.access_token);
   const isLoggedIn = isAppReady();
+  const studioReady = canGenerateStudioMaster();
+  els.generateStudioMasterButton.disabled = !studioReady || !isLoggedIn;
+  els.rerunStudioMasterButton.disabled = !studioReady || !isLoggedIn || !currentStudioMasterImageUrl;
+  els.approveStudioMasterButton.disabled = !isLoggedIn || !currentStudioMasterImageUrl || Boolean(approvedStudioMasterImageUrl);
   els.generateSupportButton.disabled = !ready || !isLoggedIn;
   els.approveSupportButton.disabled = !supportResults.some((item) => item.imageUrl && item.status === "done");
   els.supportStatus.textContent = ready ? "พร้อมทำภาพเสริม" : "ล็อกอยู่";
@@ -4156,8 +4398,11 @@ function updateWorkflowGate() {
       : hasSession
         ? "กรุณาตั้งรหัสผ่านใหม่ก่อนสร้างภาพเสริม"
         : "กรุณาเข้าสู่ระบบก่อนสร้างภาพเสริม"
-    : "ต้องอนุมัติภาพหลักและตรวจครบ 7/7 ก่อน";
+    : approvedHeroImageUrl && isQcComplete()
+      ? "ต้องสร้างและอนุมัติ Studio Master ก่อนสร้างภาพเสริม"
+      : "ต้องอนุมัติภาพหลักและตรวจครบ 7/7 ก่อน";
   updateHeroStatus();
+  renderStudioMasterPanel();
 }
 
 function renderSupportShots() {

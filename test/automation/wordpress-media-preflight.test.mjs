@@ -27,6 +27,7 @@ test("builds a ready media mapping proposal when hero and support assets exist",
     },
     mediaAssets: [
       { sku: "RAC-001", type: "hero_generated", status: "approved", url: "https://cdn.example.com/rac-001-hero.png" },
+      { sku: "RAC-001", type: "studio_master_generated", shot_key: "studio_master", status: "approved", url: "https://cdn.example.com/rac-001-studio-master.png" },
       { sku: "RAC-001", type: "support_generated", shot_key: "front_view", status: "approved", url: "https://cdn.example.com/rac-001-front.png" },
       { sku: "RAC-001", type: "support_generated", shot_key: "texture_closeup", status: "approved", url: "https://cdn.example.com/rac-001-texture.png" }
     ],
@@ -37,16 +38,18 @@ test("builds a ready media mapping proposal when hero and support assets exist",
   assert.equal(proposal.live_write_allowed, false);
   assert.equal(proposal.requires_final_confirmation, true);
   assert.equal(proposal.summary.ready_for_media_proposal, 1);
-  assert.equal(proposal.summary.media_assets_matched, 3);
+  assert.equal(proposal.summary.media_assets_matched, 4);
   assert.equal(proposal.items[0].media_status, "ready_for_media_proposal");
   assert.equal(proposal.items[0].proposed_main_image.url, "https://cdn.example.com/rac-001-hero.png");
   assert.equal(proposal.items[0].proposed_main_image.position, 0);
-  assert.equal(proposal.items[0].proposed_gallery_images.length, 2);
-  assert.deepEqual(proposal.items[0].proposed_gallery_images.map((image) => image.position), [1, 2]);
+  assert.equal(proposal.items[0].proposed_gallery_images.length, 3);
+  assert.deepEqual(proposal.items[0].proposed_gallery_images.map((image) => image.position), [1, 2, 3]);
+  assert.equal(proposal.items[0].proposed_gallery_images[0].type, "studio_master_generated");
   assert.deepEqual(proposal.items[0].proposed_images.map((image) => [image.role, image.position]), [
     ["main_image", 0],
     ["gallery_image", 1],
-    ["gallery_image", 2]
+    ["gallery_image", 2],
+    ["gallery_image", 3]
   ]);
   assert.equal(proposal.items[0].write_policy, "no_upload_or_attach_without_final_confirmation");
 });
@@ -75,6 +78,7 @@ test("reports remote media fetch timeout and media conflict warnings as proposal
     },
     mediaAssets: [
       { sku: "RAC-TIMEOUT", type: "hero_generated", status: "approved", url: "https://cdn.example.com/hero.png" },
+      { sku: "RAC-TIMEOUT", type: "studio_master_generated", shot_key: "studio_master", status: "approved", url: "https://cdn.example.com/studio-master.png" },
       { sku: "RAC-TIMEOUT", type: "support_generated", shot_key: "front_view", status: "approved", url: "https://cdn.example.com/front.png", remote_fetch_status: "timeout" },
       { sku: "RAC-TIMEOUT", type: "support_generated", shot_key: "back_view", status: "approved", url: "https://cdn.example.com/back.png" }
     ]
@@ -109,9 +113,10 @@ test("reports missing hero and support media as an awaiting-assets gap", () => {
 
   assert.equal(proposal.summary.awaiting_media_assets, 1);
   assert.equal(proposal.summary.missing_hero_media, 1);
+  assert.equal(proposal.summary.missing_studio_master_media, 1);
   assert.equal(proposal.summary.missing_support_media, 1);
   assert.equal(proposal.items[0].media_status, "awaiting_media_assets");
-  assert.deepEqual(proposal.items[0].blockers, ["missing_hero_media", "missing_support_media"]);
+  assert.deepEqual(proposal.items[0].blockers, ["missing_hero_media", "missing_studio_master_media", "missing_support_media"]);
   assert.equal(proposal.items[0].proposed_main_image, null);
 });
 

@@ -2574,6 +2574,9 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
     const heroAsset = assets.find((asset) => asset.id === reviewGeneration.image_asset_id) ||
       assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
       null;
+    const studioMasterAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "studio_master_generated" && isApprovedReviewAsset(asset)) ||
+      assets.find((asset) => String(asset.type || "").toLowerCase() === "studio_master_generated") ||
+      null;
     const batchKey = cleanOptionalString(req.query.batch_id || req.query.batchId);
     const reviewSku = cleanOptionalString(req.query.sku) || job?.sku || "";
     let referenceAssets = assets.filter((asset) => isReferenceReviewAsset(asset));
@@ -2602,6 +2605,15 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         source: "web_review_page"
       })
       : null;
+    const approvedStudioMasterAnchor = studioMasterAsset
+      ? buildApprovedStudioMasterAnchor({
+        generation: { id: studioMasterAsset.generation_id || null, job_id: generation.job_id, image_asset_id: studioMasterAsset.id },
+        asset: studioMasterAsset,
+        approval: {},
+        sku: reviewSku,
+        source: "web_review_page"
+      })
+      : firstStudioMasterAnchor(batchItemMetadata);
     const supportReviewReady = heroApproved && (supportAssets.length > 0 ||
       batchItemMetadata.review_set_status === "awaiting_support_review" ||
       batchItemMetadata.support_generation?.status === "support_ready_for_review");
@@ -2614,8 +2626,11 @@ app.get("/api/review/hero", requireUser, async (req, res) => {
         generation_id: generationId,
         job: sanitizeWorkflowJobDetail(job || {}),
         hero_asset: heroAsset,
+        studio_master_asset: studioMasterAsset,
         hero_approved: heroApproved,
         approved_hero_anchor: approvedHeroAnchor,
+        approved_studio_master_anchor: approvedStudioMasterAnchor,
+        studio_master_approved: Boolean(approvedStudioMasterAnchor),
         support_assets: supportAssets,
         support_review_ready: supportReviewReady,
         review_stage: supportReviewReady ? "support_review" : "hero_review",
@@ -2649,17 +2664,19 @@ app.post("/api/review/hero/regenerate", requireUser, async (req, res) => {
     if (!generation) return sendApiError(res, 404, "generation_not_found", "Generation not found.");
     const batchId = cleanOptionalString(req.body.batch_id || req.body.batchId);
     const sku = sanitizeSku(req.body.sku || "");
+    const requestedAction = cleanOptionalString(req.body.action);
+    const regenerateAction = requestedAction || (generation.kind === "studio_master" ? "regenerate_studio_master" : "regenerate_hero");
 
     await recordAuditEvent({
       actorId: req.user.id,
       jobId: generation.job_id,
       generationId,
-      eventType: "hero_regeneration_requested",
-      eventJson: { source: "web_review_page", batch_id: batchId, sku, reason }
+      eventType: regenerateAction === "regenerate_studio_master" ? "studio_master_regeneration_requested" : "hero_regeneration_requested",
+      eventJson: { source: "web_review_page", batch_id: batchId, sku, reason, action: regenerateAction }
     });
 
     const task = await maybeEnqueueHeroReviewAutomationTask({
-      action: "regenerate_hero",
+      action: regenerateAction,
       batchId,
       sku,
       jobId: generation.job_id,
@@ -2701,6 +2718,7 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
       batchMetadata: metadata
     });
     const approvedHeroAnchor = await readApprovedHeroAnchorForSupportReview({ generationId, userId: req.user.id, metadata });
+    const approvedStudioMasterAnchor = await readApprovedStudioMasterAnchorForSupportReview({ generationId, userId: req.user.id, metadata });
     const decisionState = buildSupportReviewDecisionState({
       sku,
       approvedHeroAnchor,
@@ -2717,6 +2735,7 @@ app.post("/api/review/support-decisions", requireUser, async (req, res) => {
         sku,
         job: manifestContext.job || {},
         heroAsset: approvedHeroAnchor || manifestContext.heroAsset || {},
+        studioMasterAsset: approvedStudioMasterAnchor || manifestContext.studioMasterAsset || {},
         supportAssets,
         decisionState
       })
@@ -2819,7 +2838,10 @@ async function readSupportCandidateManifestContext({ generationId, userId }) {
   const heroAsset = assets.find((asset) => asset.id === generation.image_asset_id) ||
     assets.find((asset) => String(asset.type || "").toLowerCase() === "hero_generated") ||
     {};
-  return { generation, job: jobResult.data || {}, heroAsset };
+  const studioMasterAsset = assets.find((asset) => String(asset.type || "").toLowerCase() === "studio_master_generated" && isApprovedReviewAsset(asset)) ||
+    assets.find((asset) => String(asset.type || "").toLowerCase() === "studio_master_generated") ||
+    {};
+  return { generation, job: jobResult.data || {}, heroAsset, studioMasterAsset };
 }
 
 async function readApprovedHeroAnchorForSupportReview({ generationId, userId, metadata = {} } = {}) {
@@ -2860,6 +2882,40 @@ async function readApprovedHeroAnchorForSupportReview({ generationId, userId, me
   });
 }
 
+async function readApprovedStudioMasterAnchorForSupportReview({ generationId, userId, metadata = {} } = {}) {
+  const existingAnchor = firstStudioMasterAnchor(metadata);
+  if (existingAnchor) return existingAnchor;
+  if (!generationId) return null;
+
+  const generation = await getOwnedGeneration(generationId, userId);
+  if (!generation) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("assets")
+    .select("*")
+    .eq("job_id", generation.job_id)
+    .eq("type", "studio_master_generated")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const asset = (data || []).find(isApprovedReviewAsset) || (data || [])[0] || null;
+  if (!asset) return null;
+  return buildApprovedStudioMasterAnchor({
+    generation: { id: asset.generation_id || null, job_id: generation.job_id, image_asset_id: asset.id },
+    asset,
+    approval: {},
+    sku: metadata.sku || metadata.catalog_sku || "",
+    source: "web_review_page"
+  });
+}
+
+function isApprovedReviewAsset(asset = {}) {
+  const status = cleanOptionalString(asset.status).toLowerCase();
+  return ["approved", "accepted", "ready", "done"].includes(status) ||
+    asset.approved === true ||
+    asset.metadata?.approved === true;
+}
+
 function firstHeroAnchor(metadata = {}) {
   if (!isPlainObject(metadata)) return null;
   const candidates = [
@@ -2881,6 +2937,69 @@ function firstHeroAnchor(metadata = {}) {
   return null;
 }
 
+function firstStudioMasterAnchor(metadata = {}) {
+  if (!isPlainObject(metadata)) return null;
+  const candidates = [
+    metadata.approved_studio_master_anchor,
+    metadata.studio_master_anchor,
+    metadata.studio_master_generated
+  ];
+  for (const candidate of candidates) {
+    if (!isPlainObject(candidate)) continue;
+    const source = candidate.public_url || candidate.url || candidate.source_url ||
+      candidate.local_path || candidate.storage_key || candidate.asset_id || candidate.id || "";
+    if (!source || candidate.approved === false) continue;
+    return {
+      source_role: "approved_studio_master_anchor",
+      status: candidate.status || "approved",
+      approved: candidate.approved !== false,
+      kind: candidate.kind || "studio_master",
+      shot_key: candidate.shot_key || "studio_master",
+      slot: candidate.slot || "studio_master",
+      type: candidate.type || "studio_master_generated",
+      ...candidate
+    };
+  }
+  return null;
+}
+
+function buildApprovedStudioMasterAnchor({
+  generation = {},
+  asset = {},
+  approval = {},
+  sku = "",
+  source = "web_review_page",
+  actorId = "",
+  approvedAt = ""
+} = {}) {
+  return {
+    source_role: "approved_studio_master_anchor",
+    kind: "studio_master",
+    slot: "studio_master",
+    shot_key: "studio_master",
+    type: asset.type || "studio_master_generated",
+    status: "approved",
+    approved: true,
+    sku,
+    source,
+    asset_id: asset.id || asset.asset_id || generation.image_asset_id || null,
+    review_asset_id: asset.id || asset.asset_id || generation.image_asset_id || null,
+    generation_id: generation.id || approval.generation_id || null,
+    job_id: generation.job_id || asset.job_id || null,
+    approval_id: approval.id || null,
+    public_url: asset.public_url || asset.url || asset.remote_url || "",
+    url: asset.public_url || asset.url || asset.remote_url || "",
+    source_url: asset.public_url || asset.url || asset.remote_url || "",
+    local_path: asset.local_path || asset.path || "",
+    storage_key: asset.storage_key || "",
+    file_name: asset.file_name || asset.filename || "",
+    mime_type: asset.mime_type || "",
+    file_size: Number(asset.file_size || 0),
+    approved_by: actorId || approval.approved_by || null,
+    approved_at: approvedAt || approval.approved_at || new Date().toISOString()
+  };
+}
+
 app.post("/api/approvals", requireUser, async (req, res) => {
   const generationId = String(req.body.generation_id || req.body.generationId || "").trim();
   if (!generationId) return sendApiError(res, 400, "generation_required", "Missing generation_id.");
@@ -2891,16 +3010,18 @@ app.post("/api/approvals", requireUser, async (req, res) => {
 
     const exportPath = cleanOptionalString(req.body.export_path || req.body.exportPath);
     const note = cleanOptionalString(req.body.note);
+    const requestedAction = cleanOptionalString(req.body.action);
+    const approvalAction = requestedAction || (generation.kind === "studio_master" ? "approve_studio_master" : "approve_hero");
+    const generatedAsset = await readGeneratedAssetForReviewAction({ generation, action: approvalAction });
 
     await recordAuditEvent({
       actorId: req.user.id,
       jobId: generation.job_id,
       generationId,
-      eventType: "hero_approved",
-      eventJson: { export_path: exportPath }
+      eventType: approvalAction === "approve_studio_master" ? "studio_master_approved" : "hero_approved",
+      eventJson: { export_path: exportPath, action: approvalAction }
     });
 
-    const heroAsset = await readHeroAssetForGeneration(generation);
     const approvalResult = await ensureHeroApprovalRecord({
       generation,
       actorId: req.user.id,
@@ -2934,14 +3055,14 @@ app.post("/api/approvals", requireUser, async (req, res) => {
     }
 
     const task = await maybeEnqueueHeroReviewAutomationTask({
-      action: "approve_hero",
+      action: approvalAction,
       batchId: cleanOptionalString(req.body.batch_id || req.body.batchId),
       sku: sanitizeSku(req.body.sku || ""),
       jobId: generation.job_id,
       generationId,
       actorId: req.user.id,
       approval: approvalResult.approval,
-      heroAsset,
+      heroAsset: generatedAsset,
       source: "web_review_page"
     });
 
@@ -4039,7 +4160,7 @@ async function collectRetryReferenceUrls(jobId, formJson = {}) {
     .from("assets")
     .select("type, public_url, storage_key")
     .eq("job_id", jobId)
-    .in("type", ["product_reference", "model_reference", "hero_generated", "support_generated"])
+    .in("type", ["product_reference", "model_reference", "hero_generated", "studio_master_generated", "support_generated"])
     .order("created_at", { ascending: true })
     .limit(20);
   if (error) {
@@ -4437,7 +4558,7 @@ async function findRetryExportSource(jobId) {
     .from("assets")
     .select("id, type, public_url, storage_key, created_at")
     .eq("job_id", jobId)
-    .in("type", ["approved_export", "hero_generated", "support_generated"])
+    .in("type", ["approved_export", "hero_generated", "studio_master_generated", "support_generated"])
     .order("created_at", { ascending: false })
     .limit(20);
   if (error) throw error;
@@ -5090,7 +5211,7 @@ async function readGenerationForAutomationAction(generationId) {
   return data || null;
 }
 
-async function readHeroAssetForGeneration(generation = {}) {
+async function readGeneratedAssetForGeneration(generation = {}, preferredType = "hero_generated") {
   if (!generation?.job_id && !generation?.image_asset_id) return null;
   if (generation.image_asset_id) {
     const { data, error } = await supabaseAdmin
@@ -5107,11 +5228,26 @@ async function readHeroAssetForGeneration(generation = {}) {
     .from("assets")
     .select("*")
     .eq("job_id", generation.job_id)
-    .eq("type", "hero_generated")
+    .eq("type", preferredType)
     .order("created_at", { ascending: false })
     .limit(1);
   if (error) throw error;
   return data?.[0] || null;
+}
+
+async function readHeroAssetForGeneration(generation = {}) {
+  return readGeneratedAssetForGeneration(generation, "hero_generated");
+}
+
+async function readStudioMasterAssetForGeneration(generation = {}) {
+  return readGeneratedAssetForGeneration(generation, "studio_master_generated");
+}
+
+async function readGeneratedAssetForReviewAction({ generation = {}, action = "" } = {}) {
+  if (action === "approve_studio_master" || action === "regenerate_studio_master") {
+    return readStudioMasterAssetForGeneration(generation);
+  }
+  return readHeroAssetForGeneration(generation);
 }
 
 async function ensureHeroApprovalRecord({ generation = {}, actorId = "", exportPath = null, note = null } = {}) {
@@ -5161,8 +5297,12 @@ async function maybeEnqueueHeroReviewAutomationTask({
   const resolvedBatchId = await resolveAutomationBatchIdForReview(batchId);
   if (!resolvedBatchId) return null;
   const taskType = GENERATE_BATCH_TASK;
-  const approve = action === "approve_hero";
-  const regenerate = action === "regenerate_hero";
+  const approveHero = action === "approve_hero";
+  const regenerateHero = action === "regenerate_hero";
+  const approveStudioMaster = action === "approve_studio_master";
+  const regenerateStudioMaster = action === "regenerate_studio_master";
+  const approve = approveHero || approveStudioMaster;
+  const regenerate = regenerateHero || regenerateStudioMaster;
   const liveSupportRequested = approve &&
     isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
     !isDryRun("AI_GENERATION_DRY_RUN", true);
@@ -5172,6 +5312,8 @@ async function maybeEnqueueHeroReviewAutomationTask({
     isBooleanEnvEnabled("AI_GENERATION_LIVE_ENABLED") &&
     !isDryRun("AI_GENERATION_DRY_RUN", true);
   const liveHeroConfirmed = liveHeroRequested;
+  const generationPhase = generationPhaseForReviewAction(action);
+  const requestMode = requestModeForReviewAction(action);
   const task = await enqueueAutomationTask({
     taskType,
     batchId: resolvedBatchId,
@@ -5188,17 +5330,18 @@ async function maybeEnqueueHeroReviewAutomationTask({
       generation_id: generationId,
       actor_id: actorId || null,
       reason: reason || null,
-      generation_phase: approve ? "support_after_hero_approval" : "hero_regeneration_after_review",
-      request_mode: approve ? "support-only-after-approved-hero" : "hero-regeneration-only",
-      requires_approved_hero_anchor: approve,
+      generation_phase: generationPhase,
+      request_mode: requestMode,
+      requires_approved_hero_anchor: approveHero || approveStudioMaster,
+      requires_approved_studio_master_anchor: approveStudioMaster,
       auto_enqueue_live_support: approve,
-      auto_enqueue_live_hero: regenerate,
+      auto_enqueue_live_studio_master: approveHero,
+      auto_enqueue_live_hero: regenerateHero,
+      auto_enqueue_live_studio_master_regeneration: regenerateStudioMaster,
       live_generation_requested: liveSupportRequested || liveHeroRequested,
       live_generation_confirmed: liveSupportConfirmed || liveHeroConfirmed,
       dry_run: true,
-      completed_reason: approve
-        ? "Hero approved from review action; support generation plan can now attach reference plus approved hero anchor"
-        : "Hero regeneration requested from review action"
+      completed_reason: completedReasonForReviewAction(action)
     }
   });
 
@@ -5217,6 +5360,51 @@ async function maybeEnqueueHeroReviewAutomationTask({
     });
   }
   return task;
+}
+
+function isGenerationReviewAction(action) {
+  return [
+    "approve_hero",
+    "regenerate_hero",
+    "approve_studio_master",
+    "regenerate_studio_master"
+  ].includes(cleanOptionalString(action));
+}
+
+function isGenerationApprovalAction(action) {
+  return ["approve_hero", "approve_studio_master"].includes(cleanOptionalString(action));
+}
+
+function generationPhaseForReviewAction(action) {
+  if (action === "approve_hero") return "studio_master_after_hero_approval";
+  if (action === "approve_studio_master") return "support_after_studio_master_approval";
+  if (action === "regenerate_studio_master") return "studio_master_regeneration_after_review";
+  return "hero_regeneration_after_review";
+}
+
+function requestModeForReviewAction(action) {
+  if (action === "approve_hero") return "studio-master-after-approved-hero";
+  if (action === "approve_studio_master") return "support-only-after-approved-studio-master";
+  if (action === "regenerate_studio_master") return "studio-master-regeneration-only";
+  return "hero-regeneration-only";
+}
+
+function completedReasonForReviewAction(action) {
+  if (action === "approve_hero") {
+    return "Hero approved from review action; Studio Master generation can now attach approved hero anchor and product truth";
+  }
+  if (action === "approve_studio_master") {
+    return "Studio Master approved from review action; support generation can now use Hero plus Studio Master anchors";
+  }
+  if (action === "regenerate_studio_master") return "Studio Master regeneration requested from review action";
+  return "Hero regeneration requested from review action";
+}
+
+function nextStageForGenerationReviewAction(action) {
+  if (action === "approve_hero") return "studio_master_generation";
+  if (action === "approve_studio_master") return "support_generation";
+  if (action === "regenerate_studio_master") return "studio_master_regeneration";
+  return "hero_regeneration";
 }
 
 async function resolveAutomationBatchIdForReview(batchId) {
@@ -5256,7 +5444,7 @@ async function updateAutomationBatchItemFromReviewAction({
 
   const existingMetadata = isPlainObject(existingResult.data.metadata) ? existingResult.data.metadata : {};
   const recordedAt = new Date().toISOString();
-  const anchor = action === "approve_hero"
+  const heroAnchor = action === "approve_hero"
     ? buildApprovedHeroAnchor({
       generation: { id: generationId, job_id: jobId, image_asset_id: heroAsset?.id || heroAsset?.asset_id || null },
       asset: heroAsset || {},
@@ -5267,13 +5455,27 @@ async function updateAutomationBatchItemFromReviewAction({
       approvedAt: recordedAt
     })
     : null;
-  const metadata = mergeApprovedHeroAnchorMetadata(existingMetadata, anchor, {
+  const studioMasterAnchor = action === "approve_studio_master"
+    ? buildApprovedStudioMasterAnchor({
+      generation: { id: generationId, job_id: jobId, image_asset_id: heroAsset?.id || heroAsset?.asset_id || null },
+      asset: heroAsset || {},
+      approval: approval || {},
+      sku,
+      source,
+      actorId,
+      approvedAt: recordedAt
+    })
+    : null;
+  const metadata = mergeApprovedHeroAnchorMetadata(existingMetadata, heroAnchor, {
     actionSource: source,
     actorId,
     generationId,
     action,
     recordedAt
   });
+  if (studioMasterAnchor) {
+    metadata.approved_studio_master_anchor = studioMasterAnchor;
+  }
   if (reason) {
     metadata.web_review_action = {
       ...(isPlainObject(metadata.web_review_action) ? metadata.web_review_action : {}),
@@ -5705,7 +5907,9 @@ function lineAuditEventTypeForAction(action) {
     "approve_sku",
     "reject_sku",
     "approve_hero",
-    "regenerate_hero"
+    "regenerate_hero",
+    "approve_studio_master",
+    "regenerate_studio_master"
   ]);
   return allowed.has(action) ? `line_${action}` : "line_postback_received";
 }
@@ -5719,14 +5923,14 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
   let actionResult = { recorded: false, ignored: false };
 
   try {
-    if (action.action === "approve_hero" || action.action === "regenerate_hero") {
+    if (isGenerationReviewAction(action.action)) {
       const resolvedBatchId = await resolveAutomationBatchIdForReview(action.batchId);
       const generation = action.generationId
         ? await readGenerationForAutomationAction(action.generationId)
         : null;
       const actorId = resolveLineAutomationActorId() || generation?.created_by || "";
       let approvalResult = { approval: null, duplicate: false, error: null };
-      let heroAsset = null;
+      let generatedAsset = null;
       const blockers = [];
 
       if (!resolvedBatchId) blockers.push("automation_batch_not_found");
@@ -5734,8 +5938,8 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
       if (!generation) blockers.push("generation_not_found");
 
       if (generation) {
-        heroAsset = await readHeroAssetForGeneration(generation);
-        if (action.action === "approve_hero") {
+        generatedAsset = await readGeneratedAssetForReviewAction({ generation, action: action.action });
+        if (isGenerationApprovalAction(action.action)) {
           approvalResult = await ensureHeroApprovalRecord({ generation, actorId });
           if (approvalResult.error) blockers.push("approval_record_failed");
         }
@@ -5751,7 +5955,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           generationId: generation.id,
           actorId,
           approval: approvalResult.approval,
-          heroAsset,
+          heroAsset: generatedAsset,
           source: "line"
         });
       }
@@ -5770,7 +5974,7 @@ async function recordLineAutomationAction({ action, baseEventJson, eventType }) 
           duplicate: Boolean(approvalResult.duplicate),
           approvalId: approvalResult.approval?.id || null,
           taskId: task?.id || null,
-          nextStage: action.action === "approve_hero" ? "support_generation" : "hero_regeneration"
+          nextStage: nextStageForGenerationReviewAction(action.action)
         };
       await recordAuditEvent({
         actorId: null,
@@ -5984,7 +6188,7 @@ async function upsertAutomationBatchFromLineAction({ action, baseEventJson }) {
   const existingMetadata = isPlainObject(existingResult.data?.metadata)
     ? existingResult.data.metadata
     : {};
-  const isSkuAction = ["approve_sku", "reject_sku", "approve_hero", "regenerate_hero"].includes(action.action);
+  const isSkuAction = ["approve_sku", "reject_sku", "approve_hero", "regenerate_hero", "approve_studio_master", "regenerate_studio_master"].includes(action.action);
   const patch = {
     source: "line",
     status: isSkuAction
@@ -6111,6 +6315,8 @@ function automationBatchStatusForAction(action) {
   if (action === "reject_batch") return "rejected";
   if (action === "approve_hero") return "hero_reviewed";
   if (action === "regenerate_hero") return "needs_hero_regeneration";
+  if (action === "approve_studio_master") return "studio_master_reviewed";
+  if (action === "regenerate_studio_master") return "needs_studio_master_regeneration";
   return "received";
 }
 
@@ -6119,6 +6325,8 @@ function batchItemStatusForLineAction(action) {
   if (action === "reject_sku") return "rejected";
   if (action === "approve_hero") return "hero_approved";
   if (action === "regenerate_hero") return "needs_hero_regeneration";
+  if (action === "approve_studio_master") return "studio_master_approved";
+  if (action === "regenerate_studio_master") return "needs_studio_master_regeneration";
   return "received";
 }
 
@@ -6164,6 +6372,8 @@ async function replyLinePostbackAcknowledgement(replyToken, action, actionResult
     reject_batch: "Reject batch",
     approve_hero: "Approve hero",
     regenerate_hero: "Regenerate hero",
+    approve_studio_master: "Approve Studio Master",
+    regenerate_studio_master: "Regenerate Studio Master",
     approve_sku: "Approve SKU",
     reject_sku: "Reject SKU"
   };
@@ -6234,13 +6444,25 @@ function buildLinePostbackAcknowledgementLines({ action, actionLabel, batchLine,
 
   if (action.action === "approve_hero") {
     lines.push(actionResult.duplicate ? "Hero นี้ approve แล้ว ระบบใช้ approval เดิม" : "บันทึก Hero approval แล้ว");
-    lines.push("ขั้นถัดไปคือ Support generation ตาม gate rules");
+    lines.push("ขั้นถัดไปคือ Studio Master generation ตาม gate rules");
     return lines;
   }
 
   if (action.action === "regenerate_hero") {
     lines.push("บันทึกคำขอ Regenerate Hero แล้ว");
     lines.push("ขั้นถัดไปคือ Hero generation ใหม่ตาม gate rules");
+    return lines;
+  }
+
+  if (action.action === "approve_studio_master") {
+    lines.push(actionResult.duplicate ? "Studio Master นี้ approve แล้ว ระบบใช้ approval เดิม" : "บันทึก Studio Master approval แล้ว");
+    lines.push("ขั้นถัดไปคือ Support generation ตาม gate rules");
+    return lines;
+  }
+
+  if (action.action === "regenerate_studio_master") {
+    lines.push("บันทึกคำขอ Regenerate Studio Master แล้ว");
+    lines.push("ขั้นถัดไปคือ Studio Master generation ใหม่ตาม gate rules");
     return lines;
   }
 
@@ -7087,7 +7309,7 @@ async function recordGeneratedImageAsset(request, data) {
   const image = data?.images?.[0];
   if (!request?.dbJobId || !request?.userId || !image?.url) return null;
   const kind = cleanMetricValue(request.body?.jobKind || request.body?.kind, "hero").toLowerCase();
-  const type = kind === "hero" ? "hero_generated" : "support_generated";
+  const type = generatedAssetTypeForKind(kind);
   const fileName = fileNameFromUrl(image.url) || `${data.requestId || request.generationId || "generated-image"}.png`;
   const extension = extensionFromUrl(image.url) || path.extname(fileName).replace(".", "") || "png";
 
@@ -7102,7 +7324,7 @@ async function recordGeneratedImageAsset(request, data) {
     file_size: null,
     created_by: request.userId
   };
-  const storageKey = `jobs/${request.dbJobId}/generated/hero/${request.generationId || data.requestId || randomUUID()}.${extension}`;
+  const storageKey = `jobs/${request.dbJobId}/generated/${generatedStorageFolderForKind(kind)}/${request.generationId || data.requestId || randomUUID()}.${extension}`;
   const storagePayload = type === "hero_generated"
     ? await buildRemoteStorageAssetPayload({
       bucket: "generated-images",
@@ -7121,6 +7343,18 @@ async function recordGeneratedImageAsset(request, data) {
     generationId: request.generationId,
     eventType: "asset_recorded"
   });
+}
+
+function generatedAssetTypeForKind(kind = "") {
+  if (kind === "hero") return "hero_generated";
+  if (kind === "studio_master") return "studio_master_generated";
+  return "support_generated";
+}
+
+function generatedStorageFolderForKind(kind = "") {
+  if (kind === "studio_master") return "studio-master";
+  if (kind === "support") return "support";
+  return "hero";
 }
 
 async function recordApprovedExportAsset({ jobId, userId, fileName, extension, fileSize, approvedPath, drivePath, googleDriveFile }) {

@@ -4,6 +4,7 @@ import {
   PROMPT_FRAMEWORK_V3_VERSION,
   buildHeroPromptV3,
   buildProductIdentityV3,
+  buildStudioMasterPromptV3,
   buildSupportPromptV3,
   getSupportShotsV3,
   resolveModelPolicyV3,
@@ -110,6 +111,25 @@ test("support prompt stays short Thai hero-led slot output", () => {
   assert.ok(prompt.length < 900);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(prompt, /Use-case guidance|Change only the angle|กลุ่มเป้าหมาย|บริบทธุรกิจ/i);
+});
+
+test("studio master prompt creates a visible gallery anchor from approved Hero and product truth", () => {
+  const prompt = buildStudioMasterPromptV3({
+    sku: "2AF0015000",
+    product_name: "Fur Coat Fashion",
+    category: "เสื้อ",
+    approved_hero_anchor: { url: "https://cdn.example.com/hero.png" }
+  });
+
+  assert.match(prompt, /^อ้างอิงภาพหลักที่อนุมัติแล้วและภาพสินค้าจริง/);
+  assert.match(prompt, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
+  assert.match(prompt, /Reference Image 2 เป็นต้นไปคือภาพสินค้าจริง/);
+  assert.match(prompt, /สร้างภาพ Studio Master สำหรับหน้าสินค้า/);
+  assert.match(prompt, /สวยพอใช้ใน gallery เว็บไซต์/);
+  assert.match(prompt, /ใช้คนเดิมจากภาพหลัก/);
+  assert.match(prompt, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
+  assert.match(prompt, /ไม่ต้องทำ collage/);
+  assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
 });
 
 test("back support prompt blocks mannequin drift and prioritizes original back reference", () => {

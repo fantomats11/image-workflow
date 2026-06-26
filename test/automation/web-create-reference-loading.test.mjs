@@ -36,12 +36,24 @@ test("manual create auto-uses catalog references for one-click Hero generation",
   assert.doesNotMatch(appJs, /กดใช้ reference จาก catalog\/Drive กับ Hero/);
 });
 
-test("manual support generation sends approved Hero plus staged product references", () => {
+test("manual support generation sends Studio Master plus approved Hero and staged product references", () => {
   assert.match(appJs, /function getSupportGenerationImageUrls\(\)/);
+  assert.match(appJs, /function getOrderedSupportGenerationImageUrls\(shot = ""\)/);
   assert.match(appJs, /approvedHeroImageUrl/);
+  assert.match(appJs, /approvedStudioMasterImageUrl/);
   assert.match(appJs, /selectedCatalogReferences[\s\S]*generation_url/);
-  assert.match(appJs, /buildGenerateFormData\(prompt, getSupportGenerationImageUrls\(\)/);
+  assert.match(appJs, /buildGenerateFormData\(prompt, getOrderedSupportGenerationImageUrls\(shot\)/);
   assert.doesNotMatch(appJs, /buildGenerateFormData\(prompt, \[approvedHeroImageUrl\]/);
+});
+
+test("manual Studio Master stage gates support generation", () => {
+  assert.match(indexHtml, /id="studioMaster"/);
+  assert.match(indexHtml, /id="generateStudioMasterButton"/);
+  assert.match(indexHtml, /id="approveStudioMasterButton"/);
+  assert.match(appJs, /function generateStudioMaster\(options = {}\)/);
+  assert.match(appJs, /function approveStudioMaster\(\)/);
+  assert.match(appJs, /function canGenerateSupport\(\)[\s\S]*approvedStudioMasterImageUrl/);
+  assert.match(appJs, /ต้องสร้างและอนุมัติ Studio Master ก่อนสร้างภาพเสริม/);
 });
 
 test("server resolves catalog references automatically when requested by create flow", () => {

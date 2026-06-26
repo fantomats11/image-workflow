@@ -72,6 +72,48 @@ test("buildLiveGenerationPersistencePlan maps execution assets to product contex
   assert.equal(plan.items[0].prompt, "Create hero image");
 });
 
+test("buildLiveGenerationPersistencePlan preserves Studio Master kind slot and type", () => {
+  const sourcePlan = generationPlan();
+  sourcePlan.items[0].generation_requests.push({
+    request_id: "RAC-001:studio_master",
+    sku: "RAC-001",
+    kind: "studio_master",
+    slot: "studio_master",
+    model: "openai/gpt-image-2/edit",
+    prompt: "Create Studio Master",
+    prompt_framework_version: "prompt-framework-v3.15-hero-led-product-marking-lock"
+  });
+  const sourceExecution = execution();
+  sourceExecution.results = [{
+    request_id: "RAC-001:studio_master",
+    sku: "RAC-001",
+    kind: "studio_master",
+    slot: "studio_master",
+    execution_status: "done",
+    provider_request_id: "provider-studio-master",
+    generated_assets: [{
+      sku: "RAC-001",
+      kind: "studio_master",
+      slot: "studio_master",
+      source_url: "https://cdn.example.com/studio-master.png",
+      file_name: "studio-master.png",
+      mime_type: "image/png",
+      image_index: 1
+    }]
+  }];
+
+  const plan = buildLiveGenerationPersistencePlan({
+    execution: sourceExecution,
+    generationPlan: sourcePlan,
+    dryRun: true
+  });
+
+  assert.equal(plan.items[0].kind, "studio_master");
+  assert.equal(plan.items[0].slot, "studio_master");
+  assert.equal(plan.items[0].type, "studio_master_generated");
+  assert.equal(plan.items[0].prompt, "Create Studio Master");
+});
+
 test("buildLiveGenerationPersistencePlan blocks assets without source url", () => {
   const sourceExecution = execution();
   sourceExecution.results[0].generated_assets[0].source_url = "";

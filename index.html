@@ -109,9 +109,8 @@
                 <h3 id="request">เลือกสินค้าและรูปอ้างอิง</h3>
                 <div class="create-brief-steps" aria-label="ลำดับงานสร้างภาพ">
                   <span>เลือกสินค้า</span>
-                  <span>เตรียมรูป</span>
-                  <span>สร้างภาพหลัก</span>
-                  <span>ตรวจภาพ</span>
+                  <span>ภาพหลัก</span>
+                  <span>Studio Master</span>
                   <span>ภาพเสริม</span>
                   <span>พร้อมลงเว็บ</span>
                 </div>
@@ -167,8 +166,9 @@
                     <li><span>02</span><strong>เตรียมรูป</strong></li>
                     <li><span>03</span><strong>สร้างภาพหลัก</strong></li>
                     <li><span>04</span><strong>ตรวจภาพหลัก</strong></li>
-                    <li><span>05</span><strong>ทำภาพเสริม</strong></li>
-                    <li><span>06</span><strong>พร้อมส่งต่อเว็บ</strong></li>
+                    <li><span>05</span><strong>Studio Master</strong></li>
+                    <li><span>06</span><strong>ทำภาพเสริม</strong></li>
+                    <li><span>07</span><strong>พร้อมส่งต่อเว็บ</strong></li>
                   </ol>
                 </div>
               </aside>
@@ -226,6 +226,39 @@
                     </div>
                     <button class="ghost-button compact" type="button" id="copyButton">คัดลอกคำสั่ง</button>
                   </details>
+                </section>
+
+                <section class="panel preview-panel studio-master-panel" id="studioMaster">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="eyebrow">ภาพ Studio สำหรับแกลเลอรี</p>
+                      <h3>Studio Master</h3>
+                    </div>
+                    <span class="workflow-status" id="studioMasterStatus">ยังไม่ได้สร้าง</span>
+                  </div>
+
+                  <p class="panel-helper">ใช้ภาพนี้เป็นรูปแกลเลอรีลำดับแรกหลังภาพหลัก และเป็นตัวล็อกแสง ฉาก และความต่อเนื่องก่อนสร้างภาพเสริม</p>
+
+                  <div class="studio-canvas studio-master-canvas">
+                    <div class="result-card" id="studioMasterCard" hidden>
+                      <div class="result-toolbar">
+                        <strong>Studio Master candidate</strong>
+                        <button class="primary-button compact" type="button" id="approveStudioMasterButton">อนุมัติ Studio Master</button>
+                      </div>
+                      <img id="studioMasterImage" alt="ภาพ Studio Master ที่ระบบสร้าง" />
+                      <p id="studioMasterMessage">รอตรวจ Studio Master</p>
+                    </div>
+
+                    <div class="empty-hero" id="studioMasterEmpty">
+                      <strong>ยังไม่มี Studio Master</strong>
+                      <span>อนุมัติภาพหลักและตรวจครบ 7/7 แล้วกดสร้าง Studio Master</span>
+                    </div>
+                  </div>
+
+                  <div class="actions support-actions studio-master-actions">
+                    <button class="secondary-button" type="button" id="generateStudioMasterButton">สร้าง Studio Master</button>
+                    <button class="ghost-button" type="button" id="rerunStudioMasterButton">สร้างใหม่</button>
+                  </div>
                 </section>
 
                 <section class="panel workflow-card" id="workflow">

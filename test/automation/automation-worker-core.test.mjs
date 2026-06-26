@@ -126,9 +126,11 @@ test("worker core can hydrate generate_batch media manifest for LINE-approved su
   const plan = completed[0].result.generation_plan;
   assert.equal(auditEvents[0].eventType, "pilot_generation_execution_plan_completed");
   assert.equal(plan.summary.pending_hero_approval_for_support, 0);
-  assert.equal(plan.summary.blocked_generation_requests, 0);
+  assert.equal(plan.summary.pending_studio_master_approval_for_support, 1);
+  assert.equal(plan.summary.blocked_generation_requests, 1);
   assert.equal(plan.items[0].support_requires_hero_approval, false);
-  assert.equal(plan.items[0].generation_requests[0].kind, "support");
+  assert.equal(plan.items[0].support_requires_studio_master_approval, true);
+  assert.equal(plan.items[0].generation_requests[0].kind, "studio_master");
   assert.equal(plan.items[0].generation_requests[0].model_input_files[0].source_name, "approved_hero_anchor");
 });
 
@@ -286,6 +288,7 @@ test("worker core hydrates WordPress media mapping preflight from media export g
           gate_status: "ready_for_export_preflight",
           media_assets: [
             { sku: "SKU001", type: "hero_generated", shot_key: "hero", status: "approved", url: "https://cdn.example.test/hero.png" },
+            { sku: "SKU001", type: "studio_master_generated", shot_key: "studio_master", status: "approved", url: "https://cdn.example.test/studio-master.png" },
             { sku: "SKU001", type: "support_generated", shot_key: "front_view", status: "approved", url: "https://cdn.example.test/front.png" },
             { sku: "SKU001", type: "support_generated", shot_key: "back_view", status: "approved", url: "https://cdn.example.test/back.png" }
           ]
@@ -298,9 +301,9 @@ test("worker core hydrates WordPress media mapping preflight from media export g
   });
 
   assert.equal(completed[0].result.preflight.summary.ready_for_media_proposal, 1);
-  assert.equal(completed[0].result.preflight.summary.media_assets_matched, 3);
+  assert.equal(completed[0].result.preflight.summary.media_assets_matched, 4);
   assert.equal(completed[0].result.preflight.items[0].media_status, "ready_for_media_proposal");
-  assert.equal(completed[0].result.preflight.items[0].proposed_gallery_images.length, 2);
+  assert.equal(completed[0].result.preflight.items[0].proposed_gallery_images.length, 3);
   assert.equal(queued[0].taskType, "wordpress_media_attach_confirmation_gate");
   assert.equal(queued[0].payload.media_preflight.summary.ready_for_media_proposal, 1);
   assert.equal(queued[0].payload.requires_final_confirmation, true);
@@ -819,10 +822,10 @@ test("worker core enqueues live support execution after approved hero plan", asy
   assert.equal(completed.length, 1);
   assert.equal(enqueued.length, 1);
   assert.equal(enqueued[0].taskType, "live_pilot_generation_execution");
-  assert.equal(enqueued[0].payload.action, "generate_support_after_hero_approval");
+  assert.equal(enqueued[0].payload.action, "generate_studio_master_after_hero_approval");
   assert.equal(enqueued[0].payload.live_generation_gate.live_generation_allowed, true);
   assert.equal(enqueued[0].payload.live_generation_gate.requests.length, 1);
-  assert.equal(enqueued[0].payload.generation_plan.items[0].generation_requests[0].kind, "support");
+  assert.equal(enqueued[0].payload.generation_plan.items[0].generation_requests[0].kind, "studio_master");
 });
 
 test("worker core enqueues live hero regeneration after regenerate hero review action", async () => {

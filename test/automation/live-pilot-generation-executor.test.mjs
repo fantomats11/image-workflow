@@ -93,6 +93,28 @@ test("executeLivePilotGenerationGate runs provider when live gate and confirmati
   assert.equal(execution.results[1].generated_assets[0].type, "support_generated");
 });
 
+test("executeLivePilotGenerationGate records Studio Master generated asset type", async () => {
+  const execution = await executeLivePilotGenerationGate({
+    gate: gate({
+      gate_status: "live_generation_armed",
+      live_generation_allowed: true,
+      requests: [request("RAC-001:studio_master", "studio_master", "studio_master")]
+    }),
+    liveRequested: true,
+    liveConfirmed: true,
+    env: { AI_GENERATION_LIVE_ENABLED: "true", FAL_KEY: "set" },
+    providerGenerate: async () => ({
+      provider_request_id: "provider-studio-master",
+      images: [{ url: "https://example.com/studio-master.png", file_name: "studio-master.png" }]
+    })
+  });
+
+  assert.equal(execution.summary.generated_assets, 1);
+  assert.equal(execution.results[0].generated_assets[0].kind, "studio_master");
+  assert.equal(execution.results[0].generated_assets[0].slot, "studio_master");
+  assert.equal(execution.results[0].generated_assets[0].type, "studio_master_generated");
+});
+
 test("executeLivePilotGenerationGate records provider failures without aborting the batch", async () => {
   const execution = await executeLivePilotGenerationGate({
     gate: armedGate(),

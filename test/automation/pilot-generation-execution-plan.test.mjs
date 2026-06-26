@@ -35,8 +35,10 @@ test("buildPilotGenerationExecutionPlan creates hero first and blocks support un
   assert.equal(plan.summary.ready_for_live_generation, 0);
   assert.equal(plan.summary.blocked_generation_requests, 2);
   assert.equal(plan.summary.pending_hero_approval_for_support, 2);
+  assert.equal(plan.summary.pending_studio_master_approval_for_support, 2);
   assert.equal(plan.items[0].generation_status, "partially_ready_for_live_generation");
   assert.equal(plan.items[0].support_requires_hero_approval, true);
+  assert.equal(plan.items[0].support_requires_studio_master_approval, true);
   assert.equal(plan.items[0].generation_requests[0].kind, "hero");
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
   assert.equal(plan.items[0].generation_requests[0].prompt_framework_version, PROMPT_FRAMEWORK_V3_VERSION);
@@ -48,7 +50,10 @@ test("buildPilotGenerationExecutionPlan creates hero first and blocks support un
   assert.equal(plan.items[0].generation_requests[0].model_policy.presence, "required");
   assert.equal(plan.items[0].generation_requests[0].model_policy.source, "generated_no_reference_required");
   assert.match(plan.items[0].generation_requests[1].prompt, /มุมด้านหน้า/);
-  assert.deepEqual(plan.items[0].generation_requests[1].blockers, ["support_requires_approved_hero_anchor"]);
+  assert.deepEqual(plan.items[0].generation_requests[1].blockers, [
+    "support_requires_approved_hero_anchor",
+    "support_requires_approved_studio_master_anchor"
+  ]);
 });
 
 test("buildPilotGenerationExecutionPlan rebuilds stale hero prompts from older framework versions", () => {
@@ -183,19 +188,34 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
       }]
     },
     mediaManifest: {
-      assets: [{
-        id: "asset-hero-approved",
-        sku: "GM-004",
-        type: "hero_generated",
-        kind: "hero",
-        shot_key: "hero",
-        status: "approved",
-        url: "https://cdn.example.com/hero.png",
-        local_path: "/tmp/GM-004/hero.png",
-        file_name: "hero.png",
-        file_size: 20,
-        approval_id: "approval-1"
-      }]
+      assets: [
+        {
+          id: "asset-hero-approved",
+          sku: "GM-004",
+          type: "hero_generated",
+          kind: "hero",
+          shot_key: "hero",
+          status: "approved",
+          url: "https://cdn.example.com/hero.png",
+          local_path: "/tmp/GM-004/hero.png",
+          file_name: "hero.png",
+          file_size: 20,
+          approval_id: "approval-1"
+        },
+        {
+          id: "asset-studio-approved",
+          sku: "GM-004",
+          type: "studio_master_generated",
+          kind: "studio_master",
+          shot_key: "studio_master",
+          status: "approved",
+          url: "https://cdn.example.com/studio-master.png",
+          local_path: "/tmp/GM-004/studio-master.png",
+          file_name: "studio-master.png",
+          file_size: 22,
+          approval_id: "approval-studio"
+        }
+      ]
     }
   });
 
@@ -206,18 +226,156 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
   const support = plan.items[0].generation_requests[0];
   assert.equal(support.kind, "support");
   assert.equal(support.request_status, "ready_for_live_generation");
-  assert.equal(support.model_input_files.length, 2);
+  assert.equal(support.model_input_files.length, 3);
   assert.equal(support.model_input_files[0].source_name, "approved_hero_anchor");
   assert.equal(support.model_input_files[0].source_role, "approved_hero_anchor");
   assert.equal(support.model_input_files[0].local_path, "/tmp/GM-004/hero.png");
-  assert.equal(support.model_input_files[1].source_name, "GM-004_front.jpg");
-  assert.equal(support.model_input_files[1].source_role, "product_reference");
-  assert.equal(support.model_input_files[1].local_path, "/tmp/GM-004/front.jpg");
-  assert.match(support.prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว/);
+  assert.equal(support.model_input_files[1].source_name, "approved_studio_master_anchor");
+  assert.equal(support.model_input_files[1].source_role, "approved_studio_master_anchor");
+  assert.equal(support.model_input_files[1].local_path, "/tmp/GM-004/studio-master.png");
+  assert.equal(support.model_input_files[2].source_name, "GM-004_front.jpg");
+  assert.equal(support.model_input_files[2].source_role, "product_reference");
+  assert.equal(support.model_input_files[2].local_path, "/tmp/GM-004/front.jpg");
+  assert.match(support.prompt, /^อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว/);
+  assert.match(support.prompt, /Reference Image 2 คือ Studio Master/);
   assert.match(support.prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
   assert.match(support.prompt, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
   assert.doesNotMatch(support.prompt, /approved hero/i);
   assert.doesNotMatch(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
+});
+
+test("buildPilotGenerationExecutionPlan inserts Studio Master between approved Hero and support", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: { id: "task-studio-master", task_type: "generate_batch", batch_id: "batch-1" },
+    batchItems: [{
+      sku: "GM-STUDIO-001",
+      brand_id: "go_mall",
+      target_site: "gomall",
+      product_name: "Fur Coat Fashion",
+      product_type: "sale",
+      category: "เสื้อ",
+      reference_url: "https://drive.google.com/drive/folders/folder-studio",
+      support_shots: "side_fit_on_model|material_or_lining_closeup"
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "GM-STUDIO-001",
+        staged_reference_assets: [{
+          source_name: "GM-STUDIO-001_front.jpg",
+          local_path: "/tmp/GM-STUDIO-001/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "front-sha",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    },
+    mediaManifest: {
+      assets: [{
+        id: "asset-hero-approved",
+        sku: "GM-STUDIO-001",
+        type: "hero_generated",
+        kind: "hero",
+        shot_key: "hero",
+        status: "approved",
+        url: "https://cdn.example.com/hero.png",
+        local_path: "/tmp/GM-STUDIO-001/hero.png",
+        file_name: "hero.png",
+        file_size: 20,
+        approval_id: "approval-hero"
+      }]
+    }
+  });
+
+  assert.deepEqual(plan.items[0].generation_requests.map((request) => request.kind), [
+    "studio_master",
+    "support",
+    "support"
+  ]);
+  const studio = plan.items[0].generation_requests[0];
+  assert.equal(studio.slot, "studio_master");
+  assert.equal(studio.request_status, "ready_for_live_generation");
+  assert.equal(studio.model_input_files[0].source_role, "approved_hero_anchor");
+  assert.match(studio.prompt, /สร้างภาพ Studio Master สำหรับหน้าสินค้า/);
+  const support = plan.items[0].generation_requests[1];
+  assert.equal(support.request_status, "blocked_before_live_generation");
+  assert.ok(support.blockers.includes("support_requires_approved_studio_master_anchor"));
+});
+
+test("buildPilotGenerationExecutionPlan uses approved Studio Master as support anchor when available", () => {
+  const plan = buildPilotGenerationExecutionPlan({
+    task: { id: "task-studio-anchor", task_type: "generate_batch", batch_id: "batch-1" },
+    batchItems: [{
+      sku: "GM-STUDIO-002",
+      brand_id: "go_mall",
+      target_site: "gomall",
+      product_name: "Fur Coat Fashion",
+      product_type: "sale",
+      category: "เสื้อ",
+      reference_url: "https://drive.google.com/drive/folders/folder-studio",
+      support_shots: "side_fit_on_model|material_or_lining_closeup"
+    }],
+    modelInputStagingManifest: {
+      items: [{
+        sku: "GM-STUDIO-002",
+        staged_reference_assets: [{
+          source_name: "GM-STUDIO-002_front.jpg",
+          local_path: "/tmp/GM-STUDIO-002/front.jpg",
+          file_name: "front.jpg",
+          file_size: 10,
+          sha256: "front-sha",
+          staging_status: "staged_local_file"
+        }]
+      }]
+    },
+    mediaManifest: {
+      assets: [
+        {
+          id: "asset-hero-approved",
+          sku: "GM-STUDIO-002",
+          type: "hero_generated",
+          kind: "hero",
+          shot_key: "hero",
+          status: "approved",
+          url: "https://cdn.example.com/hero.png",
+          local_path: "/tmp/GM-STUDIO-002/hero.png",
+          file_name: "hero.png",
+          file_size: 20,
+          approval_id: "approval-hero"
+        },
+        {
+          id: "asset-studio-approved",
+          sku: "GM-STUDIO-002",
+          type: "studio_master_generated",
+          kind: "studio_master",
+          shot_key: "studio_master",
+          status: "approved",
+          url: "https://cdn.example.com/studio-master.png",
+          local_path: "/tmp/GM-STUDIO-002/studio-master.png",
+          file_name: "studio-master.png",
+          file_size: 22,
+          approval_id: "approval-studio"
+        }
+      ]
+    }
+  });
+
+  assert.deepEqual(plan.items[0].skipped_existing_slots.map((slot) => slot.slot), ["hero", "studio_master"]);
+  assert.equal(plan.items[0].generation_requests.every((request) => request.kind === "support"), true);
+  const modelShot = plan.items[0].generation_requests[0];
+  assert.deepEqual(modelShot.model_input_files.slice(0, 3).map((input) => input.source_role), [
+    "approved_hero_anchor",
+    "approved_studio_master_anchor",
+    "product_reference"
+  ]);
+  const detailShot = plan.items[0].generation_requests[1];
+  assert.deepEqual(detailShot.model_input_files.slice(0, 3).map((input) => input.source_role), [
+    "approved_studio_master_anchor",
+    "approved_hero_anchor",
+    "product_reference"
+  ]);
+  assert.match(modelShot.prompt, /Reference Image 2 คือ Studio Master/);
+  assert.match(detailShot.prompt, /Reference Image 1 คือ Studio Master/);
 });
 
 test("buildPilotGenerationExecutionPlan accepts metadata reference images as reference source", () => {
@@ -256,19 +414,34 @@ test("buildPilotGenerationExecutionPlan accepts metadata reference images as ref
       }]
     },
     mediaManifest: {
-      assets: [{
-        id: "asset-hero-approved",
-        sku: "GM-005",
-        type: "hero_generated",
-        kind: "hero",
-        shot_key: "hero",
-        status: "approved",
-        url: "https://cdn.example.com/hero.png",
-        local_path: "/tmp/GM-005/hero.png",
-        file_name: "hero.png",
-        file_size: 20,
-        approval_id: "approval-1"
-      }]
+      assets: [
+        {
+          id: "asset-hero-approved",
+          sku: "GM-005",
+          type: "hero_generated",
+          kind: "hero",
+          shot_key: "hero",
+          status: "approved",
+          url: "https://cdn.example.com/hero.png",
+          local_path: "/tmp/GM-005/hero.png",
+          file_name: "hero.png",
+          file_size: 20,
+          approval_id: "approval-1"
+        },
+        {
+          id: "asset-studio-approved",
+          sku: "GM-005",
+          type: "studio_master_generated",
+          kind: "studio_master",
+          shot_key: "studio_master",
+          status: "approved",
+          url: "https://cdn.example.com/studio-master.png",
+          local_path: "/tmp/GM-005/studio-master.png",
+          file_name: "studio-master.png",
+          file_size: 22,
+          approval_id: "approval-studio"
+        }
+      ]
     }
   });
 
@@ -586,7 +759,10 @@ test("buildPilotGenerationExecutionPlan marks staged local model inputs ready fo
   assert.equal(plan.items[0].generation_requests[0].model_input_files[0].local_path, "/tmp/GM-003/front.jpg");
   assert.equal(plan.items[0].generation_requests[0].kind, "hero");
   assert.equal(plan.items[0].generation_requests[0].request_status, "ready_for_live_generation");
-  assert.deepEqual(plan.items[0].generation_requests[1].blockers, ["support_requires_approved_hero_anchor"]);
+  assert.deepEqual(plan.items[0].generation_requests[1].blockers, [
+    "support_requires_approved_hero_anchor",
+    "support_requires_approved_studio_master_anchor"
+  ]);
 });
 
 test("buildPilotGenerationExecutionPlan obeys regenerate hero review action even when a hero asset exists", () => {
@@ -726,11 +902,19 @@ test("buildPilotGenerationExecutionPlan creates default support requests after h
 
   assert.equal(plan.review_action, "approve_hero");
   assert.equal(plan.summary.hero_requests, 0);
+  assert.equal(plan.summary.studio_master_requests, 1);
   assert.equal(plan.summary.support_requests, 3);
-  assert.equal(plan.summary.blocked_generation_requests, 0);
+  assert.equal(plan.summary.blocked_generation_requests, 3);
   assert.equal(plan.items[0].generation_status, "not_selected_for_review_action");
   assert.deepEqual(plan.items[1].support_shots, ["side_fit_on_model", "back_fit_on_model", "material_or_lining_closeup"]);
-  assert.equal(plan.items[1].generation_status, "ready_for_live_generation");
-  assert.equal(plan.items[1].generation_requests.every((request) => request.kind === "support"), true);
+  assert.equal(plan.items[1].generation_status, "partially_ready_for_live_generation");
+  assert.deepEqual(plan.items[1].generation_requests.map((request) => request.kind), [
+    "studio_master",
+    "support",
+    "support",
+    "support"
+  ]);
+  assert.equal(plan.items[1].generation_requests[0].request_status, "ready_for_live_generation");
   assert.equal(plan.items[1].generation_requests[0].model_input_files[0].source_name, "approved_hero_anchor");
+  assert.equal(plan.items[1].generation_requests[1].blockers.includes("support_requires_approved_studio_master_anchor"), true);
 });
