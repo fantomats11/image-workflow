@@ -6,6 +6,7 @@ import path from "node:path";
 const appJs = fs.readFileSync(path.resolve("app.js"), "utf8");
 const serverJs = fs.readFileSync(path.resolve("server.mjs"), "utf8");
 const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
+const stylesCss = fs.readFileSync(path.resolve("styles.css"), "utf8");
 const driveStagingBridgeJs = fs.readFileSync(path.resolve("lib/automation/drive-reference-staging-bridge.mjs"), "utf8");
 
 test("manual create reference panel distinguishes Drive loading from SKU search", () => {
@@ -125,6 +126,26 @@ test("Next Actions is the production home and create remains a visible work path
   assert.match(appJs, /#next/);
   assert.match(appJs, /page === "next"/);
   assert.match(appJs, /return pageMeta\[page\] \? page : "create";/);
+});
+
+test("WordPress handoff borrows demo duplicate and destination-link cues", () => {
+  assert.match(appJs, /function getWordPressHandoffModel\(job = \{\}\)/);
+  assert.match(appJs, /function renderWordPressHandoffCard/);
+  assert.match(appJs, /สินค้านี้เคยลง WordPress แล้ว/);
+  assert.match(appJs, /เปิดสินค้าบน WordPress/);
+  assert.match(appJs, /ไฟล์ภาพพร้อมส่งต่อเว็บ/);
+  assert.match(appJs, /เปิดไฟล์ภาพปลายทาง/);
+  assert.match(appJs, /card\.key === "wordpress_ready" \? getWordPressHandoffModel\(firstJob\) : null/);
+  assert.match(stylesCss, /\.wordpress-handoff-card/);
+  assert.match(stylesCss, /\.wordpress-handoff-card\.warning/);
+  assert.match(stylesCss, /\.wordpress-handoff-links a/);
+});
+
+test("AI rate limits surface as recoverable work messages", () => {
+  assert.match(appJs, /429\|rate\.\?limit\|too many requests\|quota\|ถี่เกินไป/);
+  assert.match(appJs, /ระบบเรียกใช้งาน AI ถี่เกินไป กรุณารอสักครู่แล้วกดทำงานต่ออีกครั้ง/);
+  assert.match(appJs, /response\.status === 429/);
+  assert.match(appJs, /ระบบเรียกใช้งาน AI หรือ API ถี่เกินไป กรุณารอสักครู่แล้วลองใหม่/);
 });
 
 test("reference panel shows Drive source and only auto-uses stageable images", () => {

@@ -7451,6 +7451,57 @@ button {
   font-size: 12px;
 }
 
+.wordpress-handoff-card {
+  display: grid;
+  gap: 6px;
+  margin-block: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in oklab, var(--prod-teal), white 68%);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(232, 249, 247, 0.92), rgba(255, 255, 255, 0.86));
+  color: var(--prod-ink);
+}
+
+.wordpress-handoff-card.warning {
+  border-color: color-mix(in oklab, var(--prod-amber), white 54%);
+  background: linear-gradient(180deg, rgba(255, 245, 219, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.wordpress-handoff-card.ok {
+  border-color: color-mix(in oklab, var(--prod-green), white 58%);
+  background: linear-gradient(180deg, rgba(230, 248, 238, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.wordpress-handoff-card strong {
+  font-size: 12px;
+}
+
+.wordpress-handoff-card span {
+  color: var(--prod-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.wordpress-handoff-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wordpress-handoff-links a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 30px;
+  padding: 6px 9px;
+  border: 1px solid rgba(22, 98, 103, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--prod-teal);
+  font-size: 11px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
 .production-flow-board {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
   gap: 10px !important;

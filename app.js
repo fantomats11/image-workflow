@@ -1146,6 +1146,9 @@ function getActionErrorMessage(error, fallback = "เกิดข้อผิด
   const message = getSafeAuthErrorMessage(error);
   if (/session|jwt|auth|login|เซสชัน|เข้าสู่ระบบ/i.test(message)) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
   if (/permission|forbidden|403|สิทธิ์|active/i.test(message)) return "บัญชีนี้ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+  if (/429|rate.?limit|too many requests|quota|ถี่เกินไป/i.test(message)) {
+    return "ระบบเรียกใช้งาน AI ถี่เกินไป กรุณารอสักครู่แล้วกดทำงานต่ออีกครั้ง";
+  }
   return message || fallback;
 }
 
@@ -2380,6 +2383,9 @@ async function readJsonResponse(response, fallbackMessage) {
 function getApiErrorMessage(response, data, fallback = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง") {
   if (response.status === 401) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
   if (response.status === 403) return "บัญชีนี้ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+  if (response.status === 429) {
+    return data?.error || "ระบบเรียกใช้งาน AI หรือ API ถี่เกินไป กรุณารอสักครู่แล้วลองใหม่";
+  }
   return data?.error || fallback;
 }
 
@@ -5000,6 +5006,7 @@ function renderNextActionCard(card) {
   const skuLabel = firstJob.sku ? `SKU ${firstJob.sku}` : `งาน ${firstJob.shortId || shortId(firstJob.id) || "-"}`;
   const productLabel = firstJob.productName || firstJob.product_name || firstJob.sku || "ยังไม่มีชื่อสินค้า";
   const previewJobs = card.jobs.slice(0, 3);
+  const handoff = card.key === "wordpress_ready" ? getWordPressHandoffModel(firstJob) : null;
   return `
     <article class="next-action-card ${escapeHtml(card.tone)}">
       <div class="next-action-card-header">
@@ -5026,6 +5033,7 @@ function renderNextActionCard(card) {
           `).join("")}
         </ul>
       ` : ""}
+      ${handoff ? renderWordPressHandoffCard(handoff, { compact: true }) : ""}
       <a class="primary-button compact next-action-button" href="${escapeHtml(card.href || "#jobs")}">ไปทำงานนี้</a>
     </article>
   `;
@@ -5115,6 +5123,91 @@ function isWordPressPreparationReady(job = {}) {
   return hasDriveExport ||
     isMediaPreflightReady(job) ||
     /ready|proposal|preflight|mapped|completed/.test(preflightStatus);
+}
+
+function getWordPressPublishedUrl(job = {}) {
+  return safeUrlValue(
+    job.wpPostUrl ||
+    job.wp_post_url ||
+    job.wordpressPostUrl ||
+    job.wordpress_post_url ||
+    job.postUrl ||
+    job.post_url ||
+    job.workflow?.item?.wordpress_post_url ||
+    ""
+  );
+}
+
+function getJobExportUrl(job = {}) {
+  return safeUrlValue(job.exportUrl || job.export_url || "");
+}
+
+function safeUrlValue(value = "") {
+  const text = String(value || "").trim();
+  return /^https?:\/\//i.test(text) ? text : "";
+}
+
+function getWordPressHandoffModel(job = {}) {
+  const publishedUrl = getWordPressPublishedUrl(job);
+  const exportUrl = getJobExportUrl(job);
+  const preflightStatus = String(job.mediaPreflightStatus || job.wordpressPreflightStatus || job.workflow?.item?.preflight_status || "").toLowerCase();
+  const reviewHref = buildJobReviewHref(job);
+  if (publishedUrl) {
+    return {
+      tone: "warning",
+      title: "สินค้านี้เคยลง WordPress แล้ว",
+      body: "ตรวจสินค้าปลายทางก่อนสร้างซ้ำ เพื่อไม่ให้ WooCommerce มีรายการซ้อน",
+      links: [
+        { href: publishedUrl, label: "เปิดสินค้าบน WordPress", external: true },
+        exportUrl ? { href: exportUrl, label: "เปิดไฟล์ภาพปลายทาง", external: true } : null
+      ].filter(Boolean)
+    };
+  }
+  if (exportUrl) {
+    return {
+      tone: "ok",
+      title: "ไฟล์ภาพพร้อมส่งต่อเว็บ",
+      body: "เปิดไฟล์ปลายทางเพื่อตรวจชุดภาพ แล้วใช้เป็นข้อมูลสำหรับ WordPress preflight/proposal",
+      links: [
+        { href: exportUrl, label: "เปิดไฟล์ภาพปลายทาง", external: true },
+        reviewHref ? { href: reviewHref, label: "กลับไปดูหน้าตรวจ", external: false } : null
+      ].filter(Boolean)
+    };
+  }
+  if (/ready|proposal|preflight|mapped|completed/.test(preflightStatus) || isMediaPreflightReady(job)) {
+    return {
+      tone: "info",
+      title: "พร้อมทำ WordPress preflight",
+      body: "ภาพผ่านครบแล้ว ขั้นถัดไปคือตรวจข้อมูลสินค้า/ไฟล์ภาพก่อนส่งเข้า WordPress",
+      links: [
+        reviewHref ? { href: reviewHref, label: "เปิดหน้าตรวจ", external: false } : null,
+        { href: "#monitoring", label: "ดูสถานะ preflight", external: false }
+      ].filter(Boolean)
+    };
+  }
+  return {
+    tone: "info",
+    title: "รอข้อมูลก่อนส่งต่อเว็บ",
+    body: "ตรวจภาพและไฟล์ปลายทางให้ครบก่อนเริ่ม WordPress handoff",
+    links: reviewHref ? [{ href: reviewHref, label: "เปิดหน้าตรวจ", external: false }] : []
+  };
+}
+
+function renderWordPressHandoffCard(handoff = {}, { compact = false } = {}) {
+  return `
+    <div class="wordpress-handoff-card ${escapeHtml(handoff.tone || "info")} ${compact ? "compact" : ""}">
+      <strong>${escapeHtml(handoff.title || "WordPress handoff")}</strong>
+      <span>${escapeHtml(handoff.body || "")}</span>
+      ${handoff.links?.length ? `
+        <div class="wordpress-handoff-links">
+          ${handoff.links.map((link) => link.external
+            ? `<a href="${escapeHtml(link.href)}" target="_blank" rel="noopener">${escapeHtml(link.label)}</a>`
+            : `<a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`
+          ).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
 }
 
 function isFailedNextActionJob(job = {}) {
@@ -5696,11 +5789,13 @@ function renderJobNextAction(job = {}) {
   const reviewHref = isHeroReviewReady(job) || isSupportReviewReady(job) || isMediaPreflightReady(job)
     ? buildJobReviewHref(job)
     : "";
+  const handoff = isWordPressPreparationReady(job) ? getWordPressHandoffModel(job) : null;
   return `
     <div class="job-next-action ${escapeHtml(action.tone)}">
       <strong>${escapeHtml(action.label)}</strong>
       <span>${escapeHtml(action.helper)}</span>
       ${reviewHref ? `<a class="ghost-button compact" href="${escapeHtml(reviewHref)}">เปิดหน้าตรวจ</a>` : ""}
+      ${handoff ? renderWordPressHandoffCard(handoff, { compact: true }) : ""}
     </div>
   `;
 }
