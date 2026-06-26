@@ -11,7 +11,7 @@ import {
   resolveVisualVariationV3
 } from "../../lib/automation/prompt-framework-v3.mjs";
 
-const OLD_PROVIDER_BRIEF_RE = /Create one clean|Use case:|Reference priority:|Product truth lock:|Human realism:|Constraints:|Brand mark fidelity|Actual product brand|Do not add poster layout|source of truth/i;
+const OLD_PROVIDER_BRIEF_RE = /Create one clean|Use case:|Reference priority:|Product truth lock:|Human realism:|Constraints:|Brand mark fidelity|Actual product brand|Do not add poster layout/i;
 const LEAN_HERO_PROMPT = [
   "อ้างอิงภาพต้นฉบับ สร้างภาพรีวิวที่ดูเรียล สื่อถึงการใช้งานจริงของสินค้า ให้ความรู้สึกเข้าถึงง่าย น่าเชื่อถือ พร้อมจัดองค์ประกอบภาพให้ดึงดูดและเหมาะกับการใช้ในสื่อโซเชียลหรือโฆษณา ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด",
   "",
@@ -86,7 +86,7 @@ test("hero prompt uses close product focus for small accessories", () => {
   assert.doesNotMatch(glovePrompt, /ยึดภาพต้นฉบับเป็นแหล่งอ้างอิงหลัก|ภาพต้องสะอาด|ไม่เพิ่มโลโก้/);
 });
 
-test("support prompt stays short Thai hero-led slot output", () => {
+test("support prompt uses PDP studio variables with hero and product truth refs", () => {
   const prompt = buildSupportPromptV3({
     sku: "2DJ0493000",
     product_type: "rental",
@@ -98,17 +98,19 @@ test("support prompt stays short Thai hero-led slot output", () => {
     }
   }, "side_fit_on_model", 1, 3);
 
-  assert.match(prompt, /^อ้างอิงภาพต้นฉบับและภาพหลักที่อนุมัติแล้ว\nReference Image 1[\s\S]*\nสร้างภาพ/);
-  assert.match(prompt, /คนจริงสวมสินค้า/);
-  assert.match(prompt, /มุมด้านข้างหรือเฉียง 45 องศา/);
-  assert.match(prompt, /โลโก้ แพตช์ ตัวเลข หรือข้อความเทคนิคจริงบนแขน/);
+  assert.match(prompt, /^อ้างอิงภาพหลักที่อนุมัติแล้วและภาพสินค้าจริงจาก catalog\/Drive/);
+  assert.match(prompt, /\[SPECIFIC_ANGLE\] = ด้านข้างแบบสตูดิโอ \(Studio Side View\)/);
+  assert.match(prompt, /\[PRODUCT_CATEGORY\] = เสื้อโค้ทกันหนาวขนเป็ด/);
+  assert.match(prompt, /\[KEY_DETAIL\] = ทรงด้านข้าง ความหนา ความยาว/);
+  assert.match(prompt, /สร้างภาพสนับสนุนหน้า PDP/);
+  assert.match(prompt, /พื้นผิวสตูดิโอสีเทาอ่อนที่เรียบมินิมอล/);
+  assert.match(prompt, /ไม่ดูเป็นภาพโฆษณาแฟชั่นที่รีทัชจนเนียนกริบ/);
   assert.match(prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
   assert.match(prompt, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
-  assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
-  assert.match(prompt, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
-  assert.match(prompt, /ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่/);
+  assert.match(prompt, /รูปจริงจาก catalog\/Drive ใช้เป็น source of truth ของสินค้าเท่านั้น ไม่ใช้เป็น output โดยตรง/);
+  assert.match(prompt, /Strictly a single unified photograph/);
   assert.doesNotMatch(prompt, /approved hero|hero anchor/i);
-  assert.ok(prompt.length < 900);
+  assert.ok(prompt.length < 1700);
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
   assert.doesNotMatch(prompt, /Use-case guidance|Change only the angle|กลุ่มเป้าหมาย|บริบทธุรกิจ/i);
 });
@@ -132,7 +134,7 @@ test("studio master prompt creates a visible gallery anchor from approved Hero a
   assert.doesNotMatch(prompt, OLD_PROVIDER_BRIEF_RE);
 });
 
-test("back support prompt blocks mannequin drift and prioritizes original back reference", () => {
+test("back support prompt keeps PDP back-view intent and product truth", () => {
   const prompt = buildSupportPromptV3({
     sku: "FSTR260021",
     product_type: "sale",
@@ -144,13 +146,13 @@ test("back support prompt blocks mannequin drift and prioritizes original back r
     }
   }, "back_fit_on_model", 2, 3);
 
-  assert.match(prompt, /คนจริงสวมสินค้าจากมุมด้านหลัง/);
-  assert.match(prompt, /ยึดภาพด้านหลังต้นฉบับเป็น visual truth/);
+  assert.match(prompt, /\[SPECIFIC_ANGLE\] = ด้านหลังแบบสตูดิโอ \(Studio Back View\)/);
+  assert.match(prompt, /\[KEY_DETAIL\] = ดีไซน์ด้านหลัง ฮู้ด ทรงไหล่ ความยาว ตะเข็บ/);
+  assert.match(prompt, /สร้างภาพสนับสนุนหน้า PDP/);
   assert.match(prompt, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
-  assert.match(prompt, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
-  assert.match(prompt, /ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin/);
-  assert.match(prompt, /ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า/);
-  assert.ok(prompt.length < 900);
+  assert.match(prompt, /source of truth/);
+  assert.match(prompt, /ภาพสินค้า studio สำหรับ gallery เว็บไซต์/);
+  assert.ok(prompt.length < 1700);
 });
 
 test("small accessory support prompts force tight product-focused crops", () => {
@@ -176,11 +178,13 @@ test("small accessory support prompts force tight product-focused crops", () => 
     category: "ถุงเท้า"
   }, "front_pair", 1, 3);
 
-  assert.match(glovePrompt, /close-up เดี่ยวของวัสดุ/);
+  assert.match(glovePrompt, /\[SPECIFIC_ANGLE\] = เจาะลึกรายละเอียดอุปกรณ์ \(Close-up Detailed View\)/);
+  assert.match(glovePrompt, /\[KEY_DETAIL\] = พื้นผิวกันลื่นตรงฝ่ามือ \(Grip Texture\) และสายรัดข้อมือ/);
   assert.match(glovePrompt, /ภาพต้องเป็นภาพเดียว ไม่ใช่ collage/);
-  assert.match(scarfPrompt, /การใช้งานจริงของสินค้าในบริบทเมืองหนาว/);
-  assert.match(sockPrompt, /ถุงเท้าคู่แบบสินค้าเด่น/);
-  assert.match(sockPrompt, /ความยาว ขอบถุงเท้า ความหนา เนื้อผ้า/);
+  assert.match(scarfPrompt, /\[PRODUCT_CATEGORY\] = ผ้าพันคอหรือผ้าคลุมคอกันหนาว/);
+  assert.match(scarfPrompt, /เนื้อผ้า ลายถัก ขอบผ้า ความหนา/);
+  assert.match(sockPrompt, /\[PRODUCT_CATEGORY\] = ถุงเท้ากันหนาว/);
+  assert.match(sockPrompt, /ขอบถุงเท้า เนื้อผ้า ความหนา ส้น ปลายเท้า/);
   assert.doesNotMatch(sockPrompt, /Show both socks clearly/i);
 });
 
@@ -201,15 +205,15 @@ test("support prompt includes Thai footwear and outerwear shot guidance", () => 
     subcategory: "พาร์กา"
   }, "material_or_lining_closeup", 3, 3);
 
-  assert.match(footwearPrompt, /รองเท้ามุมด้านข้าง/);
-  assert.match(footwearPrompt, /ความสูง พื้นรองเท้า หัวรองเท้า/);
+  assert.match(footwearPrompt, /\[SPECIFIC_ANGLE\] = ด้านข้างแบบสตูดิโอ \(Studio Side View\)/);
+  assert.match(footwearPrompt, /ทรงรองเท้า ความสูง วัสดุ เชือกหรือสายรัด ป้ายจริง พื้นรองเท้า และงานเย็บ/);
   assert.doesNotMatch(footwearPrompt, /lower-leg|shaft height|bare legs/i);
-  assert.match(coatPrompt, /extreme close-up เดี่ยว/);
-  assert.match(coatPrompt, /ซิป ขอบคอ ปลายแขน ซับใน ขนเฟอร์ งานเย็บ หรือตัวเลข\/ข้อความเทคนิคจริง/);
+  assert.match(coatPrompt, /\[SPECIFIC_ANGLE\] = ซูมรายละเอียดด้านใน \(Interior View\)/);
+  assert.match(coatPrompt, /ตัวอักษรบนป้ายแคร์ลาเบล \(Care Label\) และความสะอาดของเนื้อผ้าซับในด้านใน/);
   assert.match(coatPrompt, /ภาพต้องเป็นภาพเดียว ไม่ใช่ collage/);
-  assert.match(coatPrompt, /ครอปเฉพาะรายละเอียดสินค้า/);
+  assert.match(coatPrompt, /product-only หรือ detail crop/);
   assert.match(coatPrompt, /ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่/);
-  assert.doesNotMatch(coatPrompt, /Lining and warmth evidence|care labels/i);
+  assert.doesNotMatch(coatPrompt, /Lining and warmth evidence/i);
 });
 
 test("model policy requires Rent A Coat apparel hero model and prefers GO Mall apparel model", () => {

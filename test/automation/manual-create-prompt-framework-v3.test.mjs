@@ -14,12 +14,18 @@ test("manual create Hero prompt uses Prompt Framework v3 Thai contract", () => {
 });
 
 test("manual create Support prompt uses approved Hero and Studio Master v3 contract", () => {
-  assert.match(appJs, /อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว/);
-  assert.match(appJs, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
+  assert.match(appJs, /อ้างอิงภาพหลักที่อนุมัติแล้ว Studio Master ที่อนุมัติแล้ว และภาพสินค้าจริงจากแคตตาล็อก\/Drive/);
+  assert.match(appJs, /\[SPECIFIC_ANGLE\] = \$\{brief\.angle\}/);
+  assert.match(appJs, /\[PRODUCT_CATEGORY\] = \$\{brief\.productCategory\}/);
+  assert.match(appJs, /\[KEY_DETAIL\] = \$\{brief\.keyDetail\}/);
+  assert.match(appJs, /สร้างภาพสนับสนุนหน้า PDP/);
+  assert.match(appJs, /พื้นผิวสตูดิโอสีเทาอ่อนที่เรียบมินิมอล/);
+  assert.match(appJs, /รูปจริงจากแคตตาล็อก\/Drive ใช้เป็น source of truth ของสินค้าเท่านั้น ไม่ใช้เป็น output โดยตรง/);
+  assert.match(appJs, /ภาพต้องดูเป็นเซ็ตเดียวกับ Studio Master และ Hero/);
   assert.match(appJs, /Reference Image 1 คือภาพหลักที่อนุมัติแล้ว/);
   assert.match(appJs, /Reference Image 2 คือ Studio Master/);
   assert.match(appJs, /approvedStudioMasterImageUrl/);
-  assert.match(appJs, /ห้ามเปลี่ยนคนเป็นคนใหม่/);
+  assert.match(appJs, /Strictly a single unified photograph/);
   assert.match(appJs, /buildManualSupportTruthLine\(shot\)/);
 });
 

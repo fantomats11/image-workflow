@@ -236,10 +236,15 @@ test("buildPilotGenerationExecutionPlan attaches approved hero anchor to support
   assert.equal(support.model_input_files[2].source_name, "GM-004_front.jpg");
   assert.equal(support.model_input_files[2].source_role, "product_reference");
   assert.equal(support.model_input_files[2].local_path, "/tmp/GM-004/front.jpg");
-  assert.match(support.prompt, /^อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว/);
+  assert.match(support.prompt, /^อ้างอิงภาพหลักที่อนุมัติแล้ว Studio Master ที่อนุมัติแล้ว และภาพสินค้าจริงจาก catalog\/Drive/);
   assert.match(support.prompt, /Reference Image 2 คือ Studio Master/);
+  assert.match(support.prompt, /\[SPECIFIC_ANGLE\]/);
+  assert.match(support.prompt, /\[PRODUCT_CATEGORY\]/);
+  assert.match(support.prompt, /\[KEY_DETAIL\]/);
+  assert.match(support.prompt, /สร้างภาพสนับสนุนหน้า PDP/);
   assert.match(support.prompt, /สี ทรง วัสดุ โลโก้ แพตช์ ตัวเลขหรือข้อความเทคนิคจริง และรายละเอียดสำคัญต้องใกล้เคียงภาพต้นฉบับ ห้ามสร้างข้อความหรือตัวเลขใหม่/);
-  assert.match(support.prompt, /ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก/);
+  assert.match(support.prompt, /ภาพสินค้า studio สำหรับ gallery เว็บไซต์/);
+  assert.match(support.prompt, /source of truth/);
   assert.doesNotMatch(support.prompt, /approved hero/i);
   assert.doesNotMatch(support.prompt, /approved hero image as the model, styling, fit, lighting, and realism anchor/i);
 });

@@ -3873,22 +3873,29 @@ function buildPrompt() {
 
 function buildSupportPrompt(shot, shotIndex, totalShots) {
   const isDetailShot = isManualDetailSupportShot(shot);
+  const brief = buildManualPdpSupportBrief(shot);
   const referenceLines = isDetailShot
     ? [
       "Reference Image 1 คือ Studio Master ที่อนุมัติแล้ว ใช้ล็อกฉาก studio แสง โทน สัดส่วนสินค้า และความต่อเนื่องของ gallery",
       "Reference Image 2 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกความสมจริง โมเดล และภาพรวมของเซ็ต",
-      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
+      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้เป็น source of truth เพื่อตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
     ]
     : [
       "Reference Image 1 คือภาพหลักที่อนุมัติแล้ว ใช้ล็อกคนเดิม ทรงการใส่ styling แสง โทน และความสมจริง",
       "Reference Image 2 คือ Studio Master ที่อนุมัติแล้ว ใช้ล็อกฉาก studio สัดส่วนสินค้า และความต่อเนื่องของ gallery",
-      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้ตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
+      "Reference Image 3 เป็นต้นไปคือภาพสินค้าจริงจากแคตตาล็อก/Drive ใช้เป็น source of truth เพื่อตรวจสี ทรง วัสดุ โลโก้ แพตช์ และรายละเอียดจริง"
     ];
   return [
-    "อ้างอิงภาพต้นฉบับ ภาพหลักที่อนุมัติแล้ว และ Studio Master ที่อนุมัติแล้ว",
+    "อ้างอิงภาพหลักที่อนุมัติแล้ว Studio Master ที่อนุมัติแล้ว และภาพสินค้าจริงจากแคตตาล็อก/Drive",
     ...referenceLines,
-    buildManualSupportCreateLine(shot),
+    "",
+    `[SPECIFIC_ANGLE] = ${brief.angle}`,
+    `[PRODUCT_CATEGORY] = ${brief.productCategory}`,
+    `[KEY_DETAIL] = ${brief.keyDetail}`,
+    "",
+    buildManualSupportCreateLine(brief),
     buildManualSupportTruthLine(shot),
+    "รูปจริงจากแคตตาล็อก/Drive ใช้เป็น source of truth ของสินค้าเท่านั้น ไม่ใช้เป็น output โดยตรง",
     buildManualSupportPresentationLine(shot)
   ].join("\n");
 }
@@ -3934,9 +3941,88 @@ function buildManualHeroSmallProductCameraLine() {
   return lines[group] || "";
 }
 
-function buildManualSupportCreateLine(shot) {
-  const shotDescription = describeManualSupportShotV3(shot);
-  return `สร้างภาพ ${shotDescription}`;
+function buildManualSupportCreateLine(brief = {}) {
+  return [
+    `สร้างภาพสนับสนุนหน้า PDP ของ${brief.productCategory} ในมุม${brief.angle}`,
+    "ให้ดูเรียล โปร่งใส และน่าเชื่อถือ สื่อถึงสินค้าของแท้ในสภาพที่สะอาดสมบูรณ์ พรีเมียม และพร้อมใช้งานจริง",
+    `จัดวางอย่างเป็นระเบียบบนพื้นผิวสตูดิโอสีเทาอ่อนที่เรียบมินิมอล เน้นแสดงให้เห็น${brief.keyDetail}อย่างชัดเจน`,
+    "จัดแสงไฟโชว์รูมที่สว่างเคลียร์และเป็นธรรมชาติ ไม่ดูเป็นภาพโฆษณาแฟชั่นที่รีทัชจนเนียนกริบหรือเงาเว่อร์เกินจริง"
+  ].join(" ");
+}
+
+function buildManualPdpSupportBrief(shot) {
+  const group = resolveManualProductUseCaseGroup();
+  return {
+    angle: resolveManualPdpSupportAngle(shot, group),
+    productCategory: resolveManualPdpProductCategory(group),
+    keyDetail: resolveManualPdpKeyDetail(shot, group)
+  };
+}
+
+function resolveManualPdpSupportAngle(shot, group) {
+  const normalizedShot = String(shot || "").trim();
+  if (isInteriorSupportShot(normalizedShot)) return "ซูมรายละเอียดด้านใน (Interior View)";
+  if (normalizedShot === "ด้านหลัง") {
+    return group === "pants" ? "ด้านหลังเต็มตัวแบบวางราบ (Full Flat Lay Back View)" : "ด้านหลังแบบสตูดิโอ (Studio Back View)";
+  }
+  if (normalizedShot === "ด้านข้าง") return "ด้านข้างแบบสตูดิโอ (Studio Side View)";
+  if (normalizedShot === "พื้นรองเท้า") return "เจาะรายละเอียดพื้นรองเท้า (Outsole Detail View)";
+  if (normalizedShot === "ด้านในฝ่ามือ") return "ด้านฝ่ามือแบบเจาะรายละเอียด (Palm Detail View)";
+  if (isManualDetailSupportShot(normalizedShot)) {
+    return group === "gloves" || group === "hat" || group === "scarf_accessory" || group === "socks"
+      ? "เจาะลึกรายละเอียดอุปกรณ์ (Close-up Detailed View)"
+      : "เจาะลึกรายละเอียดวัสดุและงานประกอบ (Close-up Detailed View)";
+  }
+  if (normalizedShot === "ด้านหน้า") return "ด้านหน้าแบบสตูดิโอ (Studio Front View)";
+  return `${normalizedShot || "มุมสินค้าเพิ่มเติม"} สำหรับหน้า PDP`;
+}
+
+function resolveManualPdpProductCategory(group) {
+  const category = String(els.category?.value || "").trim();
+  const subtype = String(getSelectedSubtype()?.label || "").trim();
+  const productName = String(selectedCatalogSku?.product_name || els.skuPickerSearch?.value || "").trim();
+  const text = `${category} ${subtype} ${productName}`.toLowerCase();
+  if (group === "upper_outerwear" || group === "long_outerwear") {
+    if (/down|ขนเป็ด|duck/.test(text)) return "เสื้อโค้ทกันหนาวขนเป็ด";
+    if (/fur|เฟอร์/.test(text)) return "เสื้อโค้ทกันหนาวขนเฟอร์";
+    if (/fleece|ฟลีซ/.test(text)) return "เสื้อแจ็คเก็ตกันหนาวฟลีซ";
+    return "เสื้อโค้ทหรือแจ็คเก็ตกันหนาว";
+  }
+  if (group === "pants") return "กางเกงลุยหิมะกันหนาว";
+  if (group === "footwear") return "รองเท้าหรือบูทกันหนาว";
+  if (group === "gloves") return /waterproof|กันน้ำ/.test(text) ? "ถุงมือกันหนาวกันน้ำ" : "ถุงมือกันหนาว";
+  if (group === "hat") return "หมวกกันหนาว";
+  if (group === "scarf_accessory") return "ผ้าพันคอหรือผ้าคลุมคอกันหนาว";
+  if (group === "socks") return "ถุงเท้ากันหนาว";
+  return subtype || category || productName || "สินค้า";
+}
+
+function resolveManualPdpKeyDetail(shot, group) {
+  const normalizedShot = String(shot || "").trim();
+  if (isInteriorSupportShot(normalizedShot)) {
+    return "ตัวอักษรบนป้ายแคร์ลาเบล (Care Label) และความสะอาดของเนื้อผ้าซับในด้านใน";
+  }
+  if (group === "pants") {
+    if (normalizedShot === "ด้านหลัง") return "ทรงกางเกง ตะเข็บเย็บ และกระเป๋าหลังทั้งหมด";
+    return "ทรงกางเกง ตะเข็บ กระเป๋า ผิวผ้า และรายละเอียดการตัดเย็บ";
+  }
+  if (group === "gloves") {
+    if (normalizedShot === "ด้านในฝ่ามือ" || isManualDetailSupportShot(normalizedShot)) {
+      return "พื้นผิวกันลื่นตรงฝ่ามือ (Grip Texture) และสายรัดข้อมือ";
+    }
+    return "รูปทรงนิ้ว ขอบข้อมือ ตะเข็บ วัสดุ และความหนาของถุงมือ";
+  }
+  if (group === "footwear") {
+    if (normalizedShot === "พื้นรองเท้า") return "ลายพื้นรองเท้า ความหนา ขอบพื้น และพื้นผิวกันลื่น";
+    return "ทรงรองเท้า ความสูง วัสดุ เชือกหรือสายรัด ป้ายจริง พื้นรองเท้า และงานเย็บ";
+  }
+  if (group === "scarf_accessory") return "เนื้อผ้า ลายถัก ขอบผ้า ความหนา และการทิ้งตัวของผ้า";
+  if (group === "hat") return "ทรงหมวก ขอบพับ เนื้อผ้า ป้ายจริง และความหนาของวัสดุ";
+  if (group === "socks") return "ขอบถุงเท้า เนื้อผ้า ความหนา ส้น ปลายเท้า ลายถัก และตะเข็บ";
+  if (normalizedShot === "ด้านหลัง") return "ดีไซน์ด้านหลัง ฮู้ด ทรงไหล่ ความยาว ตะเข็บ และโลโก้หรือแพตช์จริงถ้ามี";
+  if (normalizedShot === "ด้านข้าง") return "ทรงด้านข้าง ความหนา ความยาว ปลายแขน ซิป ตะเข็บ และสัดส่วนสินค้า";
+  if (isManualDetailSupportShot(normalizedShot)) return "พื้นผิววัสดุ งานเย็บ ซิป ป้ายจริง ขอบผ้า และรายละเอียดที่ช่วยตัดสินใจ";
+  return describeManualSupportShotV3(normalizedShot);
 }
 
 function buildManualSupportTruthLine(shot = "") {
@@ -3952,17 +4038,15 @@ function buildManualSupportTruthLine(shot = "") {
 }
 
 function buildManualSupportPresentationLine(shot) {
-  const normalizedShot = String(shot || "").trim();
-  if (normalizedShot === "ด้านหลัง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ยึดภาพด้านหลังต้นฉบับเป็น visual truth ห้ามเปลี่ยนเป็นหุ่นโชว์ ดัมมี่ หรือ ghost mannequin เว้นแต่ภาพต้นฉบับเป็นหุ่นจริง ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
-  }
-  if (normalizedShot === "ด้านข้าง") {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ถ้าภาพหลักมีคน ให้คงคนเดิมจากภาพหลักทั้งโครงหน้า ทรงผม สีผม ผิว สัดส่วน เสื้อด้านใน และ styling ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ แต่คุมแสง สี และความสมจริงให้ต่อเนื่องกับภาพหลัก ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
-  }
-  if (isManualDetailSupportShot(shot)) {
-    return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ครอปเฉพาะรายละเอียดสินค้า ไม่ต้องมีโมเดล ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่ ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
-  }
-  return "ใช้ฉาก studio ขาวหรือเทาอ่อนสะอาดแบบหน้าสินค้า ภาพต้องดูเป็นเซ็ตเดียวกับภาพหลัก สินค้าเป็นจุดเด่นหลัก ถ้าภาพมีคนให้คงคนเดิมจากภาพหลัก ห้ามเปลี่ยนคนเป็นคนใหม่ ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง ใช้ Studio Master เป็น anchor หลักของฉาก studio และคุมให้ทั้งชุด gallery ดูต่อเนื่องกัน";
+  const modelLine = isManualDetailSupportShot(shot)
+    ? "ภาพนี้เป็น product-only หรือ detail crop ไม่ต้องมีโมเดล ไม่ต้องยกฉาก lifestyle ของ Hero มาใหม่"
+    : "ถ้าช็อตนี้ต้องมีคน ให้คงคนเดิมจากภาพหลักเท่าที่จำเป็น ห้ามเปลี่ยนสินค้า ทรง สี หรือ styling สำคัญ";
+  return [
+    modelLine,
+    "ภาพต้องดูเป็นเซ็ตเดียวกับ Studio Master และ Hero แต่เป็นภาพสินค้า studio สำหรับ gallery เว็บไซต์",
+    "ไม่ต้องใส่ข้อความ ไม่ต้องแบ่งกริด ไม่ต้องแบ่งช่อง",
+    "Strictly a single unified photograph, one frame only. Absolutely no split screen, no grid, no collage, no triptych, no multiple panels."
+  ].join(" ");
 }
 
 function isManualDetailSupportShot(shot = "") {
