@@ -6893,10 +6893,11 @@ body .app-shell {
 /* Final command density override: avoid empty desktop readiness columns and cramped fields */
 @media (min-width: 768px) {
   .create-command-bar {
-    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.45fr) minmax(160px, 0.42fr) !important;
+    grid-template-columns: minmax(230px, 0.62fr) minmax(0, 1.38fr) !important;
     grid-template-areas:
-      "title fields actions"
-      "readiness readiness readiness" !important;
+      "title fields"
+      "actions actions"
+      "readiness readiness" !important;
     align-items: start !important;
   }
 
@@ -6931,12 +6932,751 @@ body .app-shell {
 
   .create-command-actions .actions {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(3, minmax(160px, 1fr)) !important;
     justify-content: stretch !important;
   }
 
   .create-command-actions .actions > button {
     inline-size: 100% !important;
+  }
+}
+
+/* Last word for stateful UI: hidden elements must stay hidden across responsive overrides. */
+[hidden],
+.auth-form[hidden],
+.reference-readiness-card[hidden],
+.selected-product-summary[hidden],
+.sku-work-claim-card[hidden] {
+  display: none !important;
+}
+
+/* Production-ready visual system pass: app/workbench/readiness surfaces */
+:root {
+  --prod-bg: #f6f8f5;
+  --prod-surface: rgba(255, 255, 255, 0.92);
+  --prod-surface-strong: #ffffff;
+  --prod-line: #dfe6de;
+  --prod-line-strong: #cbd7ce;
+  --prod-ink: #17211b;
+  --prod-muted: #607067;
+  --prod-coral: #d93f55;
+  --prod-coral-soft: #fae7ea;
+  --prod-teal: #0f7781;
+  --prod-teal-soft: #e4f4f4;
+  --prod-violet: #7660cf;
+  --prod-green: #23764f;
+  --prod-green-soft: #e6f5ec;
+  --prod-amber: #956316;
+  --prod-amber-soft: #fff3d7;
+  --prod-red: #b6323d;
+  --prod-red-soft: #fae2e4;
+  --prod-shadow: 0 12px 30px rgba(32, 48, 42, 0.08);
+  --prod-shadow-soft: 0 2px 10px rgba(32, 48, 42, 0.055);
+  --sidebar-width: 236px;
+  --panel-max: 1500px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 8px;
+}
+
+html,
+body {
+  min-inline-size: 0;
+  overflow-x: clip;
+}
+
+body {
+  background:
+    linear-gradient(90deg, rgba(15, 119, 129, 0.045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(31, 48, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcf9 0%, var(--prod-bg) 100%) !important;
+  background-size: 40px 40px, 40px 40px, auto !important;
+  color: var(--prod-ink);
+}
+
+body::before {
+  opacity: 0.45;
+}
+
+.app-shell {
+  display: grid !important;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) !important;
+  min-block-size: 100dvb;
+  background: transparent !important;
+}
+
+.sidebar {
+  position: sticky !important;
+  inset-block-start: 0 !important;
+  block-size: 100dvb !important;
+  min-block-size: 0 !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  gap: 18px !important;
+  padding: 18px 12px !important;
+  border-inline-end: 1px solid var(--prod-line) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 245, 0.9)) !important;
+  color: var(--prod-ink) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.brand-block {
+  border-bottom: 1px solid var(--prod-line) !important;
+  padding: 4px 6px 16px !important;
+}
+
+.brand-mark {
+  inline-size: 40px !important;
+  block-size: 40px !important;
+  border-radius: 8px !important;
+  background: linear-gradient(135deg, var(--prod-coral), var(--prod-violet) 58%, var(--prod-teal)) !important;
+}
+
+.brand-block h1,
+.sidebar .eyebrow {
+  color: var(--prod-ink) !important;
+}
+
+.nav-list {
+  display: grid !important;
+  align-content: start !important;
+  gap: 6px !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  padding: 0 !important;
+  scrollbar-gutter: stable !important;
+}
+
+.nav-list a {
+  min-block-size: 42px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  padding: 9px 12px !important;
+  background: transparent !important;
+  color: var(--prod-muted) !important;
+  font-size: 13px !important;
+  font-weight: 820 !important;
+  line-height: 1.2 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.nav-list a::before,
+.nav-list a::after {
+  display: none !important;
+  content: none !important;
+}
+
+.nav-list a:hover {
+  border-color: var(--prod-line) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: var(--prod-ink) !important;
+}
+
+.nav-list a.active {
+  border-color: color-mix(in oklab, var(--prod-coral), white 58%) !important;
+  background:
+    linear-gradient(90deg, rgba(217, 63, 85, 0.13), transparent 46%),
+    #ffffff !important;
+  color: var(--prod-ink) !important;
+  box-shadow: var(--prod-shadow-soft) !important;
+}
+
+.sidebar-note {
+  border: 1px solid var(--prod-line) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: var(--prod-muted) !important;
+  padding: 12px !important;
+  box-shadow: var(--prod-shadow-soft) !important;
+}
+
+.workspace {
+  inline-size: min(100%, var(--panel-max)) !important;
+  max-inline-size: var(--panel-max) !important;
+  margin-inline: auto !important;
+  gap: 16px !important;
+  padding: 18px !important;
+}
+
+.topbar {
+  position: static !important;
+  min-block-size: 68px !important;
+  border: 1px solid var(--prod-line) !important;
+  border-radius: 8px !important;
+  background: var(--prod-surface) !important;
+  box-shadow: var(--prod-shadow-soft) !important;
+}
+
+.topbar h2 {
+  font-size: clamp(22px, 1.5vw, 30px) !important;
+}
+
+.auth-card,
+.status-pill,
+.workflow-status,
+.score {
+  border-radius: 8px !important;
+}
+
+.panel,
+.page-panel,
+.kpi-section-card,
+.settings-card,
+.asset-card,
+.next-action-card,
+.production-asset-card,
+.batch-sku-card,
+.cost-job-card,
+.monitoring-card,
+.executive-summary-card,
+.create-command-bar,
+.catalog-reference-panel,
+.studio-panel,
+.workflow-card,
+.inspector-panel,
+.qc-gate-card,
+.flow-rail-card,
+.selected-product-summary,
+.sku-work-claim-card {
+  border: 1px solid var(--prod-line) !important;
+  border-radius: 8px !important;
+  background: var(--prod-surface) !important;
+  box-shadow: var(--prod-shadow-soft) !important;
+}
+
+.panel,
+.page-panel {
+  padding: clamp(16px, 1.2vw, 22px) !important;
+}
+
+.page-panel > .panel-heading,
+.panel-heading {
+  padding-block-end: 12px !important;
+  margin-block-end: 14px !important;
+  border-bottom: 1px solid var(--prod-line) !important;
+}
+
+.section-note,
+.kpi-state,
+.next-actions-admin-summary,
+.jobs-status,
+.batch-status {
+  border: 1px solid color-mix(in oklab, var(--prod-teal), white 76%) !important;
+  border-radius: 8px !important;
+  background: linear-gradient(180deg, var(--prod-teal-soft), rgba(255, 255, 255, 0.82)) !important;
+  color: color-mix(in oklab, var(--prod-teal), black 10%) !important;
+}
+
+.kpi-state {
+  display: grid;
+  gap: 7px;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 8px;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+button {
+  border-radius: 8px !important;
+}
+
+.primary-button {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--prod-coral), white 8%), var(--prod-coral)) !important;
+  box-shadow: 0 10px 22px rgba(217, 63, 85, 0.18) !important;
+}
+
+.secondary-button {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--prod-teal), white 10%), var(--prod-teal)) !important;
+  color: #fff !important;
+}
+
+.ghost-button {
+  background: #ffffff !important;
+  color: var(--prod-ink) !important;
+}
+
+.create-shell {
+  container: create-shell / inline-size;
+}
+
+.create-command-bar {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(380px, 1.35fr) minmax(240px, 0.65fr) !important;
+  grid-template-areas:
+    "title fields actions"
+    "readiness readiness readiness" !important;
+  align-items: start !important;
+  gap: 14px !important;
+  padding: 16px !important;
+  overflow: visible !important;
+  background:
+    linear-gradient(90deg, rgba(217, 63, 85, 0.1), transparent 34%),
+    linear-gradient(135deg, rgba(15, 119, 129, 0.1), transparent 58%),
+    #ffffff !important;
+}
+
+.create-command-title {
+  border-inline-start: 4px solid var(--prod-coral) !important;
+  padding-inline-start: 12px !important;
+}
+
+.create-command-title h3 {
+  font-size: clamp(24px, 2.2vw, 38px) !important;
+  line-height: 1.05 !important;
+}
+
+.create-brief-steps {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.create-brief-steps span {
+  border: 1px solid var(--prod-line) !important;
+  border-radius: 999px !important;
+  background: #fff !important;
+  color: var(--prod-muted) !important;
+  padding: 5px 8px !important;
+  font-size: 11px !important;
+}
+
+.create-command-fields {
+  grid-template-columns: minmax(120px, 0.52fr) minmax(150px, 0.6fr) minmax(280px, 1.5fr) !important;
+  gap: 10px !important;
+}
+
+.command-sku-panel {
+  grid-column: auto !important;
+}
+
+.command-sku-panel .sku-picker-status {
+  max-block-size: 72px !important;
+  border-inline-start: 3px solid var(--prod-teal) !important;
+  background: rgba(228, 244, 244, 0.72) !important;
+}
+
+.command-readiness-stack:has(> .reference-readiness-card[hidden]) {
+  display: none !important;
+}
+
+.command-readiness-stack::before {
+  content: none !important;
+}
+
+.create-command-actions .actions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+
+.create-command-actions .actions > button {
+  inline-size: 100% !important;
+}
+
+.create-workbench {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px) !important;
+  grid-template-areas:
+    "flow flow"
+    "stage inspector" !important;
+  gap: 14px !important;
+  align-items: start !important;
+}
+
+.create-flow-rail {
+  grid-area: flow !important;
+  position: static !important;
+  display: grid !important;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(220px, 0.68fr) minmax(320px, 1.1fr) !important;
+  gap: 12px !important;
+  max-block-size: none !important;
+  overflow: visible !important;
+}
+
+.selected-product-summary dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.selected-product-summary dd,
+.selected-product-summary a {
+  overflow-wrap: anywhere !important;
+}
+
+.create-flow-list {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+}
+
+.create-flow-list li {
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start !important;
+  min-block-size: 72px !important;
+  border: 1px solid var(--prod-line) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+}
+
+.create-flow-list span {
+  inline-size: 24px !important;
+  block-size: 24px !important;
+  background: linear-gradient(180deg, var(--prod-teal), #0b4f57) !important;
+}
+
+.create-stage {
+  grid-area: stage !important;
+  min-inline-size: 0 !important;
+}
+
+.create-inspector {
+  grid-area: inspector !important;
+  position: sticky !important;
+  inset-block-start: 16px !important;
+  max-block-size: calc(100dvb - 32px) !important;
+  overflow: auto !important;
+  scrollbar-gutter: stable !important;
+}
+
+.reference-filmstrip {
+  padding: 12px !important;
+  overflow: clip !important;
+}
+
+.reference-filmstrip .catalog-reference-grid {
+  display: grid !important;
+  grid-auto-flow: column !important;
+  grid-auto-columns: minmax(170px, 200px) !important;
+  gap: 10px !important;
+  overflow-x: auto !important;
+  overflow-y: clip !important;
+  overscroll-behavior-inline: contain !important;
+  scroll-snap-type: inline proximity !important;
+  scrollbar-gutter: stable !important;
+  padding-block-end: 8px !important;
+}
+
+.reference-filmstrip .catalog-reference-card {
+  scroll-snap-align: start !important;
+  inline-size: auto !important;
+  min-inline-size: 0 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+}
+
+.reference-filmstrip .catalog-reference-card.is-staged {
+  border-color: color-mix(in oklab, var(--prod-green), white 54%) !important;
+  background: var(--prod-green-soft) !important;
+}
+
+.reference-filmstrip .catalog-reference-preview {
+  aspect-ratio: 4 / 5 !important;
+  border-radius: 6px !important;
+}
+
+.create-stage .studio-canvas,
+.studio-canvas {
+  min-block-size: clamp(420px, 54dvh, 650px) !important;
+  border-radius: 8px !important;
+}
+
+.studio-canvas .empty-hero,
+.create-stage .studio-canvas .empty-hero {
+  min-block-size: clamp(360px, 46dvh, 580px) !important;
+  border-radius: 8px !important;
+}
+
+.next-actions-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)) !important;
+  gap: 12px !important;
+}
+
+.next-action-card {
+  display: grid !important;
+  gap: 12px !important;
+  align-content: start !important;
+  min-block-size: 240px !important;
+  padding: 16px !important;
+}
+
+.next-action-card.ok {
+  border-color: color-mix(in oklab, var(--prod-green), white 60%) !important;
+  background: linear-gradient(180deg, var(--prod-green-soft), #ffffff) !important;
+}
+
+.next-action-card.warning {
+  border-color: color-mix(in oklab, var(--prod-amber), white 58%) !important;
+  background: linear-gradient(180deg, var(--prod-amber-soft), #ffffff) !important;
+}
+
+.next-action-card.danger {
+  border-color: color-mix(in oklab, var(--prod-red), white 58%) !important;
+  background: linear-gradient(180deg, var(--prod-red-soft), #ffffff) !important;
+}
+
+.next-action-preview-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.next-action-preview-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-block-size: 34px;
+  border: 1px solid var(--prod-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 7px 8px;
+}
+
+.next-action-preview-list strong,
+.next-action-preview-list span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.production-flow-board {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.production-flow-card {
+  border-radius: 8px !important;
+  background: #ffffff !important;
+}
+
+.table-wrap {
+  overflow: auto !important;
+  scrollbar-gutter: stable !important;
+}
+
+@supports (content-visibility: auto) {
+  .page-panel,
+  .workflow-card,
+  .kpi-section-card,
+  .asset-card,
+  .production-asset-card,
+  .monitoring-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 560px;
+  }
+
+  .topbar,
+  .create-command-bar,
+  .next-actions-panel,
+  .create-stage .studio-panel {
+    content-visibility: visible;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-view.active,
+  .next-action-card,
+  .reference-filmstrip .catalog-reference-card,
+  .production-flow-card {
+    animation: workflow-surface-in 220ms ease both;
+  }
+
+  @keyframes workflow-surface-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@container create-shell (inline-size < 1120px) {
+  .create-command-bar {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "title"
+      "fields"
+      "readiness"
+      "actions" !important;
+  }
+
+  .create-command-fields,
+  .create-workbench,
+  .create-flow-rail,
+  .create-inspector,
+  .selected-product-summary dl {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .create-workbench {
+    grid-template-areas:
+      "flow"
+      "stage"
+      "inspector" !important;
+  }
+
+  .create-inspector {
+    position: static !important;
+    max-block-size: none !important;
+    overflow: visible !important;
+  }
+
+  .create-flow-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  body {
+    background-size: 32px 32px, 32px 32px, auto !important;
+  }
+
+  .app-shell {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+  }
+
+  .sidebar {
+    position: sticky !important;
+    inset-block-start: 0 !important;
+    z-index: 20 !important;
+    block-size: auto !important;
+    min-block-size: 0 !important;
+    grid-template-rows: auto auto !important;
+    gap: 10px !important;
+    padding: 10px 12px 11px !important;
+    border-inline-end: 0 !important;
+    border-block-end: 1px solid var(--prod-line) !important;
+    box-shadow: 0 10px 22px rgba(32, 48, 42, 0.08) !important;
+  }
+
+  .brand-block {
+    display: grid !important;
+    grid-template-columns: 36px minmax(0, 1fr) !important;
+    gap: 10px !important;
+    align-items: center !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .brand-mark {
+    inline-size: 36px !important;
+    block-size: 36px !important;
+  }
+
+  .brand-block h1 {
+    font-size: 17px !important;
+  }
+
+  .sidebar-note {
+    display: none !important;
+  }
+
+  .nav-list {
+    display: flex !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    overflow-y: clip !important;
+    scrollbar-width: none !important;
+    padding-block-end: 1px !important;
+  }
+
+  .nav-list::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .nav-list a {
+    flex: 0 0 auto !important;
+    min-block-size: 38px !important;
+    min-inline-size: max-content !important;
+    border-color: var(--prod-line) !important;
+    border-radius: 999px !important;
+    background: #ffffff !important;
+    padding: 9px 12px !important;
+    white-space: nowrap !important;
+  }
+
+  .nav-list a.active {
+    background: var(--prod-coral-soft) !important;
+    box-shadow: inset 0 -2px 0 var(--prod-teal) !important;
+  }
+
+  .workspace {
+    inline-size: 100% !important;
+    max-inline-size: none !important;
+    padding: 12px !important;
+    gap: 12px !important;
+  }
+
+  .topbar {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding: 14px !important;
+  }
+
+  .topbar-actions,
+  .auth-card,
+  .auth-form,
+  .create-command-actions .actions,
+  .empty-state-actions {
+    inline-size: 100% !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .create-command-bar,
+  .panel,
+  .page-panel {
+    padding: 14px !important;
+  }
+
+  .create-command-title h3 {
+    font-size: 26px !important;
+  }
+
+  .create-brief-steps {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+  }
+
+  .create-flow-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .create-flow-list li {
+    min-block-size: 64px !important;
+  }
+
+  .reference-filmstrip .catalog-reference-grid {
+    grid-auto-columns: minmax(156px, 68vw) !important;
+  }
+
+  .create-stage .studio-canvas,
+  .studio-canvas,
+  .create-stage .studio-canvas .empty-hero {
+    min-block-size: min(440px, 70dvh) !important;
+  }
+
+  .next-action-preview-list li {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
 
@@ -8695,10 +9435,11 @@ textarea:focus {
 /* Absolute final overrides: keep create command readable after all legacy theme layers */
 @media (min-width: 768px) {
   .create-command-bar {
-    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.45fr) minmax(160px, 0.42fr) !important;
+    grid-template-columns: minmax(230px, 0.62fr) minmax(0, 1.38fr) !important;
     grid-template-areas:
-      "title fields actions"
-      "readiness readiness readiness" !important;
+      "title fields"
+      "actions actions"
+      "readiness readiness" !important;
     align-items: start !important;
   }
 
@@ -8725,7 +9466,7 @@ textarea:focus {
 
   .create-command-actions .actions {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(3, minmax(160px, 1fr)) !important;
     justify-content: stretch !important;
   }
 

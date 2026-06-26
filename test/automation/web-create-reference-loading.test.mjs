@@ -118,9 +118,11 @@ test("server can use demo-style service account settings from Supabase", () => {
   assert.match(serverJs, /provider: "service_account"/);
 });
 
-test("Web-first create page is the default and visible navigation path", () => {
-  assert.match(indexHtml, /href="#create" data-page-link="create">สร้างภาพสินค้า/);
+test("Next Actions is the production home and create remains a visible work path", () => {
+  assert.match(indexHtml, /href="#next" data-page-link="next">งานของฉัน/);
+  assert.match(indexHtml, /href="#create" data-page-link="create">เริ่มงานภาพ/);
   assert.match(appJs, /#create/);
+  assert.match(appJs, /#next/);
   assert.match(appJs, /page === "next"/);
   assert.match(appJs, /return pageMeta\[page\] \? page : "create";/);
 });
@@ -235,8 +237,8 @@ test("reference readiness card separates loading ready blocked warning and fallb
   assert.match(appJs, /reference-state-warning/);
   assert.match(appJs, /manual_fallback_needed/);
   assert.match(appJs, /ไฟล์ที่พบ/);
-  assert.match(appJs, /รูปที่ใช้ได้/);
-  assert.match(appJs, /ติดปัญหา/);
+  assert.match(appJs, /รูปพร้อมใช้/);
+  assert.match(appJs, /ต้องตรวจ/);
 });
 
 test("create diagnostics live in an inspector disclosure instead of the command readiness card", () => {

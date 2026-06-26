@@ -603,13 +603,13 @@ const appState = {
 };
 
 const pageMeta = {
-  next: { eyebrow: "งานที่ต้องทำต่อ", title: "My Next Actions" },
-  create: { eyebrow: "เครื่องมือสร้างภาพ", title: "สร้างภาพสินค้า" },
-  jobs: { eyebrow: "ศูนย์ควบคุมงานภาพ", title: "ศูนย์งานภาพ" },
-  assets: { eyebrow: "คลังภาพ", title: "คลังภาพ" },
-  kpi: { eyebrow: "Team Performance", title: "KPI Dashboard" },
+  next: { eyebrow: "เริ่มจากตรงนี้", title: "งานของฉันวันนี้" },
+  create: { eyebrow: "เริ่มงานภาพสินค้า", title: "สร้างภาพสินค้า" },
+  jobs: { eyebrow: "ภาพรวมงานผลิต", title: "งานทั้งหมด" },
+  assets: { eyebrow: "รูปทั้งหมด", title: "คลังภาพ" },
+  kpi: { eyebrow: "ภาพรวมทีม", title: "ผลงานทีมภาพ" },
   costs: { eyebrow: "ต้นทุน", title: "ต้นทุนและการใช้งาน" },
-  monitoring: { eyebrow: "สถานะระบบ", title: "ติดตามระบบ" },
+  monitoring: { eyebrow: "สุขภาพระบบ", title: "ติดตามระบบ" },
   review: { eyebrow: "ตรวจภาพหลัก", title: "ตรวจภาพหลักก่อนสร้างภาพเสริม" },
   batch: { eyebrow: "ตรวจชุดงาน", title: "Batch Review" },
   settings: { eyebrow: "ผู้ดูแลระบบ", title: "ตั้งค่าระบบภาพ" }
@@ -1404,7 +1404,7 @@ function renderSkuPickerStatus(message = "") {
   const readiness = selectedCatalogSku?.reference_readiness;
   els.skuPickerStatus.classList.remove("is-ready", "is-warning", "is-blocked");
   if (!selectedCatalogSku) {
-    els.skuPickerStatus.textContent = message || "เลือกสินค้า 1 รายการ แล้วข้อมูลกับรูปอ้างอิงจะเติมให้เอง";
+    els.skuPickerStatus.textContent = message || "ค้นหาสินค้า แล้วแอปจะเติมข้อมูลกับรูปอ้างอิงให้เอง";
     updateActionAvailability();
     return;
   }
@@ -1569,16 +1569,16 @@ function renderReferenceReadinessCard(message = "") {
   const view = getReferenceReadinessViewModel(message);
   const countLabels = [
     ["ไฟล์ที่พบ", view.counts.foundFiles],
-    ["รูปที่ใช้ได้", view.counts.stageableImages],
-    ["ติดปัญหา", view.counts.blockedFiles]
+    ["รูปพร้อมใช้", view.counts.stageableImages],
+    ["ต้องตรวจ", view.counts.blockedFiles]
   ];
   const stateLabels = {
     empty: "รอเลือกสินค้า",
-    loading: "กำลังเตรียม",
-    blocked: "ติดปัญหา",
+    loading: "กำลังเตรียมรูป",
+    blocked: "ต้องแก้ก่อน",
     ready: "พร้อมใช้",
     warning: "ควรตรวจ",
-    manual_fallback_needed: "ต้องอัปโหลด",
+    manual_fallback_needed: "ต้องแนบรูป",
     manual_fallback_ready: "พร้อมใช้"
   };
   els.referenceReadinessCard.hidden = false;
@@ -2265,7 +2265,7 @@ function applyInitialOperatorRoute() {
   const page = getPageFromHash();
   if (page === "batch" || page === "review") return;
   if (!window.location.hash || page === "next") {
-    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}#create`);
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}#next`);
   }
 }
 
@@ -4257,7 +4257,7 @@ function getSelectedSupportShots() {
 function renderSupportGallery() {
   updateWorkflowGate();
   if (!supportResults.length) {
-    els.supportGallery.innerHTML = '<p class="empty-state">ยังไม่มีภาพ support</p>';
+    els.supportGallery.innerHTML = '<p class="empty-state">ยังไม่มีภาพเสริม</p>';
     return;
   }
 
@@ -4883,12 +4883,22 @@ function renderNextActions() {
   if (els.nextActionsLoadingState) els.nextActionsLoadingState.hidden = !nextActionsLoading;
   if (els.nextActionsErrorState) {
     els.nextActionsErrorState.hidden = !nextActionsError;
-    els.nextActionsErrorState.textContent = nextActionsError
-      ? `โหลดงานที่ต้องทำต่อไม่สำเร็จ: ${nextActionsError}`
+    els.nextActionsErrorState.innerHTML = nextActionsError
+      ? `<strong>ยังโหลดงานไม่ได้</strong><span>ลองรีเฟรชอีกครั้ง ถ้ายังขึ้นซ้ำให้เปิดสุขภาพระบบเพื่อตรวจการเชื่อมต่อ</span>`
       : "";
   }
   if (els.nextActionsEmptyState) {
     els.nextActionsEmptyState.hidden = nextActionsLoading || Boolean(nextActionsError) || cards.length > 0;
+    if (!els.nextActionsEmptyState.hidden) {
+      els.nextActionsEmptyState.innerHTML = `
+        <strong>ยังไม่มีงานค้างที่ต้องกดต่อ</strong>
+        <span>เริ่มสร้างภาพใหม่ หรือเปิดงานทั้งหมดเพื่อตรวจงานที่ส่งออกแล้ว</span>
+        <div class="empty-state-actions">
+          <a class="primary-button compact" href="#create">เริ่มงานภาพใหม่</a>
+          <a class="ghost-button compact" href="#jobs">ดูงานทั้งหมด</a>
+        </div>
+      `;
+    }
   }
 
   els.nextActionsGrid.innerHTML = cards.length
@@ -4962,17 +4972,24 @@ function getNextActionBuckets() {
       match: (job) => getItemWorkflowState(job) === "support_waiting_review" || isSupportReviewReady(job)
     },
     {
+      key: "wordpress_ready",
+      tone: "ok",
+      label: "พร้อมเตรียมลง WordPress",
+      helper: "ภาพผ่านแล้วและมีไฟล์ปลายทาง พร้อมใช้ทำ preflight/proposal โดยยังไม่เขียนขึ้นเว็บจริง",
+      match: (job) => isWordPressPreparationReady(job)
+    },
+    {
       key: "export_problem",
       tone: "danger",
-      label: "Export มีปัญหา",
-      helper: "มีงานส่งออกไม่สำเร็จ ต้องให้ admin ตรวจหรือ retry",
+      label: "ส่งออกไฟล์ไม่สำเร็จ",
+      helper: "มีงานที่ต้องตรวจ Drive หรือให้ผู้ดูแลลองส่งออกอีกครั้ง",
       match: isExportProblemJob
     },
     {
       key: "failed",
       tone: "danger",
-      label: "งาน failed ที่ควรแจ้ง admin",
-      helper: "งานสร้างภาพหรือ workflow ไม่สำเร็จ ควรส่งต่อให้ admin ตรวจ",
+      label: "งานไม่สำเร็จที่ต้องตรวจ",
+      helper: "งานสร้างภาพหรือขั้นตอนงานหยุดกลางทาง ควรส่งต่อให้ผู้ดูแลตรวจ",
       match: isFailedNextActionJob
     }
   ];
@@ -4982,6 +4999,7 @@ function renderNextActionCard(card) {
   const firstJob = card.jobs[0] || {};
   const skuLabel = firstJob.sku ? `SKU ${firstJob.sku}` : `งาน ${firstJob.shortId || shortId(firstJob.id) || "-"}`;
   const productLabel = firstJob.productName || firstJob.product_name || firstJob.sku || "ยังไม่มีชื่อสินค้า";
+  const previewJobs = card.jobs.slice(0, 3);
   return `
     <article class="next-action-card ${escapeHtml(card.tone)}">
       <div class="next-action-card-header">
@@ -4998,7 +5016,17 @@ function renderNextActionCard(card) {
         ${firstJob.claimStatus ? renderSkuWorkClaimBadge(firstJob.claimStatus) : ""}
         <span>${escapeHtml(formatJobTime(firstJob.latestActivityAt || firstJob.updatedAt || firstJob.createdAt))}</span>
       </div>
-      <a class="primary-button compact next-action-button" href="${escapeHtml(card.href || "#jobs")}">เปิดงานที่ต้องทำ</a>
+      ${previewJobs.length ? `
+        <ul class="next-action-preview-list">
+          ${previewJobs.map((job) => `
+            <li>
+              <strong>${escapeHtml(job.productName || job.product_name || job.sku || "งานภาพ")}</strong>
+              <span>${escapeHtml(job.sku ? `SKU ${job.sku}` : shortId(job.id) || "ยังไม่มีรหัส")}</span>
+            </li>
+          `).join("")}
+        </ul>
+      ` : ""}
+      <a class="primary-button compact next-action-button" href="${escapeHtml(card.href || "#jobs")}">ไปทำงานนี้</a>
     </article>
   `;
 }
@@ -5028,10 +5056,10 @@ function renderNextActionsAdminSummary(jobs = []) {
   els.nextActionsAdminSummary.hidden = !hasSummary;
   els.nextActionsAdminSummary.innerHTML = hasSummary
     ? `
-      <strong>Admin summary</strong>
-      <span>Export มีปัญหา ${formatThaiNumber(exportProblems)} งาน</span>
-      <span>Failed ${formatThaiNumber(failedJobs)} งาน</span>
-      <span>งานที่มี recovery action ${formatThaiNumber(recoverableJobs)} งาน</span>
+      <strong>สรุปสำหรับผู้ดูแล</strong>
+      <span>ส่งออกไฟล์มีปัญหา ${formatThaiNumber(exportProblems)} งาน</span>
+      <span>งานไม่สำเร็จ ${formatThaiNumber(failedJobs)} งาน</span>
+      <span>กู้คืนได้ ${formatThaiNumber(recoverableJobs)} งาน</span>
     `
     : "";
 }
@@ -5076,6 +5104,17 @@ function getNextActionHref(job = {}, bucket = {}) {
 function isExportProblemJob(job = {}) {
   const exportStatus = String(job.exportStatus || job.export_status || "").toLowerCase();
   return Boolean(job.canRetryExport) || /failed|error|blocked/.test(exportStatus);
+}
+
+function isWordPressPreparationReady(job = {}) {
+  if (isExportProblemJob(job) || isFailedNextActionJob(job)) return false;
+  const exportStatus = String(job.exportStatus || job.export_status || "").toLowerCase();
+  const preflightStatus = String(job.mediaPreflightStatus || job.media_preflight_status || job.wordpressPreflightStatus || "").toLowerCase();
+  const hasDriveExport = Boolean(job.exportUrl || job.export_url) ||
+    ["google_drive", "exported", "approved_export"].includes(exportStatus);
+  return hasDriveExport ||
+    isMediaPreflightReady(job) ||
+    /ready|proposal|preflight|mapped|completed/.test(preflightStatus);
 }
 
 function isFailedNextActionJob(job = {}) {
@@ -5176,8 +5215,8 @@ function renderProductionFlowBoard(items = []) {
     { key: "hero_review", label: "ตรวจภาพหลัก", helper: "อนุมัติหรือสั่งสร้างภาพหลักใหม่" },
     { key: "support_generation", label: "สร้างภาพเสริม", helper: "สร้างมุมเพิ่มเติมหลังภาพหลักผ่านแล้ว" },
     { key: "support_review", label: "ตรวจภาพเสริม", helper: "เลือกภาพที่พร้อมใช้ก่อนส่งออก" },
-    { key: "media_preflight", label: "ตรวจไฟล์ก่อนส่งออก", helper: "เช็กไฟล์และรายการที่ยังติดอยู่" },
-    { key: "wordpress", label: "ส่งออก WordPress", helper: "พร้อมส่งออกหรือส่งออกแล้ว" }
+    { key: "media_preflight", label: "ตรวจไฟล์ก่อนส่งต่อ", helper: "เช็กไฟล์และรายการที่ยังติดอยู่" },
+    { key: "wordpress", label: "พร้อมลง WordPress", helper: "พร้อมทำ preflight/proposal หรือมีไฟล์ปลายทางแล้ว" }
   ];
   const counts = stages.reduce((acc, stage) => ({ ...acc, [stage.key]: 0 }), {});
   items.forEach((item) => {
@@ -5618,11 +5657,11 @@ function getJobNextAction(job = {}) {
     return { tone: "danger", label: "ตรวจงานที่ไม่สำเร็จ", helper: "งานนี้มีปัญหา กดตรวจรายละเอียดหรือสั่งลองใหม่" };
   }
   if (job.approvalStatus === "approved" && job.exportUrl) {
-    return { tone: "ok", label: "เสร็จแล้ว", helper: "อนุมัติและมีลิงก์ส่งออกแล้ว" };
+    return { tone: "ok", label: "พร้อมเตรียมลง WordPress", helper: "ภาพผ่านแล้วและมีไฟล์ปลายทาง พร้อมใช้ทำ preflight/proposal" };
   }
   if (isMediaPreflightReady(job)) {
     const gate = job.mediaPreflightStatus ? getProductionStatusText(job.mediaPreflightStatus) : "ตรวจภาพเสริมครบแล้ว";
-    return { tone: "ok", label: "ตรวจไฟล์ก่อนส่งออก", helper: `${gate} · ขั้นถัดไปคือส่งออก WordPress` };
+    return { tone: "ok", label: "ตรวจไฟล์ก่อนส่งต่อ", helper: `${gate} · ขั้นถัดไปคือเตรียมข้อมูลลง WordPress` };
   }
   if (isSupportReviewReady(job)) {
     const count = Number(job.supportCount || 0);
@@ -5668,7 +5707,7 @@ function renderJobNextAction(job = {}) {
 
 function renderJobExportAction(job) {
   if (job.exportUrl) {
-    return `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">เปิดไฟล์ส่งออก</a>`;
+    return `<a class="asset-link" href="${escapeHtml(job.exportUrl)}" target="_blank" rel="noopener">เปิดไฟล์ปลายทาง</a>`;
   }
   if (isAdmin() && job.canRetryExport && job.id) {
     return `
@@ -5677,7 +5716,7 @@ function renderJobExportAction(job) {
       </div>
     `;
   }
-  return '<div class="table-muted">ยังไม่มีลิงก์ส่งออก</div>';
+  return '<div class="table-muted">ยังไม่มีไฟล์ปลายทาง</div>';
 }
 
 function renderProductionAssetCard(asset) {
@@ -7065,7 +7104,7 @@ function renderHeroReviewReferenceSummary(review = {}, refs = []) {
     <dl>
       <dt>ที่มา</dt><dd>${escapeHtml(source || "-")}</dd>
       <dt>ไฟล์ที่พบ</dt><dd>${foundFiles}</dd>
-      <dt>รูปที่ใช้ได้</dt><dd>${stageableImages}</dd>
+      <dt>รูปพร้อมใช้</dt><dd>${stageableImages}</dd>
       <dt>ไฟล์ที่ใช้ไม่ได้</dt><dd>${blockedFiles}</dd>
     </dl>
     ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noreferrer">เปิดโฟลเดอร์ Google Drive</a>` : ""}

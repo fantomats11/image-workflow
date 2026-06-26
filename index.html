@@ -63,25 +63,25 @@
         </div>
 
         <nav class="nav-list" id="pageNav">
-          <a class="active" href="#create" data-page-link="create">สร้างภาพสินค้า</a>
-          <a href="#next" data-page-link="next">งานที่ต้องทำต่อ</a>
-          <a href="#jobs" data-page-link="jobs">ศูนย์งานภาพ</a>
-          <a href="#assets" data-page-link="assets">คลังภาพ</a>
-          <a href="#kpi" data-page-link="kpi">KPI Dashboard</a>
+          <a class="active" href="#create" data-page-link="create">เริ่มงานภาพ</a>
+          <a href="#next" data-page-link="next">งานของฉัน</a>
+          <a href="#jobs" data-page-link="jobs">งานทั้งหมด</a>
+          <a href="#assets" data-page-link="assets">รูปทั้งหมด</a>
+          <a href="#kpi" data-page-link="kpi">ภาพรวมทีม</a>
           <a href="#costs" data-page-link="costs">ต้นทุน</a>
-          <a href="#monitoring" data-page-link="monitoring">สถานะระบบ</a>
+          <a href="#monitoring" data-page-link="monitoring">สุขภาพระบบ</a>
           <a href="#settings" data-page-link="settings">ตั้งค่า</a>
         </nav>
 
         <section class="sidebar-note">
-          <p>พื้นที่ทำงานสำหรับเลือกสินค้า สร้างภาพหลัก ตรวจภาพ และส่งไฟล์ออกใช้งาน</p>
+          <p>เลือกสินค้า สร้างภาพ ตรวจคุณภาพ และเตรียมไฟล์ให้พร้อมส่งต่อ WordPress อย่างปลอดภัย</p>
         </section>
       </aside>
 
       <section class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">ศูนย์ควบคุมงานภาพ</p>
+            <p class="eyebrow">พื้นที่ทำงานทีมภาพ</p>
             <h2>ศูนย์งานภาพ</h2>
           </div>
           <div class="topbar-actions">
@@ -105,7 +105,7 @@
           <form class="create-shell" id="requestForm">
             <section class="create-command-bar" aria-label="เริ่มงานสร้างภาพ">
               <div class="create-command-title">
-                <p class="eyebrow">เริ่มงานใหม่</p>
+                <p class="eyebrow">เริ่มงานภาพสินค้า</p>
                 <h3 id="request">เลือกสินค้าและรูปอ้างอิง</h3>
                 <div class="create-brief-steps" aria-label="ลำดับงานสร้างภาพ">
                   <span>เลือกสินค้า</span>
@@ -113,6 +113,7 @@
                   <span>สร้างภาพหลัก</span>
                   <span>ตรวจภาพ</span>
                   <span>ภาพเสริม</span>
+                  <span>พร้อมลงเว็บ</span>
                 </div>
               </div>
 
@@ -124,7 +125,7 @@
 
                 <label>
                   รหัสสินค้า / SKU
-                  <input id="productSku" type="text" placeholder="ใช้ตั้งชื่อไฟล์เมื่อไม่ได้เลือกจากแคตตาล็อก" />
+                  <input id="productSku" type="text" placeholder="ใส่เมื่อไม่ได้เลือกจากแคตตาล็อก" />
                 </label>
 
                 <div class="sku-picker-panel command-sku-panel">
@@ -136,7 +137,7 @@
                     </div>
                     <div class="sku-picker-results" id="skuPickerResults" role="listbox" aria-label="ผลค้นหาสินค้า" hidden></div>
                   </div>
-                  <div class="sku-picker-status" id="skuPickerStatus">เลือกสินค้า 1 รายการ แล้วข้อมูลกับรูปอ้างอิงจะเติมให้เอง</div>
+                  <div class="sku-picker-status" id="skuPickerStatus">ค้นหาสินค้า แล้วแอปจะเติมข้อมูลกับรูปอ้างอิงให้เอง</div>
                 </div>
               </div>
 
@@ -160,12 +161,14 @@
                 <section class="sku-work-claim-card" id="skuWorkClaimCard" aria-live="polite" hidden></section>
 
                 <div class="flow-rail-card">
-                  <p class="eyebrow">ขั้นตอนงาน</p>
+                  <p class="eyebrow">เส้นทางงานนี้</p>
                   <ol class="create-flow-list">
                     <li><span>01</span><strong>ล็อกงาน</strong></li>
                     <li><span>02</span><strong>เตรียมรูป</strong></li>
                     <li><span>03</span><strong>สร้างภาพหลัก</strong></li>
-                    <li><span>04</span><strong>ตรวจและทำภาพเสริม</strong></li>
+                    <li><span>04</span><strong>ตรวจภาพหลัก</strong></li>
+                    <li><span>05</span><strong>ทำภาพเสริม</strong></li>
+                    <li><span>06</span><strong>พร้อมส่งต่อเว็บ</strong></li>
                   </ol>
                 </div>
               </aside>
@@ -173,7 +176,7 @@
               <main class="create-stage">
                 <section class="catalog-reference-panel reference-filmstrip" id="catalogReferencePanel" hidden>
                   <div class="catalog-reference-header">
-                    <strong>รูปอ้างอิงจากแคตตาล็อก/Drive</strong>
+                    <strong>รูปอ้างอิงของสินค้านี้</strong>
                     <button class="secondary-button compact" type="button" id="useCatalogReferencesButton">ใช้รูปชุดนี้สร้างภาพหลัก</button>
                   </div>
                   <div class="catalog-reference-status" id="catalogReferenceStatus">เลือกสินค้าเพื่อโหลดรูปอ้างอิง</div>
@@ -183,7 +186,7 @@
                 <section class="panel preview-panel studio-panel" id="hero">
                   <div class="panel-heading">
                     <div>
-                      <p class="eyebrow">พื้นที่ทำงาน</p>
+                      <p class="eyebrow">ตรวจภาพหลัก</p>
                       <h3>ภาพหลักและการตรวจ</h3>
                     </div>
                     <span class="workflow-status" id="heroStatus">ยังไม่มีภาพหลัก</span>
@@ -523,7 +526,7 @@
             <div class="batch-review-state" id="batchReviewState">
               <div>
                 <span>ขั้นตอนถัดไป</span>
-                <strong id="batchReviewNextAction">กำลังโหลด Batch</strong>
+                <strong id="batchReviewNextAction">กำลังโหลดชุดงาน</strong>
               </div>
               <button class="primary-button" type="button" id="batchReviewPrimaryButton">กำลังโหลด</button>
             </div>
@@ -540,7 +543,7 @@
             </div>
 
             <details class="batch-debug-drawer" id="batchDebugDrawer" hidden>
-              <summary>Debug สำหรับ admin</summary>
+              <summary>รายละเอียดระบบสำหรับผู้ดูแล</summary>
               <pre id="batchDebugContent"></pre>
             </details>
           </section>
@@ -550,15 +553,15 @@
           <section class="panel page-panel next-actions-panel" id="nextActions">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">งานที่ต้องทำต่อ</p>
-                <h3>My Next Actions</h3>
+                <p class="eyebrow">เริ่มจากตรงนี้</p>
+                <h3>งานของฉันวันนี้</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshNextActionsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">เปิดหน้านี้เพื่อดูงานที่ต้องกดต่อก่อน ไม่ต้องไล่ดู dashboard หรือฟอร์มสร้างภาพเอง</div>
+            <div class="section-note">ดูงานที่ควรกดต่อก่อน ตั้งแต่ตรวจภาพหลัก ทำภาพเสริม ไปจนถึงไฟล์ที่พร้อมเตรียมลง WordPress</div>
             <div class="kpi-state" id="nextActionsLoadingState" hidden>กำลังโหลดงานที่ต้องทำต่อ...</div>
             <div class="kpi-state danger" id="nextActionsErrorState" hidden>โหลดงานที่ต้องทำต่อไม่สำเร็จ</div>
-            <div class="kpi-state" id="nextActionsEmptyState" hidden>วันนี้ยังไม่มีงานที่ต้องทำต่อ</div>
+            <div class="kpi-state" id="nextActionsEmptyState" hidden>ตอนนี้ยังไม่มีงานค้างที่ต้องกดต่อ</div>
             <div class="next-actions-grid" id="nextActionsGrid"></div>
             <div class="next-actions-admin-summary" id="nextActionsAdminSummary" hidden></div>
           </section>
@@ -568,12 +571,12 @@
           <section class="panel page-panel jobs-panel" id="jobs">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">ศูนย์งานภาพ</p>
-                <h3>งานสร้างภาพทั้งหมด</h3>
+                <p class="eyebrow">ภาพรวมงานผลิต</p>
+                <h3>งานทั้งหมด</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshJobsButton">รีเฟรช</button>
             </div>
-            <div class="section-note">ดูงานจาก LINE / Product Catalog พร้อมขั้นตอนปัจจุบันและสิ่งที่ต้องทำต่อ</div>
+            <div class="section-note">ดูว่างานอยู่ตรงไหน ใครควรตรวจต่อ และชุดไหนพร้อมเตรียมข้อมูลลง WordPress แล้ว</div>
             <div class="production-flow-board" id="productionFlowBoard" aria-label="Production flow">
               <article class="production-flow-card">
                 <strong>รับชุดงาน</strong>
@@ -601,9 +604,9 @@
                 <small>เช็กไฟล์และรายการที่ยังติดอยู่</small>
               </article>
               <article class="production-flow-card">
-                <strong>ส่งออก WordPress</strong>
+                <strong>พร้อมลง WordPress</strong>
                 <span>0</span>
-                <small>พร้อมส่งออกสินค้า</small>
+                <small>ผ่าน preflight หรือมีไฟล์พร้อมส่งต่อ</small>
               </article>
             </div>
             <div class="kpi-range-tabs" id="jobsRangeControls" aria-label="เลือกช่วงเวลา Jobs">
@@ -664,9 +667,9 @@
             </div>
             <div class="monitoring-pagination-toolbar" aria-label="Jobs pagination">
               <div class="monitoring-pagination-controls">
-                <button class="ghost-button compact" type="button" id="jobsPrevPage">Previous</button>
+                <button class="ghost-button compact" type="button" id="jobsPrevPage">ก่อนหน้า</button>
                 <span id="jobsPageInfo">หน้า 1 / 1 · 0 รายการ</span>
-                <button class="ghost-button compact" type="button" id="jobsNextPage">Next</button>
+                <button class="ghost-button compact" type="button" id="jobsNextPage">ถัดไป</button>
               </div>
             </div>
           </section>
@@ -676,8 +679,8 @@
           <section class="panel page-panel" id="assets">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Assets</p>
-                <h3>คลังภาพ</h3>
+                <p class="eyebrow">รูปทั้งหมด</p>
+                <h3>คลังภาพสินค้า</h3>
               </div>
               <span class="workflow-status" id="assetStatus">รอภาพ</span>
             </div>
@@ -721,9 +724,9 @@
             </div>
             <div class="monitoring-pagination-toolbar" aria-label="Assets pagination">
               <div class="monitoring-pagination-controls">
-                <button class="ghost-button compact" type="button" id="assetsPrevPage">Previous</button>
+                <button class="ghost-button compact" type="button" id="assetsPrevPage">ก่อนหน้า</button>
                 <span id="assetsPageInfo">หน้า 1 / 1 · 0 รายการ</span>
-                <button class="ghost-button compact" type="button" id="assetsNextPage">Next</button>
+                <button class="ghost-button compact" type="button" id="assetsNextPage">ถัดไป</button>
               </div>
             </div>
           </section>
@@ -733,26 +736,26 @@
           <section class="panel page-panel" id="metrics">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Executive KPI</p>
-                <h3>Production Performance</h3>
+                    <p class="eyebrow">ภาพรวมทีม</p>
+                    <h3>ผลงานทีมภาพ</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshMetricsButton">รีเฟรช</button>
             </div>
 
             <div class="kpi-range-tabs" id="kpiRangeControls" aria-label="เลือกช่วงเวลา KPI">
-              <button class="active" type="button" data-kpi-range="today">Today</button>
-              <button type="button" data-kpi-range="7d">Last 7 days</button>
-              <button type="button" data-kpi-range="30d">Last 30 days</button>
-              <button type="button" data-kpi-range="all">All time</button>
+              <button class="active" type="button" data-kpi-range="today">วันนี้</button>
+              <button type="button" data-kpi-range="7d">7 วันล่าสุด</button>
+              <button type="button" data-kpi-range="30d">30 วันล่าสุด</button>
+              <button type="button" data-kpi-range="all">ทั้งหมด</button>
             </div>
 
-            <div class="kpi-state" id="kpiLoadingState" hidden>กำลังโหลด KPI Dashboard...</div>
+            <div class="kpi-state" id="kpiLoadingState" hidden>กำลังโหลดภาพรวมทีม...</div>
             <div class="kpi-state danger" id="kpiErrorState" hidden>โหลด KPI ไม่สำเร็จ</div>
             <div class="kpi-state" id="kpiEmptyState" hidden>ยังไม่มีข้อมูลในช่วงเวลานี้</div>
 
             <div class="executive-summary-card">
               <div>
-                <span>Executive summary</span>
+                <span>สรุปภาพรวม</span>
                 <p id="kpiExecutiveSummary">ยังไม่มีข้อมูลในช่วงเวลานี้</p>
               </div>
               <small id="kpiUpdatedAt">รอข้อมูลล่าสุด</small>
@@ -766,8 +769,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Trend</p>
-                    <h4>Production by day</h4>
+                    <p class="eyebrow">แนวโน้ม</p>
+                    <h4>งานภาพรายวัน</h4>
                   </div>
                 </div>
                 <div class="trend-chart" id="kpiTrendChart"></div>
@@ -776,8 +779,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Funnel</p>
-                    <h4>Created → Exported</h4>
+                    <p class="eyebrow">เส้นทางงาน</p>
+                    <h4>สร้างภาพ → พร้อมส่งต่อ</h4>
                   </div>
                 </div>
                 <div class="workflow-funnel" id="kpiFunnel"></div>
@@ -788,8 +791,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Status</p>
-                    <h4>Status breakdown</h4>
+                    <p class="eyebrow">สถานะ</p>
+                    <h4>งานอยู่ขั้นตอนไหน</h4>
                   </div>
                 </div>
                 <div id="kpiStatusBreakdown"></div>
@@ -798,8 +801,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Staff</p>
-                    <h4>Staff performance</h4>
+                    <p class="eyebrow">ทีม</p>
+                    <h4>ผลงานรายคน</h4>
                   </div>
                 </div>
                 <div id="kpiStaffPerformance"></div>
@@ -809,8 +812,8 @@
             <section class="kpi-section-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Activity</p>
-                  <h4>Recent activity</h4>
+                  <p class="eyebrow">ความเคลื่อนไหว</p>
+                  <h4>รายการล่าสุด</h4>
                 </div>
               </div>
               <div id="kpiRecentActivity"></div>
@@ -822,8 +825,8 @@
           <section class="panel page-panel" id="costs">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Cost / Usage Tracking</p>
-                <h3>AI Generation Cost</h3>
+                <p class="eyebrow">ต้นทุน</p>
+                <h3>ต้นทุนการสร้างภาพ</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshCostsButton">รีเฟรช</button>
             </div>
@@ -831,10 +834,10 @@
             <div class="section-note">ตัวเลขทั้งหมดเป็น estimated cost จากจำนวน generation และราคาที่ตั้งค่าไว้ในระบบ ไม่ใช่ invoice จริง</div>
 
             <div class="kpi-range-tabs" id="costRangeControls" aria-label="เลือกช่วงเวลา Costs">
-              <button class="active" type="button" data-cost-range="today">Today</button>
-              <button type="button" data-cost-range="7d">Last 7 days</button>
-              <button type="button" data-cost-range="30d">Last 30 days</button>
-              <button type="button" data-cost-range="all">All time</button>
+              <button class="active" type="button" data-cost-range="today">วันนี้</button>
+              <button type="button" data-cost-range="7d">7 วันล่าสุด</button>
+              <button type="button" data-cost-range="30d">30 วันล่าสุด</button>
+              <button type="button" data-cost-range="all">ทั้งหมด</button>
             </div>
 
             <div class="monitoring-pagination-toolbar" aria-label="Costs pagination">
@@ -847,9 +850,9 @@
                 </select>
               </label>
               <div class="monitoring-pagination-controls">
-                <button class="ghost-button compact" type="button" id="costPrevPage">Previous</button>
+                <button class="ghost-button compact" type="button" id="costPrevPage">ก่อนหน้า</button>
                 <span id="costPageInfo">หน้า 1 / 1 · 0 รายการ</span>
-                <button class="ghost-button compact" type="button" id="costNextPage">Next</button>
+                <button class="ghost-button compact" type="button" id="costNextPage">ถัดไป</button>
               </div>
             </div>
 
@@ -894,8 +897,8 @@
               <section class="kpi-section-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Staff</p>
-                    <h4>Cost by staff</h4>
+                    <p class="eyebrow">ทีม</p>
+                    <h4>ต้นทุนรายคน</h4>
                   </div>
                 </div>
                 <div id="costStaffUsage"></div>
@@ -905,9 +908,8 @@
                 <div class="section-heading">
                   <div>
                     <p class="eyebrow">งาน / สินค้า</p>
-                    <h4>Highest cost jobs</h4>
-                  </div>
-                </div>
+                <h4>งานที่ใช้ต้นทุนสูงสุด</h4>
+              </div>
                 <div id="costJobList"></div>
               </section>
             </div>
@@ -915,8 +917,8 @@
             <section class="kpi-section-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Usage Events</p>
-                  <h4>Recent cost events</h4>
+                <p class="eyebrow">ประวัติต้นทุน</p>
+                <h4>รายการล่าสุด</h4>
                 </div>
               </div>
               <div id="costRecentEvents"></div>
@@ -928,17 +930,17 @@
           <section class="panel page-panel" id="monitoring">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">System Health</p>
-                <h3>Production Monitoring</h3>
+                <p class="eyebrow">สุขภาพระบบ</p>
+                <h3>สถานะการทำงาน</h3>
               </div>
               <button class="ghost-button compact" type="button" id="refreshMonitoringButton">รีเฟรช</button>
             </div>
 
             <div class="kpi-range-tabs" id="monitoringRangeControls" aria-label="เลือกช่วงเวลา Monitoring">
-              <button class="active" type="button" data-monitoring-range="today">Today</button>
-              <button type="button" data-monitoring-range="7d">Last 7 days</button>
-              <button type="button" data-monitoring-range="30d">Last 30 days</button>
-              <button type="button" data-monitoring-range="all">All time</button>
+              <button class="active" type="button" data-monitoring-range="today">วันนี้</button>
+              <button type="button" data-monitoring-range="7d">7 วันล่าสุด</button>
+              <button type="button" data-monitoring-range="30d">30 วันล่าสุด</button>
+              <button type="button" data-monitoring-range="all">ทั้งหมด</button>
             </div>
 
             <div class="monitoring-pagination-toolbar" aria-label="Monitoring pagination">
@@ -951,7 +953,7 @@
                 </select>
               </label>
               <div class="monitoring-pagination-controls" id="monitoringPaginationControls">
-                <button class="ghost-button compact" type="button" id="monitoringPrevPage">Previous</button>
+                <button class="ghost-button compact" type="button" id="monitoringPrevPage">ก่อนหน้า</button>
                 <span id="monitoringPageInfo">หน้า 1 / 1 · 0 รายการ</span>
                 <button class="ghost-button compact" type="button" id="monitoringNextPage">ถัดไป</button>
               </div>

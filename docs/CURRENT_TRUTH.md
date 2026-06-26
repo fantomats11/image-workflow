@@ -91,7 +91,9 @@ LINE keyword batch
 - Jobs page แสดงงานจริงจาก batch ล่าสุด
 - ตัวอย่าง batch ล่าสุดมี Hero และ Support สำหรับ SKU ที่อนุมัติ Hero แล้ว
 - หน้า Review แสดง reference images จาก Google Drive ผ่าน signed proxy
-- หน้า Jobs แยก next action เช่น ตรวจ Hero, รอสร้าง Support, ตรวจ Support, ตรวจไฟล์ก่อนส่งออก
+- หน้า `#next` เป็น production home สำหรับ staff/admin เมื่อไม่มี deep link เฉพาะ
+- หน้า Jobs/Next Actions แยก next action เช่น ตรวจ Hero, รอสร้าง Support, ตรวจ Support, ตรวจไฟล์ก่อนส่งต่อ, พร้อมเตรียมลง WordPress
+- UI ใช้ภาษาคนทำงานเป็นหลัก และซ่อนศัพท์เชิงระบบไว้ใน diagnostics/monitoring
 
 Production verified ในที่นี้ไม่ได้แปลว่า WordPress live write ผ่านแล้ว เพราะ live writes ยัง intentionally disabled/out of scope
 
@@ -99,8 +101,8 @@ Production verified ในที่นี้ไม่ได้แปลว่า
 
 - ทำ Web-first production smoke 1 SKU ผ่าน picker ใหม่
 - ทำ Web-first production smoke 1 SKU ที่ใช้ Drive/catalog reference staging จริง
-- ทำให้ export/preflight chain จบเป็น UX ที่เข้าใจง่ายขึ้นสำหรับ staff
-- ทำให้ Jobs/Review ใช้คำไทยทั้งหมด ยกเว้นศัพท์เฉพาะ เช่น `Hero`, `Support`, `SKU`, `WordPress`
+- ทำ production smoke ให้ครบถึง Support approval -> Drive/export evidence -> WordPress preflight/proposal readiness
+- เก็บ visual QA evidence desktop/mobile หลัง deploy production
 - ปรับ Batch Review ให้บอกชัดว่า SKU มาจาก source ไหน และทำไมถูกเลือก
 - เพิ่ม visibility ว่า approved Hero ใดถูกใช้เป็น support anchor
 - เพิ่ม browser/manual evidence ว่า reference image ใดถูกใช้/ถูกตัดออก และเพราะอะไร
